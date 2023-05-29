@@ -1,0 +1,10 @@
+[package]
+name = "argan"
+version = "0.0.0"
+edition = "2021"
+description = "Experiment."
+license = "MIT OR Apache-2.0"
+authors = ["Shohruh Adham <shohruh.adham@gmail.com>"]
+
+[dependencies]
+
