@@ -7,4 +7,6 @@ license = "MIT OR Apache-2.0"
 authors = ["Shohruh Adham <shohruh.adham@gmail.com>"]
 
 [dependencies]
-
+futures = "0.3.28"
+hyper = { version = "0.14.26", features = ["full"] }
+tower = { version = "0.4.13", features = ["full"] }
