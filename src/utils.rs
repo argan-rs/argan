@@ -24,22 +24,21 @@ pub(crate) struct RoutingState<'req> {
 // --------------------------------------------------
 
 // PathSegments is an iterator over path segments. It's valid for the life time of the request.
-pub(crate) struct PathSegments<'req>(&'req str);
+pub(crate) struct PathSegments<'req> {
+	path: &'req str,
+	remaining_segments_index: usize,
+}
 
 impl<'req> PathSegments<'req> {
 	#[inline]
 	pub(crate) fn new(path: &'req str) -> PathSegments<'_> {
-		Self(path)
+		// Path contains at least a slash or begins with one.
+		Self{path, remaining_segments_index: 0}
 	}
 
 	#[inline]
-	pub(crate) fn has_no_remaining(&self) -> bool {
-		self.0.is_empty()
-	}
-
-	#[inline]
-	pub(crate) fn ends_with_trailing_slash(&self) -> bool {
-		self.0 != "/" && self.0.ends_with('/')
+	pub(crate) fn has_remaining_segments(&self) -> bool {
+		!self.path.is_empty()
 	}
 }
 
@@ -48,23 +47,22 @@ impl<'req> Iterator for PathSegments<'req> {
 
 	#[inline]
 	fn next(&mut self) -> Option<Self::Item> {
-		if self.0.is_empty() {
-			return None;
+		if self.remaining_segments_index == self.path.len() {
+			return None
 		}
 
-		let Some((next_segment, remaining)) = self.0.split_once('/') else {
-			let last_segment = self.0;
-			self.0 = "";
+		let remaining_segments = &self.path[self.remaining_segments_index + 1..];
 
-			return Some(last_segment);
+		let Some(next_segment_end_index) = remaining_segments.find('/') else {
+			self.remaining_segments_index = self.path.len();
+
+			return Some(remaining_segments)
 		};
 
-		self.0 = remaining;
-
-		if next_segment.is_empty() {
-			return Some("/");
-		}
+		self.remaining_segments_index += next_segment_end_index;
+		let next_segment = &remaining_segments[..next_segment_end_index];
 
 		Some(next_segment)
 	}
 }
+
