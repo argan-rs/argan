@@ -23,6 +23,34 @@ pub(crate) struct RoutingState<'req> {
 
 // --------------------------------------------------
 
+pub(crate) struct UnusedRequest(Request);
+
+impl From<Request> for UnusedRequest {
+	fn from(value: Request) -> Self {
+		UnusedRequest(value)
+	}
+}
+
+impl From<UnusedRequest> for Request {
+	fn from(value: UnusedRequest) -> Self {
+		value.0	
+	}
+}
+
+impl AsRef<Request> for UnusedRequest {
+	fn as_ref(&self) -> &Request {
+		&self.0
+	}
+}
+
+impl AsMut<Request> for UnusedRequest {
+	fn as_mut(&mut self) -> &mut Request {
+		&mut self.0
+	}
+}
+
+// --------------------------------------------------
+
 // PathSegments is an iterator over path segments. It's valid for the life time of the request.
 pub(crate) struct PathSegments<'req> {
 	path: &'req str,
