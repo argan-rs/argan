@@ -1,7 +1,4 @@
-use crate::{
-	resource::Resource,
-	utils::{PathSegments, Request},
-};
+use crate::{request::Request, resource::Resource, utils::PathSegments};
 
 // --------------------------------------------------
 
@@ -37,5 +34,12 @@ impl AsRef<Request> for UnusedRequest {
 impl AsMut<Request> for UnusedRequest {
 	fn as_mut(&mut self) -> &mut Request {
 		&mut self.0
+	}
+}
+
+impl UnusedRequest {
+	#[inline]
+	pub(crate) fn into_request(self) -> Request {
+		self.0
 	}
 }
