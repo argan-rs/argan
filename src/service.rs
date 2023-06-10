@@ -1,6 +1,8 @@
-use std::future::Future;
+use std::{future::Future, pin::Pin};
 
 use hyper::service::Service;
+
+use crate::{request::Request, response::Response};
 
 use super::utils::*;
 
@@ -67,11 +69,45 @@ impl<Func> std::convert::From<Func> for ServiceFn<Func> {
 
 // --------------------------------------------------
 
+pub(crate) trait CloneableBoxedService<Req>: Service<Req> + CloneBoxedService {}
+
+pub(crate) type BoxedService = Box<
+	dyn CloneableBoxedService<
+			Request,
+			Response = Response,
+			Error = BoxedError,
+			Future = Pin<Box<dyn Future<Output = Result<Response, BoxedError>>>>,
+		> + Send
+		+ Sync
+		+ 'static,
+>;
+
+pub(crate) trait CloneBoxedService {
+	fn clone_boxed(&self) -> BoxedService;
+}
+
+impl<S> CloneBoxedService for S
+where
+	S: CloneableBoxedService<
+			Request,
+			Response = Response,
+			Error = BoxedError,
+			Future = Pin<Box<dyn Future<Output = Result<Response, BoxedError>>>>,
+		> + Clone
+		+ Send
+		+ Sync
+		+ 'static,
+{
+	fn clone_boxed(&self) -> BoxedService {
+		Box::new(self.clone())
+	}
+}
+
+// --------------------------------------------------
+
 #[cfg(test)]
 mod test {
 	use std::pin::Pin;
-
-	use crate::{request::Request, response::Response};
 
 	use super::*;
 
