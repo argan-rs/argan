@@ -1,105 +1,177 @@
-use std::{future::Future, pin::Pin};
+use std::{future::Future, marker::PhantomData};
 
 use hyper::service::Service;
 
-use crate::{request::Request, response::Response};
+use crate::{
+	body::Incoming,
+	request::{FromRequest, FromRequestParts, Request},
+	response::{IntoResponse, Response},
+};
 
 use super::utils::*;
 
 // --------------------------------------------------
 
-pub trait IntoService<S, Req>
+pub trait Handler<RqB = Incoming>
 where
-	S: Service<Req>,
+	Self: Service<Request<RqB>> + Clone + Send,
 {
-	fn into_service(self) -> S;
 }
+
+impl<S, RqB> Handler<RqB> for S where S: Service<Request<RqB>> + Clone + Send {}
 
 // -------------------------
 
-impl<S, Req> IntoService<S, Req> for S
+pub trait IntoHandler<H, RqB = Incoming>
 where
-	S: Service<Req>,
+	H: Handler<RqB>,
 {
-	fn into_service(self) -> S {
+	fn into_handler(self) -> H;
+}
+
+impl<H, RqB> IntoHandler<H, RqB> for H
+where
+	H: Handler<RqB>,
+{
+	#[inline]
+	fn into_handler(self) -> H {
 		self
 	}
 }
 
-impl<Func, Fut, Req, Res, Err> IntoService<ServiceFn<Func>, Req> for Func
-where
-	Func: FnMut(Req) -> Fut,
-	Fut: Future<Output = Result<Res, Err>>,
-	Err: Into<BoxedError>,
-{
-	#[inline]
-	fn into_service(self) -> ServiceFn<Func> {
-		ServiceFn { func: self }
-	}
-}
-
 // --------------------------------------------------
 
-#[derive(Clone)]
-pub struct ServiceFn<Func> {
+struct HandlerFn<Func, M> {
 	func: Func,
+	_mark: PhantomData<fn() -> M>,
 }
 
-impl<Func, Fut, Req, Res, Err> Service<Req> for ServiceFn<Func>
+impl<Func, A> Clone for HandlerFn<Func, A>
 where
-	Func: FnMut(Req) -> Fut,
-	Fut: Future<Output = Result<Res, Err>>,
+	Func: Clone,
 {
-	type Response = Res;
-	type Error = Err;
-	type Future = Fut;
-
-	#[inline]
-	fn call(&self, req: Req) -> Self::Future {
-		(self.func)(req)
+	fn clone(&self) -> Self {
+		HandlerFn {
+			func: self.func.clone(),
+			_mark: PhantomData,
+		}
 	}
 }
 
-impl<Func> std::convert::From<Func> for ServiceFn<Func> {
+// ----------
+
+impl<Func, A, RqB, Fut, R, E> Service<Request<RqB>> for HandlerFn<Func, (A, R)>
+where
+	Func: FnMut(A) -> Fut + Clone + 'static,
+	A: FromRequest<RqB>,
+	RqB: 'static,
+	Fut: Future<Output = Result<R, E>>,
+	R: IntoResponse,
+	E: Into<BoxedError>,
+{
+	type Response = Response;
+	type Error = BoxedError;
+	type Future = BoxedFuture<'static, Result<Self::Response, Self::Error>>;
+
 	#[inline]
-	fn from(value: Func) -> Self {
-		Self { func: value }
+	fn call(&mut self, req: Request<RqB>) -> Self::Future {
+		// TODO: Maybe we should clone on a call side or we should clone the func?
+		let mut self_clone = self.clone();
+
+		Box::pin(async move {
+			let arg = match A::from_request(req) {
+				Ok(v) => v,
+				Err(Either::Left(v)) => return Ok(v.into_response()),
+				Err(Either::Right(e)) => return Err(e.into()),
+			};
+
+			match (self_clone.func)(arg).await {
+				Ok(v) => Ok(v.into_response()),
+				Err(e) => Err(e.into()),
+			}
+		})
 	}
 }
 
-// --------------------------------------------------
-
-pub(crate) trait CloneableBoxedService<Req>: Service<Req> + CloneBoxedService {}
-
-pub(crate) type BoxedService = Box<
-	dyn CloneableBoxedService<
-			Request,
-			Response = Response,
-			Error = BoxedError,
-			Future = Pin<Box<dyn Future<Output = Result<Response, BoxedError>>>>,
-		> + Send
-		+ Sync
-		+ 'static,
->;
-
-pub(crate) trait CloneBoxedService {
-	fn clone_boxed(&self) -> BoxedService;
+impl<Func, A, RqB, Fut, R, E> IntoHandler<HandlerFn<Func, (A, R)>, RqB> for Func
+where
+	Func: FnMut(A) -> Fut + Clone + Send + 'static,
+	A: FromRequest<RqB>,
+	RqB: 'static,
+	Fut: Future<Output = Result<R, E>>,
+	R: IntoResponse,
+	E: Into<BoxedError>,
+{
+	#[inline]
+	fn into_handler(self) -> HandlerFn<Func, (A, R)> {
+		HandlerFn {
+			func: self,
+			_mark: PhantomData,
+		}
+	}
 }
 
-impl<S> CloneBoxedService for S
+// ----------
+
+impl<Func, A1, LA, RqB, Fut, R, E> Service<Request<RqB>> for HandlerFn<Func, (A1, LA, R)>
 where
-	S: CloneableBoxedService<
-			Request,
-			Response = Response,
-			Error = BoxedError,
-			Future = Pin<Box<dyn Future<Output = Result<Response, BoxedError>>>>,
-		> + Clone
-		+ Send
-		+ Sync
-		+ 'static,
+	Func: FnMut(A1, LA) -> Fut + Clone + 'static,
+	A1: FromRequestParts,
+	LA: FromRequest<RqB>,
+	RqB: 'static,
+	Fut: Future<Output = Result<R, E>>,
+	R: IntoResponse,
+	E: Into<BoxedError>,
 {
-	fn clone_boxed(&self) -> BoxedService {
-		Box::new(self.clone())
+	type Response = Response;
+	type Error = BoxedError;
+	type Future = BoxedFuture<'static, Result<Self::Response, Self::Error>>;
+
+	#[inline]
+	fn call(&mut self, req: Request<RqB>) -> Self::Future {
+		let mut self_clone = self.clone();
+
+		Box::pin(async move {
+			let (parts, body) = req.into_parts();
+
+			let arg1 = match A1::from_request_parts(&parts) {
+				Ok(v) => v,
+				Err(Either::Left(v)) => return Ok(v.into_response()),
+				Err(Either::Right(e)) => return Err(e.into()),
+			};
+
+			let req = Request::<RqB>::from_parts(parts, body);
+
+			let last_arg = match LA::from_request(req) {
+				Ok(v) => v,
+				Err(Either::Left(v)) => return Ok(v.into_response()),
+				Err(Either::Right(e)) => return Err(e.into()),
+			};
+
+			match (self_clone.func)(arg1, last_arg).await {
+				Ok(v) => Ok(v.into_response()),
+				Err(e) => Err(e.into()),
+			}
+		})
+	}
+}
+
+impl<Func, A1, LA, RqB, Fut, R, E> IntoHandler<HandlerFn<Func, (A1, LA, R)>, RqB> for Func
+where
+	Func: FnMut(A1, LA) -> Fut + Clone + Send + 'static,
+	A1: FromRequestParts,
+	LA: FromRequest<RqB>,
+	RqB: 'static,
+	Fut: Future<Output = Result<R, E>>,
+	R: IntoResponse,
+	E: Into<BoxedError>,
+{
+	#[inline]
+	fn into_handler(self) -> HandlerFn<Func, (A1, LA, R)> {
+		HandlerFn {
+			func: self,
+			_mark: PhantomData,
+		}
 	}
 }
 
@@ -107,44 +179,52 @@ where
 
 #[cfg(test)]
 mod test {
-	use std::pin::Pin;
-
 	use super::*;
 
-	// -------------------------
+	// --------------------------------------------------
+	// --------------------------------------------------
 
-	fn is_service<T, S, Req>(_: T)
+	fn is_handler<H, RqB>(_: H)
 	where
-		T: IntoService<S, Req>,
-		S: Service<Req>,
+		H: Handler<RqB>,
+	{
+	}
+
+	fn is_into_handler<IH, H, RqB>(h: IH)
+	where
+		IH: IntoHandler<H, RqB>,
+		H: Handler<RqB>,
+	{
+		is_service(h.into_handler())
+	}
+
+	fn is_service<S, RqB>(_: S)
+	where
+		S: Service<Request<RqB>> + Clone + Send,
 	{
 	}
 
 	// -------------------------
 
-	async fn handler(_: Request<()>) -> Result<Response<()>, BoxedError> {
+	async fn handler(_: Request) -> Result<Response, BoxedError> {
 		todo!()
 	}
 
-	async fn handler_mut(mut _unused: Request<()>) -> Result<Response<()>, BoxedError> {
-		todo!()
-	}
+	// --------------------------------------------------
 
-	fn handler_returning_future(
-		_: Request<()>,
-	) -> Pin<Box<dyn Future<Output = Result<Response<()>, BoxedError>>>> {
-		todo!()
-	}
+	fn test_type() {
+		is_into_handler(handler);
 
-	// -------------------------
+		let handler_fn = HandlerFn {
+			func: handler,
+			_mark: PhantomData,
+		};
+		is_handler(handler_fn);
 
-	#[test]
-	fn test() {
-		is_service(handler);
-		is_service(handler_mut);
-		is_service(handler_returning_future);
-
-		let boxed_service = Box::new(handler);
-		is_service(boxed_service);
+		let handler_fn = HandlerFn {
+			func: handler,
+			_mark: PhantomData,
+		};
+		is_into_handler(handler_fn);
 	}
 }
