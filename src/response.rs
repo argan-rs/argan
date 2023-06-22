@@ -3,25 +3,19 @@ use super::utils::BoxedError;
 
 // --------------------------------------------------
 
-pub type Response<B: Body = BoxedBody<Bytes, BoxedError>> = hyper::Response<B>;
+pub type Response<B = BoxedBody<Bytes, BoxedError>> = hyper::http::response::Response<B>;
 
 // --------------------------------------------------
 
-pub trait IntoResponse<B>
-where
-	B: Body,
-{
-	fn into_response(self) -> Response<B>;
+pub trait IntoResponse {
+	fn into_response(self) -> Response;
 }
 
 // -------------------------
 
-impl<B> IntoResponse<B> for Response<B>
-where
-	B: Body,
-{
+impl IntoResponse for Response {
 	#[inline]
-	fn into_response(self) -> Response<B> {
+	fn into_response(self) -> Response {
 		self
 	}
 }
