@@ -1,6 +1,11 @@
+use std::{future::Future, pin::Pin};
+
+pub use either::Either;
+
 // --------------------------------------------------
 
 pub type BoxedError = Box<dyn std::error::Error + Send + Sync>;
+pub type BoxedFuture<'a, T> = Pin<Box<dyn Future<Output = T> + 'a>>;
 
 // --------------------------------------------------
 
