@@ -19,11 +19,29 @@ impl<Func, A> Clone for HandlerFn<Func, A>
 where
 	Func: Clone,
 {
+	#[inline]
 	fn clone(&self) -> Self {
 		HandlerFn {
 			func: self.func.clone(),
 			_mark: PhantomData,
 		}
+	}
+}
+
+// ----------
+
+impl<Func, RqB, Fut, E> Service<Request<RqB>> for HandlerFn<Func, Request<RqB>>
+where
+	Func: FnMut(Request<RqB>) -> Fut,
+	Fut: Future<Output = Result<Response, E>>,
+	E: Into<BoxedError>,
+{
+	type Response = Response;
+	type Error = E;
+	type Future = Fut;
+
+	fn call(&mut self, req: Request<RqB>) -> Self::Future {
+		(self.func)(req)
 	}
 }
 
@@ -44,8 +62,7 @@ where
 
 	#[inline]
 	fn call(&mut self, req: Request<RqB>) -> Self::Future {
-		// TODO: Maybe we should clone on a call side or we should clone the func?
-		let mut self_clone = self.clone();
+		let func_clone = self.func.clone();
 
 		Box::pin(async move {
 			let arg = match A::from_request(req) {
@@ -54,7 +71,7 @@ where
 				Err(Either::Right(e)) => return Err(e.into()),
 			};
 
-			match (self_clone.func)(arg).await {
+			match (func_clone)(arg).await {
 				Ok(v) => Ok(v.into_response()),
 				Err(e) => Err(e.into()),
 			}
@@ -64,11 +81,11 @@ where
 
 impl<Func, A, RqB, Fut, R, E> IntoHandler<HandlerFn<Func, (A, R)>, RqB> for Func
 where
-	Func: FnMut(A) -> Fut + Clone + Send + 'static,
-	A: FromRequest<RqB>,
+	Func: FnMut(A) -> Fut + Clone + Send + Sync + 'static,
+	A: FromRequest<RqB> + 'static,
 	RqB: 'static,
 	Fut: Future<Output = Result<R, E>>,
-	R: IntoResponse,
+	R: IntoResponse + 'static,
 	E: Into<BoxedError>,
 {
 	#[inline]
@@ -98,7 +115,7 @@ where
 
 	#[inline]
 	fn call(&mut self, req: Request<RqB>) -> Self::Future {
-		let mut self_clone = self.clone();
+		let mut self_clone = self.clone(); // TODO: Maybe we should clone on a call side or we should clone the func?
 
 		Box::pin(async move {
 			let (parts, body) = req.into_parts();
@@ -127,12 +144,12 @@ where
 
 impl<Func, A1, LA, RqB, Fut, R, E> IntoHandler<HandlerFn<Func, (A1, LA, R)>, RqB> for Func
 where
-	Func: FnMut(A1, LA) -> Fut + Clone + Send + 'static,
-	A1: FromRequestParts,
-	LA: FromRequest<RqB>,
+	Func: FnMut(A1, LA) -> Fut + Clone + Send + Sync + 'static,
+	A1: FromRequestParts + 'static,
+	LA: FromRequest<RqB> + 'static,
 	RqB: 'static,
 	Fut: Future<Output = Result<R, E>>,
-	R: IntoResponse,
+	R: IntoResponse + 'static,
 	E: Into<BoxedError>,
 {
 	#[inline]
@@ -144,6 +161,7 @@ where
 	}
 }
 
+// --------------------------------------------------
 // --------------------------------------------------
 
 #[cfg(test)]
@@ -162,7 +180,7 @@ mod test {
 	fn is_into_handler<IH, H, RqB>(h: IH)
 	where
 		IH: IntoHandler<H, RqB>,
-		H: Handler<RqB>,
+		H: Handler<RqB, Response = Response, Error = BoxedError>,
 	{
 		is_service(h.into_handler())
 	}
@@ -186,13 +204,13 @@ mod test {
 
 		let handler_fn = HandlerFn {
 			func: handler,
-			_mark: PhantomData,
+			_mark: PhantomData::<fn() -> Request>,
 		};
 		is_handler(handler_fn);
 
 		let handler_fn = HandlerFn {
 			func: handler,
-			_mark: PhantomData,
+			_mark: PhantomData::<fn() -> Request>,
 		};
 		is_into_handler(handler_fn);
 	}

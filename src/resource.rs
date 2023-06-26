@@ -1,12 +1,11 @@
-use std::{future::Future, pin::Pin};
-
 use hyper::StatusCode;
 
 use crate::{
+	body::Incoming,
+	handler::BoxedHandler,
 	request::Request,
 	response::Response,
 	routing::{RoutingState, UnusedRequest},
-	service::BoxedService,
 };
 
 use super::utils::*;
@@ -20,9 +19,9 @@ pub struct Resource {
 	pattern_resources: Option<Vec<Resource>>,
 	wildcard_resource: Option<Box<Resource>>,
 
-	request_receiver: Option<BoxedService>,
-	request_passer: Option<BoxedService>,
-	request_handler: Option<BoxedService>,
+	request_receiver: Option<BoxedHandler<Incoming>>,
+	request_passer: Option<BoxedHandler<Incoming>>,
+	request_handler: Option<BoxedHandler<Incoming>>,
 
 	// TODO: configs, state, redirect, parent
 	is_subtree_handler: bool,
@@ -42,9 +41,7 @@ impl Resource {
 	}
 }
 
-fn request_receiver(
-	mut request: Request,
-) -> Pin<Box<dyn Future<Output = Result<Response, BoxedError>>>> {
+fn request_receiver(mut request: Request) -> BoxedFuture<Result<Response, BoxedError>> {
 	Box::pin(async move {
 		let mut rs = request.extensions_mut().get_mut::<RoutingState>().unwrap();
 		let cr = rs.current_resource.unwrap();
@@ -81,8 +78,8 @@ fn request_receiver(
 	})
 }
 
-async fn request_passer(mut req: Request) -> Result<Response, BoxedError> {
-	let rs = req.extensions_mut().get_mut::<RoutingState>().unwrap();
+async fn request_passer(mut request: Request) -> Result<Response, BoxedError> {
+	let rs = request.extensions_mut().get_mut::<RoutingState>().unwrap();
 	let cr = rs.current_resource.unwrap();
 	let next_path_segment = rs.path_segments.next().unwrap();
 
@@ -110,8 +107,8 @@ async fn request_passer(mut req: Request) -> Result<Response, BoxedError> {
 		rs.current_resource.replace(next_resource);
 
 		let result = match next_resource.request_receiver.as_ref() {
-			Some(request_receiver) => request_receiver.clone_boxed().call(req).await,
-			None => request_receiver(req).await,
+			Some(request_receiver) => request_receiver.clone_boxed().call(request).await,
+			None => request_receiver(request).await,
 		};
 
 		let Ok(mut response) = result else {
@@ -133,7 +130,9 @@ async fn request_passer(mut req: Request) -> Result<Response, BoxedError> {
 
 	let mut response = Response::default();
 	*response.status_mut() = StatusCode::NOT_FOUND;
-	response.extensions_mut().insert(UnusedRequest::from(req));
+	response
+		.extensions_mut()
+		.insert(UnusedRequest::from(request));
 
 	Ok(response)
 }
