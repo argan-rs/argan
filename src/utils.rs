@@ -5,7 +5,7 @@ pub use either::Either;
 // --------------------------------------------------
 
 pub type BoxedError = Box<dyn std::error::Error + Send + Sync>;
-pub type BoxedFuture<'a, T> = Pin<Box<dyn Future<Output = T> + 'a>>;
+pub type BoxedFuture<T> = Pin<Box<dyn Future<Output = T>>>;
 
 // --------------------------------------------------
 
