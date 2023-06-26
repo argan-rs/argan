@@ -40,7 +40,7 @@ where
 {
 	type Response = Response;
 	type Error = BoxedError;
-	type Future = BoxedFuture<'static, Result<Self::Response, Self::Error>>;
+	type Future = BoxedFuture<Result<Self::Response, Self::Error>>;
 
 	#[inline]
 	fn call(&mut self, req: Request<RqB>) -> Self::Future {
@@ -94,7 +94,7 @@ where
 {
 	type Response = Response;
 	type Error = BoxedError;
-	type Future = BoxedFuture<'static, Result<Self::Response, Self::Error>>;
+	type Future = BoxedFuture<Result<Self::Response, Self::Error>>;
 
 	#[inline]
 	fn call(&mut self, req: Request<RqB>) -> Self::Future {
