@@ -10,3 +10,4 @@ authors = ["Shohruh Adham <shohruh.adham@gmail.com>"]
 either = "1.8.1"
 http-body-util = "0.1.0-rc.2"
 hyper = { version = "1.0.0-rc.3", features = ["full"] }
+regex = "1.8.2"
