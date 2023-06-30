@@ -3,6 +3,7 @@ use hyper::StatusCode;
 use crate::{
 	body::Incoming,
 	handler::BoxedHandler,
+	matcher::Matcher,
 	request::Request,
 	response::Response,
 	routing::{RoutingState, UnusedRequest},
@@ -14,6 +15,7 @@ use super::utils::*;
 
 pub struct Resource {
 	name: &'static str,
+	matcher: Matcher,
 
 	static_resources: Option<Vec<Resource>>,
 	pattern_resources: Option<Vec<Resource>>,
@@ -85,22 +87,22 @@ async fn request_passer(mut request: Request) -> Result<Response, BoxedError> {
 
 	let some_next_resource = 'some_next_resource: {
 		if let Some(next_resource) = cr.static_resources.as_ref().and_then(|static_resources| {
-			// TODO: Should use a pattern matcher instead of comparing names.
-			match static_resources
-				.binary_search_by(|resource| resource.name.cmp(next_path_segment.as_str()))
-			{
-				Ok(i) => Some(&static_resources[i]),
-				Err(_) => None,
-			}
+			static_resources
+				.iter()
+				.find(|resource| resource.matcher.is_match(next_path_segment.as_str()))
 		}) {
 			break 'some_next_resource Some(next_resource);
 		}
 
-		// TODO: Search for a matching regex resource.
+		if let Some(next_resource) = cr.pattern_resources.as_ref().and_then(|regex_resources| {
+			regex_resources
+				.iter()
+				.find(|resource| resource.matcher.is_match(next_path_segment.as_str()))
+		}) {
+			break 'some_next_resource Some(next_resource);
+		}
 
-		// TODO: Return the wildcard resource.
-
-		None
+		cr.wildcard_resource.as_deref()
 	};
 
 	if let Some(next_resource) = some_next_resource {
