@@ -73,8 +73,12 @@ impl Matcher {
 		Matcher(Pattern::Regex(pattern_name, regex))
 	}
 
-	pub fn is_match(&self, pattern: &str) -> (bool, HashMap<&'static str, String>) {
-		todo!()
+	pub fn is_match(&self, string: &str) -> bool {
+		match &self.0 {
+			Pattern::Static(_, pattern) => pattern == string,
+			Pattern::Regex(_, regex) => regex.is_match(string),
+			_ => true,
+		}
 	}
 }
 
