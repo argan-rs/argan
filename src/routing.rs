@@ -1,4 +1,7 @@
-use crate::{request::Request, resource::Resource, utils::PathSegments};
+use super::{request::Request, resource::Resource, utils::PathSegments};
+
+pub use hyper::Method;
+pub use hyper::StatusCode;
 
 // --------------------------------------------------
 
