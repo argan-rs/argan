@@ -1,8 +1,8 @@
 use hyper::StatusCode;
 
-use crate::{
+use super::{
 	body::Incoming,
-	handler::BoxedHandler,
+	handler::{request_handler::*, *},
 	matcher::Matcher,
 	request::Request,
 	response::Response,
@@ -76,7 +76,11 @@ fn request_receiver(mut request: Request) -> BoxedFuture<Result<Response, BoxedE
 			request = unused_request.into_request()
 		}
 
-		request_handler(request).await
+		if let Some(mut request_handler) = cr.request_handler.as_ref().map(|rh| rh.clone_boxed()) {
+			request_handler.call(request).await
+		} else {
+			misdirected_request_handler(request).await
+		}
 	})
 }
 
@@ -130,13 +134,7 @@ async fn request_passer(mut request: Request) -> Result<Response, BoxedError> {
 		return Ok(response);
 	}
 
-	let mut response = Response::default();
-	*response.status_mut() = StatusCode::NOT_FOUND;
-	response
-		.extensions_mut()
-		.insert(UnusedRequest::from(request));
-
-	Ok(response)
+	misdirected_request_handler(request).await
 }
 
 async fn request_handler(_req: Request) -> Result<Response, BoxedError> {
