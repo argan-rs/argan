@@ -1,4 +1,4 @@
-use super::{request::Request, resource::Resource, utils::PathSegments};
+use super::{request::Request, resource::Resource, utils::RouteSegments};
 
 pub use hyper::Method;
 pub use hyper::StatusCode;
@@ -6,7 +6,7 @@ pub use hyper::StatusCode;
 // --------------------------------------------------
 
 pub(crate) struct RoutingState<'req> {
-	pub(crate) path_segments: PathSegments<'req>,
+	pub(crate) path_segments: RouteSegments<'req>,
 	pub(crate) current_resource: Option<&'req Resource>,
 
 	pub(crate) subtree_handler_exists: bool,
