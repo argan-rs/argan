@@ -2,7 +2,7 @@
 
 mod body;
 mod handler;
-mod matcher;
+mod pattern;
 mod request;
 mod resource;
 mod response;
