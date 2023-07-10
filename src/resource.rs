@@ -1,9 +1,10 @@
 use hyper::StatusCode;
 
+use crate::pattern::Pattern;
+
 use super::{
 	body::Incoming,
 	handler::{request_handler::*, *},
-	matcher::Matcher,
 	request::Request,
 	response::Response,
 	routing::{RoutingState, UnusedRequest},
@@ -15,7 +16,7 @@ use super::utils::*;
 
 pub struct Resource {
 	name: &'static str,
-	matcher: Matcher,
+	pattern: Pattern,
 
 	static_resources: Option<Vec<Resource>>,
 	pattern_resources: Option<Vec<Resource>>,
@@ -93,7 +94,7 @@ async fn request_passer(mut request: Request) -> Result<Response, BoxedError> {
 		if let Some(next_resource) = cr.static_resources.as_ref().and_then(|static_resources| {
 			static_resources
 				.iter()
-				.find(|resource| resource.matcher.is_match(next_path_segment.as_str()))
+				.find(|resource| resource.pattern.is_match(next_path_segment.as_str()))
 		}) {
 			break 'some_next_resource Some(next_resource);
 		}
@@ -101,7 +102,7 @@ async fn request_passer(mut request: Request) -> Result<Response, BoxedError> {
 		if let Some(next_resource) = cr.pattern_resources.as_ref().and_then(|regex_resources| {
 			regex_resources
 				.iter()
-				.find(|resource| resource.matcher.is_match(next_path_segment.as_str()))
+				.find(|resource| resource.pattern.is_match(next_path_segment.as_str()))
 		}) {
 			break 'some_next_resource Some(next_resource);
 		}
