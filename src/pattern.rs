@@ -1,67 +1,112 @@
-use std::{iter::Peekable, str::Chars};
+use std::{
+	collections::HashMap,
+	fmt::{format, Display},
+	iter::Peekable,
+	str::Chars,
+	sync::Arc,
+};
 
 use regex::Regex;
 
 // --------------------------------------------------
 // static:		static, resource
-// regex:			$name:{capture_name:pattern}escaped{capture_2}escaped{capture_name:pattern}
-// wildcard:	$name
+// regex:			$name:@capture_name(pattern)escaped@(pattern)escaped@capture_name(pattern)
+// wildcard:	*name
 
+#[derive(Clone, Debug)]
 pub(crate) enum Pattern {
-	Static(String),
-	Regex(String, Regex),
-	Wildcard(String),
+	Static(Arc<str>),
+	Regex(Arc<str>, Option<Regex>),
+	Wildcard(Arc<str>),
 }
 
 impl Pattern {
 	pub fn parse(pattern: &str) -> Pattern {
-		let (some_name, mut some_slices) = split(pattern);
-
-		if let Some(mut slices) = some_slices {
-			if slices.len() == 1 {
-				let pattern = match slices.pop().unwrap() {
-					Slice::Static(pattern) => Pattern::Static(pattern),
-					Slice::Regex { name, some_pattern } => {
-						if let Some(mut regex_pattern) = some_pattern {
-							regex_pattern = format!("\\A(?P<{}>{})\\z", name, regex_pattern);
-							let pattern_name = if let Some(pattern_name) = some_name {
-								pattern_name
-							} else {
-								name
-							};
-
-							let regex = Regex::new(&regex_pattern).unwrap();
-
-							Pattern::Regex(pattern_name, regex)
-						} else {
-							panic!("single 'match all' regex pattern is equivalent to wildcard and not allowed",)
-						}
-					}
-				};
-
-				return pattern;
+		// Wildcard pattern.
+		if let Some(wildcard_name) = pattern.strip_prefix('*') {
+			if wildcard_name.is_empty() {
+				panic!("empty wildcard pattern name")
 			}
 
-			let Some(name) = some_name else {
-				panic!("no regex pattern name")
-			};
+			return Pattern::Wildcard(wildcard_name.into());
+		}
+
+		let mut chars = pattern.chars().peekable();
+
+		// Regex pattern.
+		if let Some('$') = chars.peek() {
+			chars.next();
+
+			let (name, some_delimiter) = split_at_delimiter(&mut chars, |ch| ch == ':');
+			if name.is_empty() {
+				panic!("empty regex pattern name")
+			}
+
+			if some_delimiter.is_none() {
+				return Pattern::Regex(name.into(), None);
+			}
+
+			let mut segments = split(chars);
+
+			if segments.is_empty() {
+				panic!("incomplete regex pattern")
+			}
+
+			if let [segment] = segments.as_slice() {
+				match segment {
+					Segment::Static(pattern) => {
+						panic!("regex pattern must have at least one capturing segment")
+					}
+					Segment::Capturing {
+						some_name,
+						subpattern,
+					} => {
+						let regex_pattern = if let Some(capture_name) = some_name {
+							format!("\\A(?P<{}>{})\\z", capture_name, subpattern)
+						} else {
+							format!("\\A({})\\z", subpattern)
+						};
+
+						let regex = Regex::new(&regex_pattern).unwrap();
+
+						return Pattern::Regex(name.into(), Some(regex));
+					}
+				};
+			}
 
 			let mut regex_pattern = "\\A".to_owned();
 
-			for slice in slices {
-				match slice {
-					Slice::Static(mut pattern) => {
-						pattern = regex::escape(&pattern);
+			let mut capturing_segment_without_name = false;
+			let mut capturing_segments_count = 0;
+			for segment in segments {
+				match segment {
+					Segment::Static(mut pattern) => {
+						pattern = regex::escape(pattern.as_ref());
 						regex_pattern.push_str(&pattern);
 					}
-					Slice::Regex { name, some_pattern } => {
-						let pattern = if let Some(pattern) = some_pattern {
-							format!("(?P<{}>{})", name, pattern)
+					Segment::Capturing {
+						some_name,
+						subpattern,
+					} => {
+						let regex_subpattern = if let Some(capture_name) = some_name {
+							if capturing_segment_without_name {
+								panic!(
+									"regex pattern without a capture name cannot have multiple capturing segments",
+								)
+							}
+
+							format!("(?P<{}>{})", capture_name, subpattern)
 						} else {
-							format!("(?P<{}>{})", name, "(?s).*")
+							if capturing_segments_count > 0 {
+								panic!("regex pattern with multiple capturing segments cannot omit a capture name")
+							}
+
+							capturing_segment_without_name = true;
+							format!("({})", subpattern)
 						};
 
-						regex_pattern.push_str(&pattern);
+						capturing_segments_count += 1;
+						regex_pattern.push_str(&regex_subpattern);
 					}
 				}
 			}
@@ -69,28 +114,77 @@ impl Pattern {
 			regex_pattern.push_str("\\z");
 			let regex = Regex::new(&regex_pattern).unwrap();
 
-			return Pattern::Regex(name, regex);
+			return Pattern::Regex(name.into(), Some(regex));
 		}
 
-		if let Some(name) = some_name {
-			return Pattern::Wildcard(name);
+		if let Some('\\') = chars.peek() {
+			let mut buf = String::new();
+
+			while let Some(ch) = chars.next() {
+				if ch == '\\' {
+					if let Some('*' | '$') = chars.peek() {
+						break;
+					}
+
+					buf.push(ch);
+				} else {
+					buf.push(ch);
+					break;
+				}
+			}
+
+			buf.extend(chars);
+			return Pattern::Static(buf.into());
 		}
 
-		panic!("incomplete pattern")
+		Pattern::Static(pattern.into())
 	}
 
+	#[inline]
 	pub fn name(&self) -> Option<&str> {
 		match self {
 			Pattern::Static(_) => None,
-			Pattern::Regex(name, _) => Some(name.as_str()),
-			Pattern::Wildcard(name) => Some(name.as_str()),
+			Pattern::Regex(name, _) | Pattern::Wildcard(name) => Some(name.as_ref()),
 		}
+	}
+
+	#[inline]
+	pub fn is_static(&self) -> bool {
+		if let Pattern::Static(_) = self {
+			return true;
+		}
+
+		false
+	}
+
+	#[inline]
+	pub fn is_regex(&self) -> bool {
+		if let Pattern::Regex(_, _) = self {
+			return true;
+		}
+
+		false
+	}
+
+	#[inline]
+	pub fn is_wildcard(&self) -> bool {
+		if let Pattern::Wildcard(_) = self {
+			return true;
+		}
+
+		false
 	}
 
 	pub fn is_match(&self, string: &str) -> bool {
 		match self {
-			Pattern::Static(pattern) => pattern == string,
-			Pattern::Regex(_, regex) => regex.is_match(string),
+			Pattern::Static(pattern) => pattern.as_ref() == string,
+			Pattern::Regex(_, some_regex) => {
+				if let Some(regex) = some_regex {
+					regex.is_match(string)
+				} else {
+					panic!("regex pattern has no regex")
+				}
+			}
 			_ => true,
 		}
 	}
@@ -104,10 +198,16 @@ impl Pattern {
 					}
 				}
 			}
-			Pattern::Regex(name, regex) => {
-				if let Pattern::Regex(other_some_name, other_regex) = other {
-					if regex.as_str() == other_regex.as_str() {
-						if name == other_some_name {
+			Pattern::Regex(name, some_regex) => {
+				if let Pattern::Regex(other_name, some_other_regex) = other {
+					if some_regex.as_ref().is_some_and(|regex| {
+						if let Some(other_regex) = some_other_regex.as_ref() {
+							regex.as_str() == other_regex.as_str()
+						} else {
+							false
+						}
+					}) {
+						if name == other_name {
 							return Similarity::Same;
 						} else {
 							return Similarity::DifferentNames;
@@ -126,50 +226,43 @@ impl Pattern {
 			}
 		}
 
-		return Similarity::Different;
+		Similarity::Different
 	}
 }
 
-enum Slice {
+// -------------------------
+
+impl Display for Pattern {
+	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+		match self {
+			Pattern::Static(pattern) => write!(f, "{}", pattern),
+			Pattern::Regex(name, Some(regex)) => write!(f, "${}:@({})", name, regex),
+			Pattern::Regex(name, None) => write!(f, "${}", name),
+			Pattern::Wildcard(name) => write!(f, "*{}", name),
+		}
+	}
+}
+
+// --------------------------------------------------
+
+enum Segment {
 	Static(String),
-	Regex {
-		name: String,
-		some_pattern: Option<String>,
+	Capturing {
+		some_name: Option<String>,
+		subpattern: String,
 	},
 }
 
-fn split(pattern: &str) -> (Option<String>, Option<Vec<Slice>>) {
-	if pattern.is_empty() {
-		panic!("empty pattern")
-	}
-
-	let mut chars = pattern.chars().peekable();
-
-	let some_name = if let Some('$') = chars.peek() {
-		chars.next();
-
-		let (name, some_delimiter) = split_at_delimiter(&mut chars, |ch| ch == ':');
-		if name.is_empty() {
-			panic!("empty pattern name")
-		}
-
-		if some_delimiter.is_none() {
-			return (Some(name), None);
-		}
-
-		Some(name)
-	} else {
-		None
-	};
-
+#[inline]
+fn split(mut chars: Peekable<Chars>) -> Vec<Segment> {
 	let mut slices = Vec::new();
 	let mut parsing_static = true;
 
 	loop {
 		if parsing_static {
-			let (static_segment, some_delimiter) = split_at_delimiter(&mut chars, |ch| ch == '{');
+			let (static_segment, some_delimiter) = split_at_delimiter(&mut chars, |ch| ch == '@');
 			if !static_segment.is_empty() {
-				slices.push(Slice::Static(static_segment));
+				slices.push(Segment::Static(static_segment));
 			}
 
 			if some_delimiter.is_some() {
@@ -178,45 +271,36 @@ fn split(pattern: &str) -> (Option<String>, Option<Vec<Slice>>) {
 				break;
 			}
 		} else {
-			let (capture_name, some_delimiter) =
-				split_at_delimiter(&mut chars, |ch| ch == ':' || ch == '}');
-			if capture_name.is_empty() {
-				panic!("empty regex capture name")
-			};
+			let (name, some_delimiter) = split_at_delimiter(&mut chars, |ch| ch == '(');
 
 			let Some(delimiter) = some_delimiter else {
 				panic!("incomplete pattern")
 			};
 
-			let some_regex = if delimiter == ':' {
-				let Some(regex) = split_regex(&mut chars) else {
-					panic!("incomplete pattern")
-				};
+			let some_name = if name.is_empty() { None } else { Some(name) };
 
-				if regex.is_empty() {
-					panic!("empty regex slice pattern")
-				}
-
-				Some(regex)
-			} else {
-				None
+			let Some(subpattern) = split_off_subpattern(&mut chars) else {
+				panic!("incomplete pattern")
 			};
 
-			slices.push(Slice::Regex {
-				name: capture_name,
-				some_pattern: some_regex,
+			if subpattern.is_empty() {
+				panic!("empty regex subpattern")
+			}
+
+			slices.push(Segment::Capturing {
+				some_name,
+				subpattern,
 			});
 			parsing_static = true;
 		}
 	}
 
-	(some_name, Some(slices))
+	slices
 }
 
-// Returns the segment before the delimiter and the delimiter. If the delimiter
-// is not found then the segment contains all the chars and the returned delimiter
-// will be None. If there are no more chars or the delimiter is found right away
-// then the returned segment will be empty.
+// Returns the segment before the delimiter and the delimiter. If the delimiter is not found then the segment
+// contains all the chars and the returned delimiter will be None. If there are no more chars or the delimiter
+// is found right away then the returned segment will be empty.
 fn split_at_delimiter(
 	chars: &mut Peekable<Chars<'_>>,
 	delimiter: impl Fn(char) -> bool,
@@ -247,41 +331,41 @@ fn split_at_delimiter(
 	(buf, None)
 }
 
-// Returns a regex pattern if the end of the regex segment is found. Otherwise None.
-// Regex pattern maybe empty if the end of the regex segment is met right away.
-fn split_regex(chars: &mut Peekable<Chars<'_>>) -> Option<String> {
-	let mut regex = String::new();
-	let mut depth = 1; // We are already inside the opened '{' bracket.
+// Returns a regex subpattern if the end of the regex segment is found. Otherwise None. Regex pattern maybe empty
+// if the end of the regex segment is met right away.
+fn split_off_subpattern(chars: &mut Peekable<Chars<'_>>) -> Option<String> {
+	let mut subpattern = String::new();
+	let mut depth = 1; // We are already inside the opened '(' bracket.
 	let mut unescaped = true;
 	let mut in_character_class = -1i8;
 
 	while let Some(ch) = chars.next() {
-		if ch == '}' && (unescaped || in_character_class < 0) {
+		if ch == ')' && (unescaped || in_character_class < 0) {
 			depth -= 1;
 			if depth == 0 {
-				return Some(regex);
+				return Some(subpattern);
 			}
 
-			regex.push(ch);
+			subpattern.push(ch);
 
 			continue;
 		}
 
-		regex.push(ch);
+		subpattern.push(ch);
 
 		if in_character_class > -1 {
 			in_character_class += 1;
 		}
 
 		match ch {
-			'{' => {
+			'(' => {
 				if unescaped || in_character_class < 0 {
 					depth += 1;
 				}
 			}
 			'\\' => {
 				if unescaped {
-					if let Some('\\' | '[' | ']' | '{' | '}') = chars.peek() {
+					if let Some('\\' | '[' | ']' | '(' | ')') = chars.peek() {
 						unescaped = false;
 
 						continue;
@@ -326,3 +410,5 @@ pub(crate) enum Similarity {
 	DifferentNames,
 	Same,
 }
+
+// --------------------------------------------------------------------------------
