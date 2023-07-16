@@ -10,51 +10,61 @@ use crate::{
 
 // --------------------------------------------------------------------------------
 
-pub(crate) struct RequestHandler<RqB> {
+pub(crate) struct Handlers<RqB> {
 	method_handlers: Vec<(Method, HandlerService<RqB>)>,
-	not_allowed_method: Option<HandlerService<RqB>>,
+	not_allowed_method_handler: Option<HandlerService<RqB>>,
 }
 
-impl<RqB> RequestHandler<RqB> {
-	fn set_handler(&mut self, method: Method, handler: HandlerService<RqB>) {
-		if self
-			.method_handlers
-			.iter()
-			.find(|(m, _)| m == method)
-			.is_some()
-		{
+impl<RqB> Handlers<RqB> {
+	pub(crate) fn new() -> Handlers<RqB> {
+		Handlers{method_handlers: Vec::new(), not_allowed_method_handler: None}
+	}
+
+	#[inline]
+	pub(crate) fn is_empty(&self) -> bool {
+		self.method_handlers.is_empty()
+	}
+
+	#[inline]
+	pub(crate) fn set_handler(&mut self, method: Method, handler: HandlerService<RqB>) {
+		if self.method_handlers.iter().any(|(m, _)| m == method) {
 			panic!("{} handler already exists", method)
 		}
 
 		self.method_handlers.push((method, handler));
 	}
-}
 
-impl<RqB> Service<Request<RqB>> for RequestHandler<RqB>
-where
-	Self: 'static,
-{
-	type Response = Response;
-	type Error = BoxedError;
-	type Future = BoxedFuture<Result<Response, BoxedError>>;
+	pub(crate) fn allowed_methods(&self) -> AllowedMethods {
+		let mut list = String::new();
+		self.method_handlers.iter().for_each(|(method, _)| list.push_str(method.as_str()));
 
-	fn call(&mut self, request: Request<RqB>) -> Self::Future {
+		AllowedMethods(list)
+	}
+
+	#[inline]
+	pub(crate) fn handle(&self, mut request: Request<RqB>) -> BoxedFuture<Result<Response, BoxedError>>
+	where
+		RqB: Send + Sync + 'static
+	{
 		let method = request.method().clone();
-		let some_handler = self
-			.method_handlers
-			.iter()
-			.find(|(m, _)| m == method)
-			.map(|(_, h)| h.clone());
+		let some_handler = self.method_handlers.iter().find(|(m, _)| m == method).map(|(_, h)| h.clone());
 
 		match some_handler {
 			Some(mut handler) => handler.call(request),
-			None => match self.not_allowed_method.as_ref().cloned() {
-				Some(mut not_allowed_method_handler) => not_allowed_method_handler.call(request),
-				None => Box::pin(handle_not_allowed_method(request)),
-			},
+			None => {
+				let allowed_methods = self.allowed_methods();
+				request.extensions_mut().insert(allowed_methods);
+
+				match self.not_allowed_method_handler.as_ref().cloned() {
+					Some(mut not_allowed_method_handler) => not_allowed_method_handler.call(request), 
+					None => Box::pin(handle_not_allowed_method(request)), 
+				}
+			} 
 		}
 	}
 }
+
+// --------------------------------------------------
 
 pub(crate) struct AllowedMethods(String);
 
