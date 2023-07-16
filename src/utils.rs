@@ -30,6 +30,15 @@ impl<'req> RouteSegments<'req> {
 	}
 
 	#[inline]
+	pub(crate) fn remaining_segments(&self) -> Option<&'req str> {
+		if self.remaining_segments_index == self.route.len() {
+			return None
+		}
+
+		Some(&self.route[self.remaining_segments_index..])
+	}
+
+	#[inline]
 	pub(crate) fn revert_to_segment(&mut self, segment: RouteSegment) {
 		self.remaining_segments_index = segment.index;
 	}
