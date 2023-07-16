@@ -1,3 +1,5 @@
+use hyper::header::{HeaderName, HeaderValue};
+
 use crate::{
 	handler::{HandlerService, Service},
 	request::Request,
@@ -54,9 +56,21 @@ where
 	}
 }
 
-// TODO: Must provide allowed methods of the RequestHandler.
-async fn handle_not_allowed_method<RqB>(request: Request<RqB>) -> Result<Response, BoxedError> {
-	todo!()
+pub(crate) struct AllowedMethods(String);
+
+#[inline]
+async fn handle_not_allowed_method<RqB>(mut request: Request<RqB>) -> Result<Response, BoxedError> {
+	let allowed_methods = request.extensions_mut().remove::<AllowedMethods>().unwrap();
+	let allowed_methods_header_value = HeaderValue::from_str(&allowed_methods.0).unwrap();
+
+	let mut response = Response::default();
+	*response.status_mut() = StatusCode::METHOD_NOT_ALLOWED;
+	response.headers_mut().append(
+		HeaderName::from_static("Allow"),
+		allowed_methods_header_value,
+	);
+
+	Ok(response)
 }
 
 // --------------------------------------------------
