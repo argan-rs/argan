@@ -2,6 +2,8 @@ use std::{future::Future, pin::Pin};
 
 pub use either::Either;
 
+use super::pattern::Pattern;
+
 // --------------------------------------------------
 
 pub type BoxedError = Box<dyn std::error::Error + Send + Sync>;
@@ -85,3 +87,16 @@ impl<'req> RouteSegment<'req> {
 		self.value
 	}
 }
+//
+// --------------------------------------------------------------------------------
+
+pub(crate) fn patterns_to_string(patterns: &Vec<Pattern>) -> String {
+	let mut string = String::new();
+	for pattern in patterns {
+		string.push('/');
+		string.push_str(&pattern.to_string());
+	}
+
+	string
+}
+
