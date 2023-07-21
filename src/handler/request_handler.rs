@@ -17,7 +17,10 @@ pub(crate) struct Handlers<RqB> {
 
 impl<RqB> Handlers<RqB> {
 	pub(crate) fn new() -> Handlers<RqB> {
-		Handlers{method_handlers: Vec::new(), not_allowed_method_handler: None}
+		Handlers {
+			method_handlers: Vec::new(),
+			not_allowed_method_handler: None,
+		}
 	}
 
 	#[inline]
@@ -36,18 +39,28 @@ impl<RqB> Handlers<RqB> {
 
 	pub(crate) fn allowed_methods(&self) -> AllowedMethods {
 		let mut list = String::new();
-		self.method_handlers.iter().for_each(|(method, _)| list.push_str(method.as_str()));
+		self
+			.method_handlers
+			.iter()
+			.for_each(|(method, _)| list.push_str(method.as_str()));
 
 		AllowedMethods(list)
 	}
 
 	#[inline]
-	pub(crate) fn handle(&self, mut request: Request<RqB>) -> BoxedFuture<Result<Response, BoxedError>>
+	pub(crate) fn handle(
+		&self,
+		mut request: Request<RqB>,
+	) -> BoxedFuture<Result<Response, BoxedError>>
 	where
-		RqB: Send + Sync + 'static
+		RqB: Send + Sync + 'static,
 	{
 		let method = request.method().clone();
-		let some_handler = self.method_handlers.iter().find(|(m, _)| m == method).map(|(_, h)| h.clone());
+		let some_handler = self
+			.method_handlers
+			.iter()
+			.find(|(m, _)| m == method)
+			.map(|(_, h)| h.clone());
 
 		match some_handler {
 			Some(mut handler) => handler.call(request),
@@ -56,10 +69,10 @@ impl<RqB> Handlers<RqB> {
 				request.extensions_mut().insert(allowed_methods);
 
 				match self.not_allowed_method_handler.as_ref().cloned() {
-					Some(mut not_allowed_method_handler) => not_allowed_method_handler.call(request), 
-					None => Box::pin(handle_not_allowed_method(request)), 
+					Some(mut not_allowed_method_handler) => not_allowed_method_handler.call(request),
+					None => Box::pin(handle_not_allowed_method(request)),
 				}
-			} 
+			}
 		}
 	}
 }

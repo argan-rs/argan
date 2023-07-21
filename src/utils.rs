@@ -34,7 +34,7 @@ impl<'req> RouteSegments<'req> {
 	#[inline]
 	pub(crate) fn remaining_segments(&self) -> Option<&'req str> {
 		if self.remaining_segments_index == self.route.len() {
-			return None
+			return None;
 		}
 
 		Some(&self.route[self.remaining_segments_index..])
@@ -99,4 +99,3 @@ pub(crate) fn patterns_to_string(patterns: &Vec<Pattern>) -> String {
 
 	string
 }
-
