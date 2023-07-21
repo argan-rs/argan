@@ -298,9 +298,10 @@ fn split(mut chars: Peekable<Chars>) -> Vec<Segment> {
 	slices
 }
 
-// Returns the segment before the delimiter and the delimiter. If the delimiter is not found then the segment
-// contains all the chars and the returned delimiter will be None. If there are no more chars or the delimiter
-// is found right away then the returned segment will be empty.
+// Returns the segment before the delimiter and the delimiter. If the delimiter is
+// not found then the segment contains all the chars and the returned delimiter will
+// be None. If there are no more chars or the delimiter is found right away then the
+// returned segment will be empty.
 fn split_at_delimiter(
 	chars: &mut Peekable<Chars<'_>>,
 	delimiter: impl Fn(char) -> bool,
@@ -331,8 +332,8 @@ fn split_at_delimiter(
 	(buf, None)
 }
 
-// Returns a regex subpattern if the end of the regex segment is found. Otherwise None. Regex pattern maybe empty
-// if the end of the regex segment is met right away.
+// Returns a regex subpattern if the end of the regex segment is found. Otherwise None.
+// Regex pattern maybe empty if the end of the regex segment is met right away.
 fn split_off_subpattern(chars: &mut Peekable<Chars<'_>>) -> Option<String> {
 	let mut subpattern = String::new();
 	let mut depth = 1; // We are already inside the opened '(' bracket.
