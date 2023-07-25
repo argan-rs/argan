@@ -1,9 +1,11 @@
+use std::marker::PhantomData;
+
 pub use hyper::service::Service;
 
 use crate::{
 	body::Incoming,
 	request::Request,
-	response::Response,
+	response::{IntoResponse, Response},
 	utils::{BoxedError, BoxedFuture},
 };
 
@@ -15,30 +17,47 @@ pub(crate) mod request_handler;
 // --------------------------------------------------------------------------------
 // --------------------------------------------------------------------------------
 
-pub trait Handler<RqB = Incoming>
+pub trait Handler<B = Incoming>
 where
-	Self:
-		Service<Request<RqB>, Response = Response, Error = BoxedError> + Clone + Send + Sync + 'static,
+	Self: Service<Request<B>> + Send + Sync + 'static,
+	Self::Response: IntoResponse,
+	Self::Error: Into<BoxedError>,
 {
 }
 
-impl<S, RqB> Handler<RqB> for S where
-	S: Service<Request<RqB>, Response = Response, Error = BoxedError> + Clone + Send + Sync + 'static
+impl<S, B> Handler<B> for S
+where
+	S: Service<Request<B>> + Send + Sync + 'static,
+	Self::Response: IntoResponse,
+	Self::Error: Into<BoxedError>,
 {
 }
 
 // -------------------------
 
-pub trait IntoHandler<H, RqB = Incoming>
+pub trait IntoHandler<H, B = Incoming, S = ()>
 where
-	H: Handler<RqB>,
+	Self: Sized,
+	H: Handler<B>,
+	H::Response: IntoResponse,
+	H::Error: Into<BoxedError>,
 {
 	fn into_handler(self) -> H;
+
+	#[inline]
+	fn with_state(self, state: S) -> StatefulHandler<H, S> {
+		StatefulHandler {
+			inner: self.into_handler(),
+			state,
+		}
+	}
 }
 
-impl<H, RqB> IntoHandler<H, RqB> for H
+impl<H, B, S> IntoHandler<H, B, S> for H
 where
-	H: Handler<RqB>,
+	H: Handler<B>,
+	H::Response: IntoResponse,
+	H::Error: Into<BoxedError>,
 {
 	#[inline]
 	fn into_handler(self) -> H {
@@ -46,112 +65,130 @@ where
 	}
 }
 
-// --------------------------------------------------------------------------------
+// --------------------------------------------------
 
-pub(crate) type BoxedHandler<RqB> = Box<
-	dyn CloneableHandler<
-		RqB,
+pub struct StatefulHandler<H, S> {
+	inner: H,
+	state: S,
+}
+
+impl<H, S, B> Service<Request<B>> for StatefulHandler<H, S>
+where
+	H: Handler<B>,
+	H::Response: IntoResponse,
+	H::Error: Into<BoxedError>,
+	S: Clone + Send + Sync + 'static,
+{
+	type Response = H::Response;
+	type Error = H::Error;
+	type Future = H::Future;
+
+	#[inline]
+	fn call(&self, mut req: Request<B>) -> Self::Future {
+		if let Some(_previous_state_with_the_same_type) = req
+			.extensions_mut()
+			.insert(HandlerState(self.state.clone()))
+		{
+			// TODO: Improve the error message by implementing Debug for the HandlerState.
+			panic!("multiple insertions of a state with the same type")
+		}
+
+		self.inner.call(req)
+	}
+}
+
+// --------------------------------------------------
+
+// TODO: Is this a good place?
+pub struct HandlerState<S>(S);
+
+// --------------------------------------------------
+
+pub(crate) struct HandlerService<H>(H);
+
+impl<H, B> Service<Request<B>> for HandlerService<H>
+where
+	H: Handler<B>,
+	B: 'static,
+	H::Response: IntoResponse,
+	H::Error: Into<BoxedError>,
+{
+	type Response = Response;
+	type Error = BoxedError;
+	type Future = BoxedFuture<Result<Self::Response, Self::Error>>;
+
+	fn call(&self, req: Request<B>) -> Self::Future {
+		let future_result = self.0.call(req);
+
+		Box::pin(async move {
+			match future_result.await {
+				Ok(res) => Ok(res.into_response()),
+				Err(err) => Err(err.into()),
+			}
+		})
+	}
+}
+
+impl<H> HandlerService<H> {
+	#[inline]
+	fn new(handler: H) -> Self {
+		Self(handler)
+	}
+}
+
+// --------------------------------------------------
+
+pub(crate) type BoxedHandler<B> = Box<
+	dyn Handler<
+		B,
 		Response = Response,
 		Error = BoxedError,
 		Future = BoxedFuture<Result<Response, BoxedError>>,
 	>,
 >;
 
-pub(crate) trait CloneableHandler<RqB>:
-	Service<Request<RqB>> + CloneBoxedHandler<RqB> + Send + Sync
-{
-}
+// pub(crate) type BoxedHandler<B> = Box<
+// 	dyn CloneableHandler<
+// 		B,
+// 		Response = Response,
+// 		Error = BoxedError,
+// 		Future = BoxedFuture<Result<Response, BoxedError>>,
+// 	>
+// >;
 
-impl<H, RqB> CloneableHandler<RqB> for H where
-	H: Handler<
-		RqB,
-		Response = Response,
-		Error = BoxedError,
-		Future = BoxedFuture<Result<Response, BoxedError>>,
-	>
-{
-}
+// pub(crate) trait CloneableHandler<B>: Service<Request<B>> + /*CloneBoxedHandler<B> +*/ Send + Sync {}
 
-pub(crate) trait CloneBoxedHandler<RqB> {
-	fn clone_boxed(&self) -> BoxedHandler<RqB>;
-}
+// impl<H, B> CloneableHandler<B> for H
+// where
+// 	H: Handler<B, Response = Response, Error = BoxedError, Future = BoxedFuture<Result<Response, BoxedError>>>,
+// {}
 
-impl<H, RqB> CloneBoxedHandler<RqB> for H
+// pub(crate) trait CloneBoxedHandler<RqB> {
+// 	fn clone_boxed(&self) -> BoxedHandler<RqB>;
+// }
+
+// impl<H, B> CloneBoxedHandler<B> for H
+// where
+// 	H: Handler<B, Response = Response, Error = BoxedError, Future = BoxedFuture<Result<Response, BoxedError>>>,
+// {
+// 	#[inline]
+// 	fn clone_boxed(&self) -> BoxedHandler<B> {
+// 		Box::new(self.clone())
+// 	}
+// }
+
+impl<H, B> From<H> for BoxedHandler<B>
 where
 	H: Handler<
-		RqB,
+		B,
 		Response = Response,
 		Error = BoxedError,
 		Future = BoxedFuture<Result<Response, BoxedError>>,
 	>,
 {
-	fn clone_boxed(&self) -> BoxedHandler<RqB> {
-		Box::new(self.clone())
-	}
-}
-
-impl<H, RqB> From<H> for BoxedHandler<RqB>
-where
-	H: Handler<
-		RqB,
-		Response = Response,
-		Error = BoxedError,
-		Future = BoxedFuture<Result<Response, BoxedError>>,
-	>,
-{
-	fn from(value: H) -> Self {
-		Box::new(value)
-	}
-}
-
-// --------------------------------------------------------------------------------
-
-pub(crate) struct HandlerService<RqB>(BoxedHandler<RqB>);
-
-impl<RqB> Clone for HandlerService<RqB> {
-	fn clone(&self) -> Self {
-		HandlerService(self.0.clone_boxed())
-	}
-}
-
-impl<RqB> Service<Request<RqB>> for HandlerService<RqB> {
-	type Response = Response;
-	type Error = BoxedError;
-	type Future = BoxedFuture<Result<Response, BoxedError>>;
-
 	#[inline]
-	fn call(&mut self, req: Request<RqB>) -> Self::Future {
-		self.0.call(req)
-	}
-}
-
-impl<RqB> HandlerService<RqB> {
-	fn wrap_with<L>(self, wrapper: L) -> HandlerService<RqB>
-	where
-		L: Layer<HandlerService<RqB>>,
-		L::Service: Handler<
-			RqB,
-			Response = Response,
-			Error = BoxedError,
-			Future = BoxedFuture<Result<Response, BoxedError>>,
-		>,
-	{
-		HandlerService(BoxedHandler::from(wrapper.layer(self)))
-	}
-}
-
-impl<RqB> HandlerService<RqB> {
-	fn from_handler<IH, H>(value: IH) -> Self
-	where
-		IH: IntoHandler<H, RqB>,
-		H: Handler<
-			RqB,
-			Response = Response,
-			Error = BoxedError,
-			Future = BoxedFuture<Result<Response, BoxedError>>,
-		>,
-	{
-		HandlerService(BoxedHandler::from(value.into_handler()))
+	fn from(handler: H) -> Self {
+		Box::new(handler)
 	}
 }
 
@@ -163,100 +200,41 @@ pub trait Layer<S> {
 	fn layer(&self, inner: S) -> Self::Service;
 }
 
-// --------------------------------------------------
-// --------------------------------------------------
+struct Wrapper<H, RqB> {
+	inner: H,
+	_mark: PhantomData<RqB>,
+}
 
-#[cfg(test)]
-mod test {
-	use std::marker::PhantomData;
-
-	use super::*;
-
-	// --------------------------------------------------
-	// --------------------------------------------------
-
-	async fn handler(req: Request) -> Result<Response, BoxedError> {
-		unimplemented!()
+impl<H, RqB> Clone for Wrapper<H, RqB>
+where
+	H: Clone,
+{
+	fn clone(&self) -> Self {
+		Wrapper{inner: self.inner.clone(), _mark: PhantomData}
 	}
+}
 
-	struct Wrapper<H, RqB> {
-		inner: H,
-		_mark: PhantomData<RqB>,
+impl<H, RqB> Service<Request<RqB>> for Wrapper<H, RqB>
+where
+	H: Handler<RqB, Response = Response, Error = BoxedError, Future = BoxedFuture<Result<Response, BoxedError>>>,
+{
+	type Response = H::Response;
+	type Error = H::Error;
+	type Future = H::Future;
+
+	fn call(&self, req: Request<RqB>) -> Self::Future {
+		self.inner.call(req)
 	}
+}
 
-	impl<H, RqB> Clone for Wrapper<H, RqB>
-	where
-		H: Clone,
-	{
-		fn clone(&self) -> Self {
-			Wrapper {
-				inner: self.inner.clone(),
-				_mark: PhantomData,
-			}
-		}
-	}
+struct WrapperLayer<RqB> {
+	_mark: PhantomData<RqB>,
+}
 
-	impl<H, RqB> Service<Request<RqB>> for Wrapper<H, RqB>
-	where
-		H: Handler<
-			RqB,
-			Response = Response,
-			Error = BoxedError,
-			Future = BoxedFuture<Result<Response, BoxedError>>,
-		>,
-	{
-		type Response = H::Response;
-		type Error = H::Error;
-		type Future = H::Future;
+impl<H, RqB> Layer<H> for WrapperLayer<RqB> {
+	type Service = Wrapper<H, RqB>;
 
-		fn call(&mut self, req: Request<RqB>) -> Self::Future {
-			self.inner.call(req)
-		}
-	}
-
-	struct WrapperLayer<RqB> {
-		_mark: PhantomData<RqB>,
-	}
-
-	impl<H, RqB> Layer<H> for WrapperLayer<RqB> {
-		type Service = Wrapper<H, RqB>;
-
-		fn layer(&self, inner: H) -> Self::Service {
-			Wrapper {
-				inner,
-				_mark: PhantomData,
-			}
-		}
-	}
-
-	fn is_handler<H, RqB>(_: H)
-	where
-		H: CloneableHandler<
-			RqB,
-			Response = Response,
-			Error = BoxedError,
-			Future = BoxedFuture<Result<Response, BoxedError>>,
-		>,
-	{
-	}
-
-	fn is_into_handler<IH, H, RqB>(_: IH)
-	where
-		IH: IntoHandler<H, RqB>,
-		H: Handler<RqB, Response = Response, Error = BoxedError>,
-	{
-	}
-
-	fn test() {
-		let hs = HandlerService(BoxedHandler::from(handler.into_handler()));
-		let boxed = hs.clone_boxed();
-		is_handler(hs);
-
-		let mut hs = HandlerService(BoxedHandler::from(handler.into_handler()));
-		hs = hs.wrap_with(WrapperLayer { _mark: PhantomData });
-		is_handler(hs);
-
-		let hs = HandlerService::from_handler(handler);
-		is_handler(hs);
+	fn layer(&self, inner: H) -> Self::Service {
+		Wrapper{inner, _mark: PhantomData}
 	}
 }

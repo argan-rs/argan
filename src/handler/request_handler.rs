@@ -1,26 +1,24 @@
 use hyper::header::{HeaderName, HeaderValue};
 
 use crate::{
-	handler::{HandlerService, Service},
 	request::Request,
 	response::Response,
 	routing::{Method, StatusCode, UnusedRequest},
 	utils::{BoxedError, BoxedFuture},
 };
 
+use super::BoxedHandler;
+
 // --------------------------------------------------------------------------------
 
-pub(crate) struct Handlers<RqB> {
-	method_handlers: Vec<(Method, HandlerService<RqB>)>,
-	not_allowed_method_handler: Option<HandlerService<RqB>>,
+pub(crate) struct Handlers<B> {
+	method_handlers: Vec<(Method, BoxedHandler<B>)>,
+	unsupported_method_handler: Option<BoxedHandler<B>>,
 }
 
-impl<RqB> Handlers<RqB> {
-	pub(crate) fn new() -> Handlers<RqB> {
-		Handlers {
-			method_handlers: Vec::new(),
-			not_allowed_method_handler: None,
-		}
+impl<B> Handlers<B> {
+	pub(crate) fn new() -> Handlers<B> {
+		Handlers{method_handlers: Vec::new(), unsupported_method_handler: None}
 	}
 
 	#[inline]
@@ -29,7 +27,7 @@ impl<RqB> Handlers<RqB> {
 	}
 
 	#[inline]
-	pub(crate) fn set_handler(&mut self, method: Method, handler: HandlerService<RqB>) {
+	pub(crate) fn set_handler(&mut self, method: Method, handler: BoxedHandler<B>) {
 		if self.method_handlers.iter().any(|(m, _)| m == method) {
 			panic!("{} handler already exists", method)
 		}
@@ -39,28 +37,18 @@ impl<RqB> Handlers<RqB> {
 
 	pub(crate) fn allowed_methods(&self) -> AllowedMethods {
 		let mut list = String::new();
-		self
-			.method_handlers
-			.iter()
-			.for_each(|(method, _)| list.push_str(method.as_str()));
+		self.method_handlers.iter().for_each(|(method, _)| list.push_str(method.as_str()));
 
 		AllowedMethods(list)
 	}
 
 	#[inline]
-	pub(crate) fn handle(
-		&self,
-		mut request: Request<RqB>,
-	) -> BoxedFuture<Result<Response, BoxedError>>
+	pub(crate) fn handle(&self, mut request: Request<B>) -> BoxedFuture<Result<Response, BoxedError>>
 	where
-		RqB: Send + Sync + 'static,
+		B: Send + Sync + 'static
 	{
 		let method = request.method().clone();
-		let some_handler = self
-			.method_handlers
-			.iter()
-			.find(|(m, _)| m == method)
-			.map(|(_, h)| h.clone());
+		let some_handler = self.method_handlers.iter().find(|(m, _)| m == method).map(|(_, h)| h.clone());
 
 		match some_handler {
 			Some(mut handler) => handler.call(request),
@@ -68,11 +56,11 @@ impl<RqB> Handlers<RqB> {
 				let allowed_methods = self.allowed_methods();
 				request.extensions_mut().insert(allowed_methods);
 
-				match self.not_allowed_method_handler.as_ref().cloned() {
-					Some(mut not_allowed_method_handler) => not_allowed_method_handler.call(request),
-					None => Box::pin(handle_not_allowed_method(request)),
+				match self.unsupported_method_handler.as_ref()/*/.cloned()*/ {
+					Some(mut not_allowed_method_handler) => not_allowed_method_handler.call(request), 
+					None => Box::pin(handle_not_allowed_method(request)), 
 				}
-			}
+			} 
 		}
 	}
 }

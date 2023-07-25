@@ -15,24 +15,24 @@ struct HandlerFn<Func, M> {
 	_mark: PhantomData<fn() -> M>,
 }
 
-impl<Func, A> Clone for HandlerFn<Func, A>
-where
-	Func: Clone,
-{
-	#[inline]
-	fn clone(&self) -> Self {
-		HandlerFn {
-			func: self.func.clone(),
-			_mark: PhantomData,
-		}
-	}
-}
+// impl<Func, A> Clone for HandlerFn<Func, A>
+// where
+// 	Func: Clone,
+// {
+// 	#[inline]
+// 	fn clone(&self) -> Self {
+// 		HandlerFn {
+// 			func: self.func.clone(),
+// 			_mark: PhantomData,
+// 		}
+// 	}
+// }
 
 // ----------
 
 impl<Func, RqB, Fut, E> Service<Request<RqB>> for HandlerFn<Func, Request<RqB>>
 where
-	Func: FnMut(Request<RqB>) -> Fut,
+	Func: Fn(Request<RqB>) -> Fut,
 	Fut: Future<Output = Result<Response, E>>,
 	E: Into<BoxedError>,
 {
@@ -40,18 +40,18 @@ where
 	type Error = E;
 	type Future = Fut;
 
-	fn call(&mut self, req: Request<RqB>) -> Self::Future {
+	fn call(&self, req: Request<RqB>) -> Self::Future {
 		(self.func)(req)
 	}
 }
 
-// ----------
+// ---------- 
 
-impl<Func, A, RqB, Fut, R, E> Service<Request<RqB>> for HandlerFn<Func, (A, R)>
+impl<Func, A, B, Fut, R, E> Service<Request<B>> for HandlerFn<Func, (A, R)>
 where
-	Func: FnMut(A) -> Fut + Clone + 'static,
-	A: FromRequest<RqB>,
-	RqB: 'static,
+	Func: Fn(A) -> Fut + Clone + 'static,
+	A: FromRequest<B>,
+	B: 'static,
 	Fut: Future<Output = Result<R, E>>,
 	R: IntoResponse,
 	E: Into<BoxedError>,
@@ -61,7 +61,7 @@ where
 	type Future = BoxedFuture<Result<Self::Response, Self::Error>>;
 
 	#[inline]
-	fn call(&mut self, req: Request<RqB>) -> Self::Future {
+	fn call(&self, req: Request<B>) -> Self::Future {
 		let func_clone = self.func.clone();
 
 		Box::pin(async move {
@@ -79,32 +79,30 @@ where
 	}
 }
 
-impl<Func, A, RqB, Fut, R, E> IntoHandler<HandlerFn<Func, (A, R)>, RqB> for Func
+impl<Func, A, B, Fut, R, E, S> IntoHandler<HandlerFn<Func, (A, R)>, B, S> for Func
 where
-	Func: FnMut(A) -> Fut + Clone + Send + Sync + 'static,
-	A: FromRequest<RqB> + 'static,
-	RqB: 'static,
+	Func: Fn(A) -> Fut + Clone + Send + Sync + 'static,
+	A: FromRequest<B> + 'static,
+	B: Send + Sync + 'static,
 	Fut: Future<Output = Result<R, E>>,
 	R: IntoResponse + 'static,
 	E: Into<BoxedError>,
+	S: 'static,
 {
 	#[inline]
 	fn into_handler(self) -> HandlerFn<Func, (A, R)> {
-		HandlerFn {
-			func: self,
-			_mark: PhantomData,
-		}
+		HandlerFn{func: self, _mark: PhantomData}
 	}
 }
 
-// ----------
+// ---------- 
 
-impl<Func, A1, LA, RqB, Fut, R, E> Service<Request<RqB>> for HandlerFn<Func, (A1, LA, R)>
+impl<Func, A1, LA, B, Fut, R, E> Service<Request<B>> for HandlerFn<Func, (A1, LA, R)>
 where
-	Func: FnMut(A1, LA) -> Fut + Clone + 'static,
+	Func: Fn(A1, LA) -> Fut + Clone + 'static,
 	A1: FromRequestParts,
-	LA: FromRequest<RqB>,
-	RqB: 'static,
+	LA: FromRequest<B>,
+	B: 'static,
 	Fut: Future<Output = Result<R, E>>,
 	R: IntoResponse,
 	E: Into<BoxedError>,
@@ -114,8 +112,8 @@ where
 	type Future = BoxedFuture<Result<Self::Response, Self::Error>>;
 
 	#[inline]
-	fn call(&mut self, req: Request<RqB>) -> Self::Future {
-		let mut self_clone = self.clone(); // TODO: Maybe we should clone on a call side or we should clone the func?
+	fn call(&self, req: Request<B>) -> Self::Future {
+		let mut func_clone = self.func.clone(); // TODO: Maybe we should clone on a call side or we should clone the func?
 
 		Box::pin(async move {
 			let (parts, body) = req.into_parts();
@@ -126,7 +124,7 @@ where
 				Err(Either::Right(e)) => return Err(e.into()),
 			};
 
-			let req = Request::<RqB>::from_parts(parts, body);
+			let req = Request::<B>::from_parts(parts, body);
 
 			let last_arg = match LA::from_request(req) {
 				Ok(v) => v,
@@ -134,7 +132,7 @@ where
 				Err(Either::Right(e)) => return Err(e.into()),
 			};
 
-			match (self_clone.func)(arg1, last_arg).await {
+			match (func_clone)(arg1, last_arg).await {
 				Ok(v) => Ok(v.into_response()),
 				Err(e) => Err(e.into()),
 			}
@@ -142,76 +140,64 @@ where
 	}
 }
 
-impl<Func, A1, LA, RqB, Fut, R, E> IntoHandler<HandlerFn<Func, (A1, LA, R)>, RqB> for Func
+impl<Func, A1, LA, B, Fut, R, E, S> IntoHandler<HandlerFn<Func, (A1, LA, R)>, B, S> for Func
 where
-	Func: FnMut(A1, LA) -> Fut + Clone + Send + Sync + 'static,
+	Func: Fn(A1, LA) -> Fut + Clone + Send + Sync + 'static,
 	A1: FromRequestParts + 'static,
-	LA: FromRequest<RqB> + 'static,
-	RqB: 'static,
+	LA: FromRequest<B> + 'static,
+	B: 'static,
 	Fut: Future<Output = Result<R, E>>,
 	R: IntoResponse + 'static,
 	E: Into<BoxedError>,
+	S: 'static,
 {
 	#[inline]
 	fn into_handler(self) -> HandlerFn<Func, (A1, LA, R)> {
-		HandlerFn {
-			func: self,
-			_mark: PhantomData,
-		}
+		HandlerFn{func: self, _mark: PhantomData}
 	}
 }
 
-// --------------------------------------------------
-// --------------------------------------------------
+// --------------------------------------------------------------------------------
+// --------------------------------------------------------------------------------
 
 #[cfg(test)]
 mod test {
 	use super::*;
 
-	// --------------------------------------------------
-	// --------------------------------------------------
-
-	fn is_handler<H, RqB>(_: H)
-	where
-		H: Handler<RqB>,
-	{
-	}
-
-	fn is_into_handler<IH, H, RqB>(h: IH)
-	where
-		IH: IntoHandler<H, RqB>,
-		H: Handler<RqB, Response = Response, Error = BoxedError>,
-	{
-		is_service(h.into_handler())
-	}
-
-	fn is_service<S, RqB>(_: S)
-	where
-		S: Service<Request<RqB>> + Clone + Send,
-	{
-	}
-
-	// -------------------------
-
-	async fn handler(_: Request) -> Result<Response, BoxedError> {
+	async fn handler_fn(req: Request) -> Result<Response, BoxedError> {
 		todo!()
 	}
 
-	// --------------------------------------------------
+	fn is_handler<H, B>(_: H)
+	where
+		H: Handler<B>,
+		H::Response: IntoResponse,
+		H::Error: Into<BoxedError>,
+	{}
 
-	fn test_type() {
-		is_into_handler(handler);
+	fn is_into_handler<IH, H, B>(_: IH)
+	where
+		IH: IntoHandler<H, B>,
+		H: Handler<B>,
+		H::Response: IntoResponse,
+		H::Error: Into<BoxedError>,
+	{}
 
-		let handler_fn = HandlerFn {
-			func: handler,
-			_mark: PhantomData::<fn() -> Request>,
-		};
-		is_handler(handler_fn);
-
-		let handler_fn = HandlerFn {
-			func: handler,
-			_mark: PhantomData::<fn() -> Request>,
-		};
+	fn test() {
 		is_into_handler(handler_fn);
+
+		let h = handler_fn.with_state(1u8).with_state(2u16);
+		is_handler(h);
+
+		let h = handler_fn.with_state(1u8);
+		is_into_handler(h);
+
+		// let mut hs = HandlerService(BoxedHandler::from(handler.into_handler()));
+		// hs = hs.wrap_with(WrapperLayer{_mark: PhantomData});
+		// is_handler(hs);
+
+		// let hs = HandlerService::from_handler(handler);
+		// is_handler(hs);
 	}
 }
+

@@ -19,9 +19,9 @@ pub struct Resource {
 	regex_resources: Option<Vec<Resource>>,
 	wildcard_resource: Option<Box<Resource>>,
 
-	request_receiver: Option<HandlerService<Incoming>>,
-	request_passer: Option<HandlerService<Incoming>>,
-	request_handler: Option<HandlerService<Incoming>>,
+	request_receiver: Option<BoxedHandler<Incoming>>,
+	request_passer: Option<BoxedHandler<Incoming>>,
+	request_handler: Option<BoxedHandler<Incoming>>,
 
 	handlers: Handlers<Incoming>,
 
