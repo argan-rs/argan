@@ -28,7 +28,7 @@ pub struct Resource {
 	request_passer: Option<BoxedHandler<Incoming>>,
 	request_handler: Option<BoxedHandler<Incoming>>,
 
-	handlers: Handlers<Incoming>,
+	handlers: MethodHandlers<Incoming>,
 
 	state: Vec<Arc<dyn Any + Send + Sync>>,
 
@@ -54,7 +54,7 @@ impl Resource {
 			request_receiver: None,
 			request_passer: None,
 			request_handler: None,
-			handlers: Handlers::new(),
+			handlers: MethodHandlers::new(),
 			state: Vec::new(),
 			is_subtree_handler: false,
 		}

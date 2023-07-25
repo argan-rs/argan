@@ -11,14 +11,14 @@ use super::BoxedHandler;
 
 // --------------------------------------------------------------------------------
 
-pub(crate) struct Handlers<B> {
+pub(crate) struct MethodHandlers<B> {
 	method_handlers: Vec<(Method, BoxedHandler<B>)>,
 	unsupported_method_handler: Option<BoxedHandler<B>>,
 }
 
-impl<B> Handlers<B> {
-	pub(crate) fn new() -> Handlers<B> {
-		Handlers {
+impl<B> MethodHandlers<B> {
+	pub(crate) fn new() -> MethodHandlers<B> {
+		MethodHandlers {
 			method_handlers: Vec::new(),
 			unsupported_method_handler: None,
 		}

@@ -200,52 +200,52 @@ pub trait Layer<S> {
 	fn layer(&self, inner: S) -> Self::Service;
 }
 
-struct Wrapper<H, RqB> {
-	inner: H,
-	_mark: PhantomData<RqB>,
-}
-
-impl<H, RqB> Clone for Wrapper<H, RqB>
-where
-	H: Clone,
-{
-	fn clone(&self) -> Self {
-		Wrapper {
-			inner: self.inner.clone(),
-			_mark: PhantomData,
-		}
-	}
-}
-
-impl<H, RqB> Service<Request<RqB>> for Wrapper<H, RqB>
-where
-	H: Handler<
-		RqB,
-		Response = Response,
-		Error = BoxedError,
-		Future = BoxedFuture<Result<Response, BoxedError>>,
-	>,
-{
-	type Response = H::Response;
-	type Error = H::Error;
-	type Future = H::Future;
-
-	fn call(&self, req: Request<RqB>) -> Self::Future {
-		self.inner.call(req)
-	}
-}
-
-struct WrapperLayer<RqB> {
-	_mark: PhantomData<RqB>,
-}
-
-impl<H, RqB> Layer<H> for WrapperLayer<RqB> {
-	type Service = Wrapper<H, RqB>;
-
-	fn layer(&self, inner: H) -> Self::Service {
-		Wrapper {
-			inner,
-			_mark: PhantomData,
-		}
-	}
-}
+// struct Wrapper<H, RqB> {
+// 	inner: H,
+// 	_mark: PhantomData<RqB>,
+// }
+//
+// impl<H, RqB> Clone for Wrapper<H, RqB>
+// where
+// 	H: Clone,
+// {
+// 	fn clone(&self) -> Self {
+// 		Wrapper {
+// 			inner: self.inner.clone(),
+// 			_mark: PhantomData,
+// 		}
+// 	}
+// }
+//
+// impl<H, RqB> Service<Request<RqB>> for Wrapper<H, RqB>
+// where
+// 	H: Handler<
+// 		RqB,
+// 		Response = Response,
+// 		Error = BoxedError,
+// 		Future = BoxedFuture<Result<Response, BoxedError>>,
+// 	>,
+// {
+// 	type Response = H::Response;
+// 	type Error = H::Error;
+// 	type Future = H::Future;
+//
+// 	fn call(&self, req: Request<RqB>) -> Self::Future {
+// 		self.inner.call(req)
+// 	}
+// }
+//
+// struct WrapperLayer<RqB> {
+// 	_mark: PhantomData<RqB>,
+// }
+//
+// impl<H, RqB> Layer<H> for WrapperLayer<RqB> {
+// 	type Service = Wrapper<H, RqB>;
+//
+// 	fn layer(&self, inner: H) -> Self::Service {
+// 		Wrapper {
+// 			inner,
+// 			_mark: PhantomData,
+// 		}
+// 	}
+// }
