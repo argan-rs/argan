@@ -8,6 +8,7 @@ authors = ["Shohruh Adham <shohruh.adham@gmail.com>"]
 
 [dependencies]
 either = "1.8.1"
-http-body-util = "0.1.0-rc.2"
-hyper = { version = "1.0.0-rc.3", features = ["full"] }
-regex = "1.8.2"
+http = "0.2.9"
+http-body-util = "0.1.0-rc.3"
+hyper = { version = "1.0.0-rc.4", features = ["full"] }
+regex = "1.9.1"
