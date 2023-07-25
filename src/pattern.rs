@@ -1,10 +1,4 @@
-use std::{
-	collections::HashMap,
-	fmt::{format, Display},
-	iter::Peekable,
-	str::Chars,
-	sync::Arc,
-};
+use std::{fmt::Display, iter::Peekable, str::Chars, sync::Arc};
 
 use regex::Regex;
 
