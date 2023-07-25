@@ -45,7 +45,7 @@ where
 	}
 }
 
-// ---------- 
+// ----------
 
 impl<Func, A, B, Fut, R, E> Service<Request<B>> for HandlerFn<Func, (A, R)>
 where
@@ -91,11 +91,14 @@ where
 {
 	#[inline]
 	fn into_handler(self) -> HandlerFn<Func, (A, R)> {
-		HandlerFn{func: self, _mark: PhantomData}
+		HandlerFn {
+			func: self,
+			_mark: PhantomData,
+		}
 	}
 }
 
-// ---------- 
+// ----------
 
 impl<Func, A1, LA, B, Fut, R, E> Service<Request<B>> for HandlerFn<Func, (A1, LA, R)>
 where
@@ -153,7 +156,10 @@ where
 {
 	#[inline]
 	fn into_handler(self) -> HandlerFn<Func, (A1, LA, R)> {
-		HandlerFn{func: self, _mark: PhantomData}
+		HandlerFn {
+			func: self,
+			_mark: PhantomData,
+		}
 	}
 }
 
@@ -173,7 +179,8 @@ mod test {
 		H: Handler<B>,
 		H::Response: IntoResponse,
 		H::Error: Into<BoxedError>,
-	{}
+	{
+	}
 
 	fn is_into_handler<IH, H, B>(_: IH)
 	where
@@ -181,7 +188,8 @@ mod test {
 		H: Handler<B>,
 		H::Response: IntoResponse,
 		H::Error: Into<BoxedError>,
-	{}
+	{
+	}
 
 	fn test() {
 		is_into_handler(handler_fn);
@@ -200,4 +208,3 @@ mod test {
 		// is_handler(hs);
 	}
 }
-

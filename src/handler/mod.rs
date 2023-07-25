@@ -210,13 +210,21 @@ where
 	H: Clone,
 {
 	fn clone(&self) -> Self {
-		Wrapper{inner: self.inner.clone(), _mark: PhantomData}
+		Wrapper {
+			inner: self.inner.clone(),
+			_mark: PhantomData,
+		}
 	}
 }
 
 impl<H, RqB> Service<Request<RqB>> for Wrapper<H, RqB>
 where
-	H: Handler<RqB, Response = Response, Error = BoxedError, Future = BoxedFuture<Result<Response, BoxedError>>>,
+	H: Handler<
+		RqB,
+		Response = Response,
+		Error = BoxedError,
+		Future = BoxedFuture<Result<Response, BoxedError>>,
+	>,
 {
 	type Response = H::Response;
 	type Error = H::Error;
@@ -235,6 +243,9 @@ impl<H, RqB> Layer<H> for WrapperLayer<RqB> {
 	type Service = Wrapper<H, RqB>;
 
 	fn layer(&self, inner: H) -> Self::Service {
-		Wrapper{inner, _mark: PhantomData}
+		Wrapper {
+			inner,
+			_mark: PhantomData,
+		}
 	}
 }

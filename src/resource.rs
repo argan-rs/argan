@@ -1,3 +1,8 @@
+use std::{
+	any::{Any, TypeId},
+	sync::Arc,
+};
+
 use super::{
 	body::Incoming,
 	handler::{request_handler::*, *},
@@ -25,6 +30,8 @@ pub struct Resource {
 
 	handlers: Handlers<Incoming>,
 
+	state: Vec<Arc<dyn Any + Send + Sync>>,
+
 	// TODO: configs, state, redirect, parent
 	is_subtree_handler: bool,
 }
@@ -48,6 +55,7 @@ impl Resource {
 			request_passer: None,
 			request_handler: None,
 			handlers: Handlers::new(),
+			state: Vec::new(),
 			is_subtree_handler: false,
 		}
 	}
@@ -631,17 +639,32 @@ impl Resource {
 
 	pub fn set_state<S>(&mut self, state: S)
 	where
-		S: Clone + 'static,
+		S: Clone + Send + Sync + 'static,
 	{
-		// self.state = Some(Arc::new(state));
+		let state_type_id = state.type_id();
+
+		if self
+			.state
+			.iter()
+			.any(|existing_state| (*existing_state).type_id() == state_type_id)
+		{
+			panic!(
+				"resource already has a state of type '{:?}'",
+				TypeId::of::<S>()
+			)
+		}
+
+		self.state.push(Arc::new(state));
 	}
 
 	pub fn state<S>(&self) -> Option<&S>
 	where
-		S: Clone + 'static,
+		S: Clone + Send + Sync + 'static,
 	{
-		// self.state.and_then(|state| state.downcast_ref::<S>())
-		todo!()
+		self
+			.state
+			.iter()
+			.find_map(|state| state.downcast_ref::<S>())
 	}
 
 	// pub fn set_config(&mut self, config: Config) {
