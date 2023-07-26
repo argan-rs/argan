@@ -89,8 +89,7 @@ where
 			.extensions_mut()
 			.insert(HandlerState(self.state.clone()))
 		{
-			// TODO: Improve the error message by implementing Debug for the HandlerState.
-			panic!("multiple insertions of a state with the same type")
+			panic!("state with the same type exists")
 		}
 
 		self.inner.call(req)
