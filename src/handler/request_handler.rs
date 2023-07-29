@@ -1,6 +1,7 @@
 use hyper::header::{HeaderName, HeaderValue};
 
 use crate::{
+	body::IncomingBody,
 	request::Request,
 	response::Response,
 	routing::{Method, StatusCode, UnusedRequest},
@@ -10,14 +11,15 @@ use crate::{
 use super::BoxedHandler;
 
 // --------------------------------------------------------------------------------
+// --------------------------------------------------------------------------------
 
-pub(crate) struct MethodHandlers<B> {
-	method_handlers: Vec<(Method, BoxedHandler<B>)>,
-	unsupported_method_handler: Option<BoxedHandler<B>>,
+pub(crate) struct MethodHandlers {
+	method_handlers: Vec<(Method, BoxedHandler)>,
+	unsupported_method_handler: Option<BoxedHandler>,
 }
 
-impl<B> MethodHandlers<B> {
-	pub(crate) fn new() -> MethodHandlers<B> {
+impl MethodHandlers {
+	pub(crate) fn new() -> MethodHandlers {
 		MethodHandlers {
 			method_handlers: Vec::new(),
 			unsupported_method_handler: None,
@@ -30,7 +32,7 @@ impl<B> MethodHandlers<B> {
 	}
 
 	#[inline]
-	pub(crate) fn set_handler(&mut self, method: Method, handler: BoxedHandler<B>) {
+	pub(crate) fn set_handler(&mut self, method: Method, handler: BoxedHandler) {
 		if self.method_handlers.iter().any(|(m, _)| m == method) {
 			panic!("{} handler already exists", method)
 		}
@@ -49,10 +51,10 @@ impl<B> MethodHandlers<B> {
 	}
 
 	#[inline]
-	pub(crate) fn handle(&self, mut request: Request<B>) -> BoxedFuture<Result<Response, BoxedError>>
-	where
-		B: Send + Sync + 'static,
-	{
+	pub(crate) fn handle(
+		&self,
+		mut request: Request<IncomingBody>,
+	) -> BoxedFuture<Result<Response, BoxedError>> {
 		let method = request.method().clone();
 		let some_handler = self
 			.method_handlers
@@ -80,7 +82,7 @@ impl<B> MethodHandlers<B> {
 pub(crate) struct AllowedMethods(String);
 
 #[inline]
-async fn handle_not_allowed_method<RqB>(mut request: Request<RqB>) -> Result<Response, BoxedError> {
+fn handle_not_allowed_method(mut request: Request<IncomingBody>) -> Result<Response, BoxedError> {
 	let allowed_methods = request.extensions_mut().remove::<AllowedMethods>().unwrap();
 	let allowed_methods_header_value = HeaderValue::from_str(&allowed_methods.0).unwrap();
 
@@ -94,10 +96,10 @@ async fn handle_not_allowed_method<RqB>(mut request: Request<RqB>) -> Result<Res
 	Ok(response)
 }
 
-// --------------------------------------------------
-
 #[inline]
-pub(crate) async fn misdirected_request_handler(request: Request) -> Result<Response, BoxedError> {
+pub(crate) async fn misdirected_request_handler(
+	request: Request<IncomingBody>,
+) -> Result<Response, BoxedError> {
 	let mut response = Response::default();
 	*response.status_mut() = StatusCode::NOT_FOUND;
 	response

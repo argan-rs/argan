@@ -1,9 +1,10 @@
 use std::{future::Future, marker::PhantomData};
 
 use crate::{
+	body::IncomingBody,
 	request::{FromRequest, FromRequestParts},
 	response::{IntoResponse, Response},
-	utils::{BoxedError, BoxedFuture, Either},
+	utils::{BoxedError, BoxedFuture},
 };
 
 use super::*;
@@ -30,9 +31,9 @@ struct HandlerFn<Func, M> {
 
 // ----------
 
-impl<Func, RqB, Fut, E> Service<Request<RqB>> for HandlerFn<Func, Request<RqB>>
+impl<Func, Fut, E> Service<Request<IncomingBody>> for HandlerFn<Func, Request<IncomingBody>>
 where
-	Func: Fn(Request<RqB>) -> Fut,
+	Func: Fn(Request<IncomingBody>) -> Fut,
 	Fut: Future<Output = Result<Response, E>>,
 	E: Into<BoxedError>,
 {
@@ -40,18 +41,18 @@ where
 	type Error = E;
 	type Future = Fut;
 
-	fn call(&self, req: Request<RqB>) -> Self::Future {
+	fn call(&self, req: Request<IncomingBody>) -> Self::Future {
 		(self.func)(req)
 	}
 }
 
 // ----------
 
-impl<Func, A, B, Fut, R, E> Service<Request<B>> for HandlerFn<Func, (A, R)>
+impl<Func, A, Fut, R, E> Service<Request<IncomingBody>> for HandlerFn<Func, (A, R)>
 where
 	Func: Fn(A) -> Fut + Clone + 'static,
-	A: FromRequest<B>,
-	B: 'static,
+	A: FromRequest<IncomingBody>,
+	IncomingBody: 'static,
 	Fut: Future<Output = Result<R, E>>,
 	R: IntoResponse,
 	E: Into<BoxedError>,
@@ -61,14 +62,13 @@ where
 	type Future = BoxedFuture<Result<Self::Response, Self::Error>>;
 
 	#[inline]
-	fn call(&self, req: Request<B>) -> Self::Future {
+	fn call(&self, req: Request<IncomingBody>) -> Self::Future {
 		let func_clone = self.func.clone();
 
 		Box::pin(async move {
-			let arg = match A::from_request(req) {
+			let arg = match A::from_request(req).await {
 				Ok(v) => v,
-				Err(Either::Left(v)) => return Ok(v.into_response()),
-				Err(Either::Right(e)) => return Err(e.into()),
+				Err(e) => return Err(e.into()),
 			};
 
 			match (func_clone)(arg).await {
@@ -79,11 +79,11 @@ where
 	}
 }
 
-impl<Func, A, B, Fut, R, E, S> IntoHandler<HandlerFn<Func, (A, R)>, B, S> for Func
+impl<Func, A, Fut, R, E, S> IntoHandler<HandlerFn<Func, (A, R)>, S> for Func
 where
 	Func: Fn(A) -> Fut + Clone + Send + Sync + 'static,
-	A: FromRequest<B> + 'static,
-	B: Send + Sync + 'static,
+	A: FromRequest<IncomingBody> + 'static,
+	IncomingBody: Send + 'static,
 	Fut: Future<Output = Result<R, E>>,
 	R: IntoResponse + 'static,
 	E: Into<BoxedError>,
@@ -100,12 +100,12 @@ where
 
 // ----------
 
-impl<Func, A1, LA, B, Fut, R, E> Service<Request<B>> for HandlerFn<Func, (A1, LA, R)>
+impl<Func, A1, LA, Fut, R, E> Service<Request<IncomingBody>> for HandlerFn<Func, (A1, LA, R)>
 where
 	Func: Fn(A1, LA) -> Fut + Clone + 'static,
 	A1: FromRequestParts,
-	LA: FromRequest<B>,
-	B: 'static,
+	LA: FromRequest<IncomingBody>,
+	IncomingBody: 'static,
 	Fut: Future<Output = Result<R, E>>,
 	R: IntoResponse,
 	E: Into<BoxedError>,
@@ -115,24 +115,22 @@ where
 	type Future = BoxedFuture<Result<Self::Response, Self::Error>>;
 
 	#[inline]
-	fn call(&self, req: Request<B>) -> Self::Future {
+	fn call(&self, req: Request<IncomingBody>) -> Self::Future {
 		let mut func_clone = self.func.clone(); // TODO: Maybe we should clone on a call side or we should clone the func?
 
 		Box::pin(async move {
 			let (parts, body) = req.into_parts();
 
-			let arg1 = match A1::from_request_parts(&parts) {
+			let arg1 = match A1::from_request_parts(&parts).await {
 				Ok(v) => v,
-				Err(Either::Left(v)) => return Ok(v.into_response()),
-				Err(Either::Right(e)) => return Err(e.into()),
+				Err(e) => return Err(e.into()),
 			};
 
-			let req = Request::<B>::from_parts(parts, body);
+			let req = Request::<IncomingBody>::from_parts(parts, body);
 
-			let last_arg = match LA::from_request(req) {
+			let last_arg = match LA::from_request(req).await {
 				Ok(v) => v,
-				Err(Either::Left(v)) => return Ok(v.into_response()),
-				Err(Either::Right(e)) => return Err(e.into()),
+				Err(e) => return Err(e.into()),
 			};
 
 			match (func_clone)(arg1, last_arg).await {
@@ -143,12 +141,12 @@ where
 	}
 }
 
-impl<Func, A1, LA, B, Fut, R, E, S> IntoHandler<HandlerFn<Func, (A1, LA, R)>, B, S> for Func
+impl<Func, A1, LA, Fut, R, E, S> IntoHandler<HandlerFn<Func, (A1, LA, R)>, S> for Func
 where
 	Func: Fn(A1, LA) -> Fut + Clone + Send + Sync + 'static,
 	A1: FromRequestParts + 'static,
-	LA: FromRequest<B> + 'static,
-	B: 'static,
+	LA: FromRequest<IncomingBody> + 'static,
+	IncomingBody: 'static,
 	Fut: Future<Output = Result<R, E>>,
 	R: IntoResponse + 'static,
 	E: Into<BoxedError>,
@@ -174,18 +172,18 @@ mod test {
 		todo!()
 	}
 
-	fn is_handler<H, B>(_: H)
+	fn is_handler<H>(_: H)
 	where
-		H: Handler<B>,
+		H: Handler,
 		H::Response: IntoResponse,
 		H::Error: Into<BoxedError>,
 	{
 	}
 
-	fn is_into_handler<IH, H, B>(_: IH)
+	fn is_into_handler<IH, H>(_: IH)
 	where
-		IH: IntoHandler<H, B>,
-		H: Handler<B>,
+		IH: IntoHandler<H>,
+		H: Handler,
 		H::Response: IntoResponse,
 		H::Error: Into<BoxedError>,
 	{
