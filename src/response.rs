@@ -1,9 +1,9 @@
 use super::body::*;
-use super::utils::BoxedError;
 
-// --------------------------------------------------
+// --------------------------------------------------------------------------------
+// --------------------------------------------------------------------------------
 
-pub type Response<B = BoxedBody<Bytes, BoxedError>> = hyper::http::response::Response<B>;
+pub type Response = hyper::http::response::Response<BoxedBody>;
 
 // --------------------------------------------------
 

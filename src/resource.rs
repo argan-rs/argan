@@ -25,11 +25,11 @@ pub struct Resource {
 	regex_resources: Vec<Resource>,
 	wildcard_resource: Option<Box<Resource>>,
 
-	request_receiver: Option<BoxedHandler<Incoming>>,
-	request_passer: Option<BoxedHandler<Incoming>>,
-	request_handler: Option<BoxedHandler<Incoming>>,
+	request_receiver: Option<BoxedHandler>,
+	request_passer: Option<BoxedHandler>,
+	request_handler: Option<BoxedHandler>,
 
-	method_handlers: MethodHandlers<Incoming>,
+	method_handlers: MethodHandlers,
 
 	state: Vec<Arc<dyn Any + Send + Sync>>,
 
@@ -761,7 +761,6 @@ impl Resource {
 	pub fn set_handler<H>(&mut self, method: Method, handler: impl IntoHandler<H, Incoming>)
 	where
 		H: Handler<
-			Incoming,
 			Response = Response,
 			Error = BoxedError,
 			Future = BoxedFuture<Result<Response, BoxedError>>,
@@ -775,7 +774,6 @@ impl Resource {
 	pub fn wrap_request_receiver<H>(&mut self, layer: impl Layer<H>)
 	where
 		H: Handler<
-			Incoming,
 			Response = Response,
 			Error = BoxedError,
 			Future = BoxedFuture<Result<Response, BoxedError>>,
@@ -787,7 +785,6 @@ impl Resource {
 	pub fn wrap_request_passer<H>(&mut self, layer: impl Layer<H>)
 	where
 		H: Handler<
-			Incoming,
 			Response = Response,
 			Error = BoxedError,
 			Future = BoxedFuture<Result<Response, BoxedError>>,
@@ -799,7 +796,6 @@ impl Resource {
 	pub fn wrap_request_handler<H>(&mut self, layer: impl Layer<H>)
 	where
 		H: Handler<
-			Incoming,
 			Response = Response,
 			Error = BoxedError,
 			Future = BoxedFuture<Result<Response, BoxedError>>,
@@ -811,7 +807,6 @@ impl Resource {
 	pub fn wrap_method_handler<H>(&mut self, method: Method, layer: impl Layer<H>)
 	where
 		H: Handler<
-			Incoming,
 			Response = Response,
 			Error = BoxedError,
 			Future = BoxedFuture<Result<Response, BoxedError>>,
@@ -859,7 +854,6 @@ impl Resource {
 		handler: impl IntoHandler<H, Incoming>,
 	) where
 		H: Handler<
-			Incoming,
 			Response = Response,
 			Error = BoxedError,
 			Future = BoxedFuture<Result<Response, BoxedError>>,
@@ -872,7 +866,6 @@ impl Resource {
 	pub fn wrap_sub_resource_request_receiver<H>(&mut self, route: &str, layer: impl Layer<H>)
 	where
 		H: Handler<
-			Incoming,
 			Response = Response,
 			Error = BoxedError,
 			Future = BoxedFuture<Result<Response, BoxedError>>,
@@ -884,7 +877,6 @@ impl Resource {
 	pub fn wrap_sub_resource_request_passer<H>(&mut self, route: &str, layer: impl Layer<H>)
 	where
 		H: Handler<
-			Incoming,
 			Response = Response,
 			Error = BoxedError,
 			Future = BoxedFuture<Result<Response, BoxedError>>,
@@ -896,7 +888,6 @@ impl Resource {
 	pub fn wrap_sub_resource_request_handler<H>(&mut self, route: &str, layer: impl Layer<H>)
 	where
 		H: Handler<
-			Incoming,
 			Response = Response,
 			Error = BoxedError,
 			Future = BoxedFuture<Result<Response, BoxedError>>,
@@ -912,7 +903,6 @@ impl Resource {
 		layer: impl Layer<H>,
 	) where
 		H: Handler<
-			Incoming,
 			Response = Response,
 			Error = BoxedError,
 			Future = BoxedFuture<Result<Response, BoxedError>>,
@@ -956,7 +946,6 @@ impl Resource {
 	pub fn wrap_sub_resources_request_receivers<H>(&mut self, layer: impl Layer<H>)
 	where
 		H: Handler<
-			Incoming,
 			Response = Response,
 			Error = BoxedError,
 			Future = BoxedFuture<Result<Response, BoxedError>>,
@@ -968,7 +957,6 @@ impl Resource {
 	pub fn wrap_sub_resources_request_passers<H>(&mut self, layer: impl Layer<H>)
 	where
 		H: Handler<
-			Incoming,
 			Response = Response,
 			Error = BoxedError,
 			Future = BoxedFuture<Result<Response, BoxedError>>,
@@ -980,7 +968,6 @@ impl Resource {
 	pub fn wrap_sub_resources_request_handlers<H>(&mut self, layer: impl Layer<H>)
 	where
 		H: Handler<
-			Incoming,
 			Response = Response,
 			Error = BoxedError,
 			Future = BoxedFuture<Result<Response, BoxedError>>,
@@ -992,7 +979,6 @@ impl Resource {
 	pub fn wrap_sub_resources_method_handlers<H>(&mut self, method: Method, layer: impl Layer<H>)
 	where
 		H: Handler<
-			Incoming,
 			Response = Response,
 			Error = BoxedError,
 			Future = BoxedFuture<Result<Response, BoxedError>>,
