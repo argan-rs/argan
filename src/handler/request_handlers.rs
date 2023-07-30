@@ -3,12 +3,14 @@ use hyper::header::{HeaderName, HeaderValue};
 use crate::{
 	body::IncomingBody,
 	request::Request,
-	response::Response,
+	response::{IntoResponse, Response},
 	routing::{Method, StatusCode, UnusedRequest},
 	utils::{BoxedError, BoxedFuture},
 };
 
-use super::BoxedHandler;
+use super::{
+	AdaptiveHandler, BoxedHandler, Handler, Layer, RequestBodyAdapter, ResponseBodyAdapter, Service,
+};
 
 // --------------------------------------------------------------------------------
 // --------------------------------------------------------------------------------
@@ -38,6 +40,30 @@ impl MethodHandlers {
 		}
 
 		self.method_handlers.push((method, handler));
+	}
+
+	#[inline]
+	pub(crate) fn wrap_handler<L>(&mut self, method: Method, layer: L)
+	where
+		L: Layer<AdaptiveHandler>,
+		L::Service: Handler,
+		<L::Service as Service<Request>>::Response: IntoResponse,
+		<L::Service as Service<Request>>::Error: Into<BoxedError>,
+	{
+		let Some(position) = self.method_handlers.iter().position(|(m, _)| m == method) else {
+			panic!("{} handler doesn't exists", method)
+		};
+
+		let (method, handler) = std::mem::replace(
+			&mut self.method_handlers[position],
+			(method, BoxedHandler::default()),
+		);
+		let adaptive_handler = AdaptiveHandler::wrap(RequestBodyAdapter::wrap(handler));
+		let layered_handler = layer.layer(adaptive_handler);
+		let adapter_handler = ResponseBodyAdapter::wrap(layered_handler);
+		let handler = adapter_handler.into_boxed_handler();
+
+		self.method_handlers[position] = (method, handler);
 	}
 
 	pub(crate) fn allowed_methods(&self) -> AllowedMethods {
