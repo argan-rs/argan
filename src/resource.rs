@@ -8,7 +8,7 @@ use crate::response::IntoResponse;
 
 use super::{
 	body::Incoming,
-	handler::{request_handler::*, *},
+	handler::{request_handlers::*, *},
 	pattern::{Pattern, Similarity},
 	request::Request,
 	response::Response,
@@ -806,15 +806,14 @@ impl Resource {
 		todo!()
 	}
 
-	pub fn wrap_method_handler<H>(&mut self, method: Method, layer: impl Layer<H>)
+	pub fn wrap_method_handler<L>(&mut self, method: Method, layer: L)
 	where
-		H: Handler<
-			Response = Response,
-			Error = BoxedError,
-			Future = BoxedFuture<Result<Response, BoxedError>>,
-		>,
+		L: Layer<AdaptiveHandler>,
+		<L>::Service: Handler,
+		<L::Service as Service<Request>>::Response: IntoResponse,
+		<L::Service as Service<Request>>::Error: Into<BoxedError>,
 	{
-		todo!()
+		self.method_handlers.wrap_handler(method, layer);
 	}
 
 	// -------------------------
