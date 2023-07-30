@@ -4,6 +4,8 @@ use std::{
 	sync::Arc,
 };
 
+use crate::response::IntoResponse;
+
 use super::{
 	body::Incoming,
 	handler::{request_handler::*, *},
@@ -758,17 +760,17 @@ impl Resource {
 	// 	todo!()
 	// }
 
-	pub fn set_handler<H>(&mut self, method: Method, handler: impl IntoHandler<H, Incoming>)
+	pub fn set_handler<H, S>(&mut self, method: Method, handler: impl IntoHandler<H, S>)
 	where
-		H: Handler<
-			Response = Response,
-			Error = BoxedError,
-			Future = BoxedFuture<Result<Response, BoxedError>>,
-		>,
+		H: Handler,
+		H::Response: IntoResponse,
+		H::Error: Into<BoxedError>,
 	{
-		self
-			.method_handlers
-			.set_handler(method, BoxedHandler::from(handler.into_handler()))
+		let adapter_handler = ResponseBodyAdapter::wrap(handler.into_handler());
+		self.method_handlers.set_handler(
+			method,
+			BoxedHandler::from(adapter_handler.into_boxed_handler()),
+		)
 	}
 
 	pub fn wrap_request_receiver<H>(&mut self, layer: impl Layer<H>)

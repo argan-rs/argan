@@ -198,6 +198,9 @@ mod test {
 		let h = handler_fn.with_state(1u8);
 		is_into_handler(h);
 
+		let boxed_handler = BoxedHandler::default();
+		is_handler(boxed_handler);
+
 		// let mut hs = HandlerService(BoxedHandler::from(handler.into_handler()));
 		// hs = hs.wrap_with(WrapperLayer{_mark: PhantomData});
 		// is_handler(hs);
