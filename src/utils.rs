@@ -1,7 +1,5 @@
 use std::{future::Future, pin::Pin};
 
-pub use either::Either;
-
 use super::pattern::Pattern;
 
 // --------------------------------------------------

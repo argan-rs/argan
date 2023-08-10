@@ -1,262 +1,254 @@
-use std::fmt::Debug;
+use std::{convert::Infallible, fmt::Debug, future::Future, marker::PhantomData};
 
 pub use hyper::service::Service;
 
 use crate::{
 	body::Body,
 	body::IncomingBody,
+	middleware::{Layer, RequestBodyAdapter},
 	request::Request,
-	response::{IntoResponse, Response},
+	response::Response,
 	utils::{BoxedError, BoxedFuture},
 };
 
 // --------------------------------------------------
 
-pub mod impls;
 pub(crate) mod futures;
+use self::futures::*;
+
+pub mod impls;
 pub(crate) mod request_handlers;
 
 // --------------------------------------------------------------------------------
 // --------------------------------------------------------------------------------
 
-pub trait Handler
-where
-	Self: Service<Request> + Send + Sync + 'static,
-	Self::Response: IntoResponse,
-	Self::Error: Into<BoxedError>,
-{
+pub trait Handler<B = IncomingBody> {
+	type Response;
+	type Future: Future<Output = Self::Response>;
+
+	fn handle(&self, request: Request<B>) -> Self::Future;
 }
 
-impl<S> Handler for S
+impl<S, B> Handler<B> for S
 where
-	S: Service<Request> + Send + Sync + 'static,
-	Self::Response: IntoResponse,
-	Self::Error: Into<BoxedError>,
+	S: Service<Request<B>, Error = Infallible>,
 {
+	type Response = S::Response;
+	type Future = ResultToResponseFuture<S::Future>;
+
+	fn handle(&self, request: Request<B>) -> Self::Future {
+		let result_future = self.call(request);
+
+		ResultToResponseFuture::from(result_future)
+	}
 }
 
 // -------------------------
 
-pub trait IntoHandler<H, S = ()>
-where
-	Self: Sized,
-	H: Handler,
-	H::Response: IntoResponse,
-	H::Error: Into<BoxedError>,
-{
-	fn into_handler(self) -> H;
+pub trait IntoHandler<B = IncomingBody>: Sized {
+	type Handler: Handler<B>;
 
-	#[inline]
-	fn with_state(self, state: S) -> StatefulHandler<H, S> {
-		StatefulHandler {
-			inner: self.into_handler(),
-			state,
-		}
+	fn into_handler(self) -> Self::Handler;
+
+	fn with_state<S>(self, state: S) -> StatefulHandler<Self::Handler, S> {
+		StatefulHandler::new(self.into_handler(), state)
+	}
+
+	fn wrapped_in<L, NewB>(self, layer: L) -> L::Handler
+	where
+		L: Layer<Self::Handler, B, NewB>,
+	{
+		layer.wrap(self.into_handler())
 	}
 }
 
-impl<H, S> IntoHandler<H, S> for H
+impl<H, B> IntoHandler<B> for H
 where
-	H: Handler,
-	H::Response: IntoResponse,
-	H::Error: Into<BoxedError>,
+	H: Handler<B>,
 {
-	#[inline]
-	fn into_handler(self) -> H {
+	type Handler = Self;
+
+	fn into_handler(self) -> Self::Handler {
 		self
 	}
 }
 
+// --------------------------------------------------------------------------------
+
+pub struct HandlerService<H, B> {
+	handler: H,
+	_body_mark: PhantomData<B>,
+}
+
+impl<H, B> From<H> for HandlerService<H, B> {
+	#[inline]
+	fn from(handler: H) -> Self {
+		Self {
+			handler,
+			_body_mark: PhantomData,
+		}
+	}
+}
+
+impl<H, B> Service<Request<B>> for HandlerService<H, B>
+where
+	H: Handler<B>,
+{
+	type Response = H::Response;
+	type Error = Infallible;
+	type Future = ResponseToResultFuture<H::Future>;
+
+	#[inline]
+	fn call(&self, request: Request<B>) -> Self::Future {
+		let response_future = self.handler.handle(request);
+
+		ResponseToResultFuture::from(response_future)
+	}
+}
+
 // -------------------------
-
-pub(crate) trait ReadyHandler:
-	Handler<Response = Response, Error = BoxedError, Future = BoxedFuture<Result<Response, BoxedError>>>
-{
-}
-
-impl<H> ReadyHandler for H where
-	H: Handler<
-		Response = Response,
-		Error = BoxedError,
-		Future = BoxedFuture<Result<Response, BoxedError>>,
-	>
-{
-}
-
-// --------------------------------------------------
 
 pub struct StatefulHandler<H, S> {
 	inner: H,
 	state: S,
 }
 
-impl<H, S> Service<Request<IncomingBody>> for StatefulHandler<H, S>
+impl<H, S> StatefulHandler<H, S> {
+	pub fn new(inner: H, state: S) -> Self {
+		Self { inner, state }
+	}
+}
+
+impl<H, B, S> Handler<B> for StatefulHandler<H, S>
 where
-	H: Handler,
-	H::Response: IntoResponse,
-	H::Error: Into<BoxedError>,
+	H: Handler<B>,
 	S: Clone + Send + Sync + 'static,
 {
 	type Response = H::Response;
-	type Error = H::Error;
 	type Future = H::Future;
 
 	#[inline]
-	fn call(&self, mut req: Request<IncomingBody>) -> Self::Future {
-		if let Some(_previous_state_with_the_same_type) = req
+	fn handle(&self, mut request: Request<B>) -> Self::Future {
+		if let Some(_previous_state_with_the_same_type) = request
 			.extensions_mut()
 			.insert(HandlerState(self.state.clone()))
 		{
 			panic!("state with the same type exists")
 		}
 
-		self.inner.call(req)
+		self.inner.handle(request)
 	}
 }
 
-// --------------------------------------------------
+// ----------
 
 pub struct HandlerState<S>(S);
 
-// --------------------------------------------------
+// --------------------------------------------------------------------------------
 
-pub(crate) struct RequestBodyAdapter<H>(H);
-
-impl<H, B> Service<Request<B>> for RequestBodyAdapter<H>
+pub(crate) trait ReadyHandler
 where
-	H: ReadyHandler,
-	B: Body + Send + Sync + 'static,
-	B::Data: Debug,
-	B::Error: Into<BoxedError>,
+	Self: Handler<IncomingBody, Response = Response, Future = BoxedFuture<Response>> + Sync,
 {
-	type Response = H::Response;
-	type Error = H::Error;
-	type Future = H::Future;
-
-	#[inline]
-	fn call(&self, req: Request<B>) -> Self::Future {
-		let (parts, body) = req.into_parts();
-		let body = IncomingBody::new(body);
-		let req = Request::from_parts(parts, body);
-
-		self.0.call(req)
-	}
 }
 
-impl<H> RequestBodyAdapter<H> {
-	#[inline]
-	fn wrap(handler: H) -> Self {
-		Self(handler)
-	}
-}
-
-// -------------------------
-
-pub(crate) struct ResponseBodyAdapter<H>(H);
-
-impl<H> Service<Request<IncomingBody>> for ResponseBodyAdapter<H>
-where
-	H: Handler,
-	H::Response: IntoResponse,
-	H::Error: Into<BoxedError>,
+impl<H> ReadyHandler for H where
+	H: Handler<IncomingBody, Response = Response, Future = BoxedFuture<Response>> + Sync
 {
-	type Response = Response;
-	type Error = BoxedError;
-	type Future = BoxedFuture<Result<Self::Response, Self::Error>>;
-
-	#[inline]
-	fn call(&self, req: Request<IncomingBody>) -> Self::Future {
-		let future_result = self.0.call(req);
-
-		Box::pin(async move {
-			match future_result.await {
-				Ok(res) => Ok(res.into_response()),
-				Err(err) => Err(err.into()),
-			}
-		})
-	}
-}
-
-impl<H> ResponseBodyAdapter<H>
-where
-	H: Handler,
-	H::Response: IntoResponse,
-	H::Error: Into<BoxedError>,
-{
-	#[inline]
-	pub(crate) fn wrap(handler: H) -> Self {
-		Self(handler)
-	}
-
-	#[inline]
-	pub(crate) fn into_boxed_handler(self) -> BoxedHandler {
-		Box::new(self)
-	}
 }
 
 // --------------------------------------------------
 
 pub(crate) type BoxedHandler = Box<dyn ReadyHandler>;
 
-impl Service<Request<IncomingBody>> for BoxedHandler {
+impl Handler<IncomingBody> for BoxedHandler {
 	type Response = Response;
-	type Error = BoxedError;
-	type Future = BoxedFuture<Result<Self::Response, Self::Error>>;
+	type Future = BoxedFuture<Self::Response>;
 
 	#[inline]
-	fn call(&self, req: Request<IncomingBody>) -> Self::Future {
-		self.as_ref().call(req)
+	fn handle(&self, request: Request<IncomingBody>) -> Self::Future {
+		self.as_ref().handle(request)
 	}
 }
 
 impl Default for BoxedHandler {
 	#[inline]
 	fn default() -> Self {
-		Box::new(DummyHandler)
-	}
-}
-
-// -------------------------
-
-pub(crate) struct DummyHandler;
-
-impl Service<Request<IncomingBody>> for DummyHandler {
-	type Response = Response;
-	type Error = BoxedError;
-	type Future = BoxedFuture<Result<Self::Response, Self::Error>>;
-
-	#[inline]
-	fn call(&self, req: Request<IncomingBody>) -> Self::Future {
-		Box::pin(async move { Ok(Response::default()) })
+		Box::new(DummyHandler::<BoxedFuture<Response>>::new())
 	}
 }
 
 // --------------------------------------------------
 
-pub struct AdaptiveHandler(RequestBodyAdapter<BoxedHandler>);
+pub(crate) struct DummyHandler<M> {
+	_mark: PhantomData<fn(M)>,
+}
 
-impl Service<Request<IncomingBody>> for AdaptiveHandler {
-	type Response = Response;
-	type Error = BoxedError;
-	type Future = BoxedFuture<Result<Self::Response, Self::Error>>;
-
-	#[inline]
-	fn call(&self, req: Request<IncomingBody>) -> Self::Future {
-		self.0.call(req)
+impl DummyHandler<DefaultResponseFuture> {
+	pub(crate) fn new() -> Self {
+		Self { _mark: PhantomData }
 	}
 }
 
-impl AdaptiveHandler {
+impl Handler<IncomingBody> for DummyHandler<DefaultResponseFuture> {
+	type Response = Response;
+	type Future = DefaultResponseFuture;
+
 	#[inline]
-	fn wrap(handler: RequestBodyAdapter<BoxedHandler>) -> Self {
-		Self(handler)
+	fn handle(&self, req: Request<IncomingBody>) -> Self::Future {
+		DefaultResponseFuture::new()
+	}
+}
+
+impl DummyHandler<BoxedFuture<Response>> {
+	pub(crate) fn new() -> Self {
+		Self { _mark: PhantomData }
+	}
+}
+
+impl Handler<IncomingBody> for DummyHandler<BoxedFuture<Response>> {
+	type Response = Response;
+	type Future = BoxedFuture<Response>;
+
+	#[inline]
+	fn handle(&self, req: Request<IncomingBody>) -> Self::Future {
+		Box::pin(DefaultResponseFuture::new())
+	}
+}
+
+// --------------------------------------------------
+
+pub struct AdaptiveHandler<B> {
+	inner: RequestBodyAdapter<BoxedHandler>,
+	_body: PhantomData<B>,
+}
+
+impl<B> Service<Request<B>> for AdaptiveHandler<B>
+where
+	B: Body + Send + Sync + 'static,
+	B::Data: Debug,
+	B::Error: Into<BoxedError>,
+{
+	type Response = Response;
+	type Error = Infallible;
+	type Future = ResponseToResultFuture<BoxedFuture<Response>>;
+
+	#[inline]
+	fn call(&self, request: Request<B>) -> Self::Future {
+		let response_future = self.inner.handle(request);
+
+		ResponseToResultFuture::from(response_future)
+	}
+}
+
+impl<B> From<RequestBodyAdapter<BoxedHandler>> for AdaptiveHandler<B> {
+	#[inline]
+	fn from(handler: RequestBodyAdapter<BoxedHandler>) -> Self {
+		Self {
+			inner: handler,
+			_body: PhantomData,
+		}
 	}
 }
 
 // --------------------------------------------------------------------------------
-
-pub trait Layer<S> {
-	type Service;
-
-	fn layer(&self, inner: S) -> Self::Service;
-}
