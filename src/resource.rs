@@ -4,10 +4,13 @@ use std::{
 	sync::Arc,
 };
 
-use crate::response::IntoResponse;
+use crate::{
+	body::IncomingBody,
+	middleware::{IntoResponseAdapter, Layer, ResponseFutureBoxer},
+	response::IntoResponse,
+};
 
 use super::{
-	body::Incoming,
 	handler::{request_handlers::*, *},
 	pattern::{Pattern, Similarity},
 	request::Request,
@@ -760,58 +763,59 @@ impl Resource {
 	// 	todo!()
 	// }
 
-	pub fn set_handler<H, S>(&mut self, method: Method, handler: impl IntoHandler<H, S>)
-	where
-		H: Handler,
+	pub fn set_handler<H>(
+		&mut self,
+		method: Method,
+		handler: impl IntoHandler<IncomingBody, Handler = H>,
+	) where
+		H: Handler + Sync + 'static,
 		H::Response: IntoResponse,
-		H::Error: Into<BoxedError>,
 	{
-		let adapter_handler = ResponseBodyAdapter::wrap(handler.into_handler());
-		self.method_handlers.set_handler(
-			method,
-			BoxedHandler::from(adapter_handler.into_boxed_handler()),
-		)
+		let ready_handler =
+			ResponseFutureBoxer::wrap(IntoResponseAdapter::wrap(handler.into_handler()));
+		self
+			.method_handlers
+			.set_handler(method, ready_handler.into_boxed_handler())
 	}
 
-	pub fn wrap_request_receiver<H>(&mut self, layer: impl Layer<H>)
-	where
-		H: Handler<
-			Response = Response,
-			Error = BoxedError,
-			Future = BoxedFuture<Result<Response, BoxedError>>,
-		>,
-	{
-		todo!()
-	}
+	// pub fn wrap_request_receiver<H>(&mut self, layer: impl Layer<H>)
+	// where
+	// 	H: Handler<
+	// 		Response = Response,
+	// 		Error = BoxedError,
+	// 		Future = BoxedFuture<Result<Response, BoxedError>>,
+	// 	>,
+	// {
+	// 	todo!()
+	// }
+	//
+	// pub fn wrap_request_passer<H>(&mut self, layer: impl Layer<H>)
+	// where
+	// 	H: Handler<
+	// 		Response = Response,
+	// 		Error = BoxedError,
+	// 		Future = BoxedFuture<Result<Response, BoxedError>>,
+	// 	>,
+	// {
+	// 	todo!()
+	// }
+	//
+	// pub fn wrap_request_handler<H>(&mut self, layer: impl Layer<H>)
+	// where
+	// 	H: Handler<
+	// 		Response = Response,
+	// 		Error = BoxedError,
+	// 		Future = BoxedFuture<Result<Response, BoxedError>>,
+	// 	>,
+	// {
+	// 	todo!()
+	// }
 
-	pub fn wrap_request_passer<H>(&mut self, layer: impl Layer<H>)
+	pub fn wrap_method_handler<L, LayeredB>(&mut self, method: Method, layer: L)
 	where
-		H: Handler<
-			Response = Response,
-			Error = BoxedError,
-			Future = BoxedFuture<Result<Response, BoxedError>>,
-		>,
-	{
-		todo!()
-	}
-
-	pub fn wrap_request_handler<H>(&mut self, layer: impl Layer<H>)
-	where
-		H: Handler<
-			Response = Response,
-			Error = BoxedError,
-			Future = BoxedFuture<Result<Response, BoxedError>>,
-		>,
-	{
-		todo!()
-	}
-
-	pub fn wrap_method_handler<L>(&mut self, method: Method, layer: L)
-	where
-		L: Layer<AdaptiveHandler>,
-		<L>::Service: Handler,
-		<L::Service as Service<Request>>::Response: IntoResponse,
-		<L::Service as Service<Request>>::Error: Into<BoxedError>,
+		L: Layer<AdaptiveHandler<LayeredB>, IncomingBody, LayeredB>,
+		<L>::Handler: Handler<IncomingBody> + Sync + 'static,
+		<L::Handler as Handler<IncomingBody>>::Response: IntoResponse,
 	{
 		self.method_handlers.wrap_handler(method, layer);
 	}
@@ -852,65 +856,62 @@ impl Resource {
 		&mut self,
 		route: &str,
 		method: Method,
-		handler: impl IntoHandler<H, Incoming>,
+		handler: impl IntoHandler<IncomingBody, Handler = H>,
 	) where
-		H: Handler<
-			Response = Response,
-			Error = BoxedError,
-			Future = BoxedFuture<Result<Response, BoxedError>>,
-		>,
+		H: Handler + Sync + 'static,
+		H::Response: IntoResponse,
 	{
 		let sub_resource = self.sub_resource_mut(route);
 		sub_resource.set_handler(method, handler);
 	}
 
-	pub fn wrap_sub_resource_request_receiver<H>(&mut self, route: &str, layer: impl Layer<H>)
-	where
-		H: Handler<
-			Response = Response,
-			Error = BoxedError,
-			Future = BoxedFuture<Result<Response, BoxedError>>,
-		>,
-	{
-		todo!()
-	}
-
-	pub fn wrap_sub_resource_request_passer<H>(&mut self, route: &str, layer: impl Layer<H>)
-	where
-		H: Handler<
-			Response = Response,
-			Error = BoxedError,
-			Future = BoxedFuture<Result<Response, BoxedError>>,
-		>,
-	{
-		todo!()
-	}
-
-	pub fn wrap_sub_resource_request_handler<H>(&mut self, route: &str, layer: impl Layer<H>)
-	where
-		H: Handler<
-			Response = Response,
-			Error = BoxedError,
-			Future = BoxedFuture<Result<Response, BoxedError>>,
-		>,
-	{
-		todo!()
-	}
-
-	pub fn wrap_sub_resource_method_handler<H>(
-		&mut self,
-		route: &str,
-		method: Method,
-		layer: impl Layer<H>,
-	) where
-		H: Handler<
-			Response = Response,
-			Error = BoxedError,
-			Future = BoxedFuture<Result<Response, BoxedError>>,
-		>,
-	{
-		todo!()
-	}
+	// pub fn wrap_sub_resource_request_receiver<H>(&mut self, route: &str, layer: impl Layer<H>)
+	// where
+	// 	H: Handler<
+	// 		Response = Response,
+	// 		Error = BoxedError,
+	// 		Future = BoxedFuture<Result<Response, BoxedError>>,
+	// 	>,
+	// {
+	// 	todo!()
+	// }
+	//
+	// pub fn wrap_sub_resource_request_passer<H>(&mut self, route: &str, layer: impl Layer<H>)
+	// where
+	// 	H: Handler<
+	// 		Response = Response,
+	// 		Error = BoxedError,
+	// 		Future = BoxedFuture<Result<Response, BoxedError>>,
+	// 	>,
+	// {
+	// 	todo!()
+	// }
+	//
+	// pub fn wrap_sub_resource_request_handler<H>(&mut self, route: &str, layer: impl Layer<H>)
+	// where
+	// 	H: Handler<
+	// 		Response = Response,
+	// 		Error = BoxedError,
+	// 		Future = BoxedFuture<Result<Response, BoxedError>>,
+	// 	>,
+	// {
+	// 	todo!()
+	// }
+	//
+	// pub fn wrap_sub_resource_method_handler<H>(
+	// 	&mut self,
+	// 	route: &str,
+	// 	method: Method,
+	// 	layer: impl Layer<H>,
+	// ) where
+	// 	H: Handler<
+	// 		Response = Response,
+	// 		Error = BoxedError,
+	// 		Future = BoxedFuture<Result<Response, BoxedError>>,
+	// 	>,
+	// {
+	// 	todo!()
+	// }
 
 	// -------------------------
 
@@ -944,54 +945,54 @@ impl Resource {
 	// 	todo!()
 	// }
 
-	pub fn wrap_sub_resources_request_receivers<H>(&mut self, layer: impl Layer<H>)
-	where
-		H: Handler<
-			Response = Response,
-			Error = BoxedError,
-			Future = BoxedFuture<Result<Response, BoxedError>>,
-		>,
-	{
-		todo!()
-	}
-
-	pub fn wrap_sub_resources_request_passers<H>(&mut self, layer: impl Layer<H>)
-	where
-		H: Handler<
-			Response = Response,
-			Error = BoxedError,
-			Future = BoxedFuture<Result<Response, BoxedError>>,
-		>,
-	{
-		todo!()
-	}
-
-	pub fn wrap_sub_resources_request_handlers<H>(&mut self, layer: impl Layer<H>)
-	where
-		H: Handler<
-			Response = Response,
-			Error = BoxedError,
-			Future = BoxedFuture<Result<Response, BoxedError>>,
-		>,
-	{
-		todo!()
-	}
-
-	pub fn wrap_sub_resources_method_handlers<H>(&mut self, method: Method, layer: impl Layer<H>)
-	where
-		H: Handler<
-			Response = Response,
-			Error = BoxedError,
-			Future = BoxedFuture<Result<Response, BoxedError>>,
-		>,
-	{
-		todo!()
-	}
+	// pub fn wrap_sub_resources_request_receivers<H>(&mut self, layer: impl Layer<H>)
+	// where
+	// 	H: Handler<
+	// 		Response = Response,
+	// 		Error = BoxedError,
+	// 		Future = BoxedFuture<Result<Response, BoxedError>>,
+	// 	>,
+	// {
+	// 	todo!()
+	// }
+	//
+	// pub fn wrap_sub_resources_request_passers<H>(&mut self, layer: impl Layer<H>)
+	// where
+	// 	H: Handler<
+	// 		Response = Response,
+	// 		Error = BoxedError,
+	// 		Future = BoxedFuture<Result<Response, BoxedError>>,
+	// 	>,
+	// {
+	// 	todo!()
+	// }
+	//
+	// pub fn wrap_sub_resources_request_handlers<H>(&mut self, layer: impl Layer<H>)
+	// where
+	// 	H: Handler<
+	// 		Response = Response,
+	// 		Error = BoxedError,
+	// 		Future = BoxedFuture<Result<Response, BoxedError>>,
+	// 	>,
+	// {
+	// 	todo!()
+	// }
+	//
+	// pub fn wrap_sub_resources_method_handlers<H>(&mut self, method: Method, layer: impl Layer<H>)
+	// where
+	// 	H: Handler<
+	// 		Response = Response,
+	// 		Error = BoxedError,
+	// 		Future = BoxedFuture<Result<Response, BoxedError>>,
+	// 	>,
+	// {
+	// 	todo!()
+	// }
 }
 
 // --------------------------------------------------
 
-fn request_receiver(mut request: Request) -> BoxedFuture<Result<Response, BoxedError>> {
+fn request_receiver(mut request: Request) -> BoxedFuture<Response> {
 	Box::pin(async move {
 		let mut routing_state = request.extensions_mut().get_mut::<RoutingState>().unwrap();
 		let current_resource = routing_state.current_resource.unwrap();
@@ -1001,34 +1002,27 @@ fn request_receiver(mut request: Request) -> BoxedFuture<Result<Response, BoxedE
 				routing_state.subtree_handler_exists = true;
 			}
 
-			let result = match current_resource.request_passer.as_ref() {
-				Some(request_passer) => request_passer.call(request).await,
+			let mut response = match current_resource.request_passer.as_ref() {
+				Some(request_passer) => request_passer.handle(request).await,
 				None => request_passer(request).await,
-			};
-
-			let Ok(mut response) = result else {
-				return result;
 			};
 
 			if response.status() != StatusCode::NOT_FOUND
 				|| !current_resource.is_subtree_handler()
 				|| !current_resource.can_handle_request()
 			{
-				return Ok(response);
+				return response;
 			}
 
-			let Some(unused_request) = response
-				.extensions_mut()
-				.remove::<UnusedRequest<Incoming>>()
-			else {
-				return Ok(response);
+			let Some(unused_request) = response.extensions_mut().remove::<UnusedRequest>() else {
+				return response;
 			};
 
 			request = unused_request.into_request()
 		}
 
 		if let Some(request_handler) = current_resource.request_handler.as_ref() {
-			return request_handler.call(request).await;
+			return request_handler.handle(request).await;
 		}
 
 		if current_resource.method_handlers.is_empty() {
@@ -1040,7 +1034,7 @@ fn request_receiver(mut request: Request) -> BoxedFuture<Result<Response, BoxedE
 }
 
 #[inline]
-async fn request_passer(mut request: Request) -> Result<Response, BoxedError> {
+async fn request_passer(mut request: Request) -> Response {
 	let routing_state = request.extensions_mut().get_mut::<RoutingState>().unwrap();
 	let current_resource = routing_state.current_resource.unwrap();
 	let next_path_segment = routing_state.path_segments.next().unwrap();
@@ -1068,20 +1062,13 @@ async fn request_passer(mut request: Request) -> Result<Response, BoxedError> {
 	if let Some(next_resource) = some_next_resource {
 		routing_state.current_resource.replace(next_resource);
 
-		let result = match next_resource.request_receiver.as_ref() {
-			Some(request_receiver) => request_receiver.call(request).await,
+		let mut response = match next_resource.request_receiver.as_ref() {
+			Some(request_receiver) => request_receiver.handle(request).await,
 			None => request_receiver(request).await,
 		};
 
-		let Ok(mut response) = result else {
-			return result;
-		};
-
-		let Some(unused_request) = response
-			.extensions_mut()
-			.get_mut::<UnusedRequest<Incoming>>()
-		else {
-			return Ok(response);
+		let Some(unused_request) = response.extensions_mut().get_mut::<UnusedRequest>() else {
+			return response;
 		};
 
 		let req = unused_request.as_mut();
@@ -1092,13 +1079,13 @@ async fn request_passer(mut request: Request) -> Result<Response, BoxedError> {
 			.path_segments
 			.revert_to_segment(next_path_segment);
 
-		return Ok(response);
+		return response;
 	}
 
 	misdirected_request_handler(request).await
 }
 
-fn request_handler(mut request: Request) -> BoxedFuture<Result<Response, BoxedError>> {
+fn request_handler(mut request: Request) -> BoxedFuture<Response> {
 	let routing_state = request.extensions_mut().get_mut::<RoutingState>().unwrap();
 	let current_resource = routing_state.current_resource.unwrap();
 
