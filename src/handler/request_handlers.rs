@@ -2,15 +2,14 @@ use hyper::header::{HeaderName, HeaderValue};
 
 use crate::{
 	body::IncomingBody,
+	middleware::{IntoResponseAdapter, Layer, RequestBodyAdapter, ResponseFutureBoxer},
 	request::Request,
 	response::{IntoResponse, Response},
 	routing::{Method, StatusCode, UnusedRequest},
-	utils::{BoxedError, BoxedFuture},
+	utils::BoxedFuture,
 };
 
-use super::{
-	AdaptiveHandler, BoxedHandler, Handler, Layer, RequestBodyAdapter, ResponseBodyAdapter, Service,
-};
+use super::{AdaptiveHandler, BoxedHandler, Handler};
 
 // --------------------------------------------------------------------------------
 // --------------------------------------------------------------------------------
@@ -28,6 +27,8 @@ impl MethodHandlers {
 		}
 	}
 
+	// ----------
+
 	#[inline]
 	pub(crate) fn is_empty(&self) -> bool {
 		self.method_handlers.is_empty()
@@ -43,29 +44,26 @@ impl MethodHandlers {
 	}
 
 	#[inline]
-	pub(crate) fn wrap_handler<L>(&mut self, method: Method, layer: L)
+	pub(crate) fn wrap_handler<L, LayeredB>(&mut self, method: Method, layer: L)
 	where
-		L: Layer<AdaptiveHandler>,
-		L::Service: Handler,
-		<L::Service as Service<Request>>::Response: IntoResponse,
-		<L::Service as Service<Request>>::Error: Into<BoxedError>,
+		L: Layer<AdaptiveHandler<LayeredB>, IncomingBody, LayeredB>,
+		L::Handler: Handler<IncomingBody> + Sync + 'static,
+		<L::Handler as Handler<IncomingBody>>::Response: IntoResponse,
 	{
 		let Some(position) = self.method_handlers.iter().position(|(m, _)| m == method) else {
 			panic!("{} handler doesn't exists", method)
 		};
 
-		let (method, handler) = std::mem::replace(
-			&mut self.method_handlers[position],
-			(method, BoxedHandler::default()),
-		);
-		let adaptive_handler = AdaptiveHandler::wrap(RequestBodyAdapter::wrap(handler));
-		let layered_handler = layer.layer(adaptive_handler);
-		let adapter_handler = ResponseBodyAdapter::wrap(layered_handler);
-		let handler = adapter_handler.into_boxed_handler();
+		let (method, boxed_handler) = std::mem::take(&mut self.method_handlers[position]);
+		let adaptive_handler = AdaptiveHandler::from(RequestBodyAdapter::wrap(boxed_handler));
+		let layered_handler = layer.wrap(adaptive_handler);
+		let ready_handler = ResponseFutureBoxer::wrap(IntoResponseAdapter::wrap(layered_handler));
+		let handler = ready_handler.into_boxed_handler();
 
 		self.method_handlers[position] = (method, handler);
 	}
 
+	#[inline]
 	pub(crate) fn allowed_methods(&self) -> AllowedMethods {
 		let mut list = String::new();
 		self
@@ -76,11 +74,10 @@ impl MethodHandlers {
 		AllowedMethods(list)
 	}
 
+	// ----------
+
 	#[inline]
-	pub(crate) fn handle(
-		&self,
-		mut request: Request<IncomingBody>,
-	) -> BoxedFuture<Result<Response, BoxedError>> {
+	pub(crate) fn handle(&self, mut request: Request<IncomingBody>) -> BoxedFuture<Response> {
 		let method = request.method().clone();
 		let some_handler = self
 			.method_handlers
@@ -89,13 +86,13 @@ impl MethodHandlers {
 			.map(|(_, h)| h.clone());
 
 		match some_handler {
-			Some(mut handler) => handler.call(request),
+			Some(mut handler) => handler.handle(request),
 			None => {
 				let allowed_methods = self.allowed_methods();
 				request.extensions_mut().insert(allowed_methods);
 
 				match self.unsupported_method_handler.as_ref() {
-					Some(mut not_allowed_method_handler) => not_allowed_method_handler.call(request),
+					Some(mut not_allowed_method_handler) => not_allowed_method_handler.handle(request),
 					None => Box::pin(handle_not_allowed_method(request)),
 				}
 			}
@@ -108,7 +105,7 @@ impl MethodHandlers {
 pub(crate) struct AllowedMethods(String);
 
 #[inline]
-fn handle_not_allowed_method(mut request: Request<IncomingBody>) -> Result<Response, BoxedError> {
+async fn handle_not_allowed_method(mut request: Request<IncomingBody>) -> Response {
 	let allowed_methods = request.extensions_mut().remove::<AllowedMethods>().unwrap();
 	let allowed_methods_header_value = HeaderValue::from_str(&allowed_methods.0).unwrap();
 
@@ -119,18 +116,16 @@ fn handle_not_allowed_method(mut request: Request<IncomingBody>) -> Result<Respo
 		allowed_methods_header_value,
 	);
 
-	Ok(response)
+	response
 }
 
 #[inline]
-pub(crate) async fn misdirected_request_handler(
-	request: Request<IncomingBody>,
-) -> Result<Response, BoxedError> {
+pub(crate) async fn misdirected_request_handler(request: Request<IncomingBody>) -> Response {
 	let mut response = Response::default();
 	*response.status_mut() = StatusCode::NOT_FOUND;
 	response
 		.extensions_mut()
 		.insert(UnusedRequest::from(request));
 
-	Ok(response)
+	response
 }
