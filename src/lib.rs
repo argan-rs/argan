@@ -2,6 +2,7 @@
 
 mod body;
 mod handler;
+mod middleware;
 mod pattern;
 mod request;
 mod resource;
