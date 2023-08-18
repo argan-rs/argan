@@ -45,10 +45,13 @@ where
 
 // -------------------------
 
-pub trait IntoHandler<B = IncomingBody>: Sized {
+pub trait IntoHandler<M, B = IncomingBody>: Sized {
 	type Handler: Handler<B>;
 
 	fn into_handler(self) -> Self::Handler;
+
+	// --------------------------------------------------
+	// Provided Methods
 
 	fn with_state<S>(self, state: S) -> StatefulHandler<Self::Handler, S> {
 		StatefulHandler::new(self.into_handler(), state)
@@ -56,13 +59,13 @@ pub trait IntoHandler<B = IncomingBody>: Sized {
 
 	fn wrapped_in<L, NewB>(self, layer: L) -> L::Handler
 	where
-		L: Layer<Self::Handler, B, NewB>,
+		L: Layer<Self::Handler, NewB>,
 	{
 		layer.wrap(self.into_handler())
 	}
 }
 
-impl<H, B> IntoHandler<B> for H
+impl<H, B> IntoHandler<Request<B>, B> for H
 where
 	H: Handler<B>,
 {
@@ -181,7 +184,7 @@ impl Default for BoxedHandler {
 // --------------------------------------------------
 
 pub(crate) struct DummyHandler<M> {
-	_mark: PhantomData<fn(M)>,
+	_mark: PhantomData<fn() -> M>,
 }
 
 impl DummyHandler<DefaultResponseFuture> {

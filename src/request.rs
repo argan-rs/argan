@@ -5,7 +5,10 @@ use std::{
 
 use hyper::http::request::Parts;
 
-use super::{body::*, utils::BoxedError};
+use super::{
+	body::*,
+	response::{IntoResponse, Response},
+};
 
 // --------------------------------------------------
 
@@ -14,14 +17,14 @@ pub type Request<B = IncomingBody> = hyper::Request<B>;
 // --------------------------------------------------
 
 pub trait FromRequest<B>: Sized {
-	type Error: Into<BoxedError>;
+	type Error: IntoResponse;
 	type Future: Future<Output = Result<Self, Self::Error>>;
 
 	fn from_request(req: Request<B>) -> Self::Future;
 }
 
 impl<B> FromRequest<B> for Request<B> {
-	type Error = Infallible;
+	type Error = Response;
 	type Future = Ready<Result<Self, Self::Error>>;
 
 	fn from_request(req: Request<B>) -> Self::Future {
@@ -32,7 +35,7 @@ impl<B> FromRequest<B> for Request<B> {
 // -------------------------
 
 pub trait FromRequestParts: Sized {
-	type Error: Into<BoxedError>;
+	type Error: IntoResponse;
 	type Future: Future<Output = Result<Self, Self::Error>>;
 
 	fn from_request_parts(parts: &Parts) -> Self::Future;
