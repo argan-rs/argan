@@ -813,7 +813,7 @@ impl Resource {
 
 	pub fn wrap_method_handler<L, LayeredB>(&mut self, method: Method, layer: L)
 	where
-		L: Layer<AdaptiveHandler<LayeredB>, IncomingBody, LayeredB>,
+		L: Layer<AdaptiveHandler<LayeredB>, LayeredB>,
 		<L>::Handler: Handler<IncomingBody> + Sync + 'static,
 		<L::Handler as Handler<IncomingBody>>::Response: IntoResponse,
 	{
