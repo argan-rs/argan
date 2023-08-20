@@ -1,9 +1,15 @@
-use std::{future::Future, marker::PhantomData};
+use std::{
+	future::Future,
+	marker::PhantomData,
+	pin::{pin, Pin},
+	task::{Context, Poll},
+};
+
+use pin_project::pin_project;
 
 use crate::{
 	request::{FromRequest, FromRequestParts},
 	response::{IntoResponse, Response},
-	utils::BoxedFuture,
 };
 
 use super::*;
@@ -36,9 +42,9 @@ macro_rules! impl_handler_fn {
 			Func: Fn($($($ps,)*)? $($lp)?) -> Fut,
 			Fut: Future<Output = O>,
 			O: IntoResponse,
-			HandlerFn<Func, ($($($ps,)*)? $($lp)?)>: Handler<B>,
+			HandlerFn<Func, (M, $($($ps,)*)? $($lp)?)>: Handler<B>,
 		{
-			type Handler = HandlerFn<Func, ($($($ps,)*)? $($lp)?)>;
+			type Handler = HandlerFn<Func, (M, $($($ps,)*)? $($lp)?)>;
 
 			fn into_handler(self) -> Self::Handler {
 				HandlerFn::from(self)
@@ -56,34 +62,88 @@ macro_rules! impl_handler_fn {
 			B: 'static,
 		{
 			type Response = Response;
-			type Future = BoxedFuture<Response>;
+			type Future = HandlerFuture<Func, (M, $($($ps,)*)? $($lp)?), B>;
 
 			fn handle(&self, request: Request<B>) -> Self::Future {
 				let func_clone = self.func.clone();
 
-				Box::pin(async move {
+				HandlerFuture::new(func_clone, request)
+
+				// Box::pin(async move {
+				// 	$(
+				// 		let (head, body) = request.into_parts();
+
+				// 		$(
+				// 			let $ps = match $ps::from_request_parts(&head).await {
+				// 				Ok(value) => value,
+				// 				Err(error) => return error.into_response(),
+				// 			};
+				// 		)*
+
+				// 		let request = Request::<B>::from_parts(head, body);
+				// 	)?
+
+				// 	$(
+				// 		let $lp = match $lp::from_request(request).await {
+				// 			Ok(value) => value,
+				// 			Err(error) => return error.into_response(),
+				// 		};
+				// 	)?
+
+				// 	func_clone($($($ps,)*)? $($lp)?).await.into_response()
+				// })
+			}
+		}
+
+		#[allow(non_snake_case)]
+		impl<Func, M, $($($ps,)*)? $($lp,)? Fut, O, B> Future for HandlerFuture<Func, (M, $($($ps,)*)? $($lp)?), B>
+		where
+			Func: Fn($($($ps,)*)? $($lp)?) -> Fut + Clone + 'static,
+			$($($ps: FromRequestParts,)*)?
+			$($lp: FromRequest<B>,)?
+			Fut: Future<Output = O>,
+			O: IntoResponse,
+			B: 'static,
+		{
+			type Output = Response;
+
+			fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+				let self_project = self.project();
+
+				$(
+					let (head, body) = self_project.some_request.take().unwrap().into_parts();
+
 					$(
-						let (head, body) = request.into_parts();
-
-						$(
-							let $ps = match $ps::from_request_parts(&head).await {
-								Ok(value) => value,
-								Err(error) => return error.into_response(),
-							};
-						)*
-
-						let request = Request::<B>::from_parts(head, body);
-					)?
-
-					$(
-						let $lp = match $lp::from_request(request).await {
-							Ok(value) => value,
-							Err(error) => return error.into_response(),
+						let $ps = match pin!($ps::from_request_parts(&head)).poll(cx) {
+							Poll::Ready(result) => {
+								match result {
+									Ok(value) => value,
+									Err(error) => return Poll::Ready(error.into_response()),
+								}
+							},
+							Poll::Pending => return Poll::Pending,
 						};
-					)?
+					)*
 
-					func_clone($($($ps,)*)? $($lp)?).await.into_response()
-				})
+					self_project.some_request.replace(Request::<B>::from_parts(head, body));
+				)?
+
+				$(
+					let $lp = match pin!($lp::from_request(self_project.some_request.take().unwrap())).poll(cx) {
+						Poll::Ready(result) => {
+							match result {
+								Ok(value) => value,
+								Err(error) => return Poll::Ready(error.into_response()),
+							}
+						}
+						Poll::Pending => return Poll::Pending,
+					};
+				)?
+
+				match pin!((self_project.func)($($($ps,)*)? $($lp)?)).poll(cx) {
+					Poll::Ready(value) => Poll::Ready(value.into_response()),
+					Poll::Pending => Poll::Pending,
+				}
 			}
 		}
 	};
@@ -112,3 +172,22 @@ impl_handler_fn!(
 	(P1, P2, P3, P4, P5, P6, P7, P8, P9, P10, P11, P12, P13, P14, P15),
 	LP
 );
+
+// --------------------------------------------------
+
+#[pin_project]
+pub struct HandlerFuture<Func, M, B> {
+	func: Func,
+	some_request: Option<Request<B>>,
+	_mark: PhantomData<fn(M)>,
+}
+
+impl<Func, M, B> HandlerFuture<Func, M, B> {
+	fn new(func: Func, request: Request<B>) -> Self {
+		Self {
+			func,
+			some_request: Some(request),
+			_mark: PhantomData,
+		}
+	}
+}
