@@ -5,9 +5,9 @@ pub use hyper::service::Service;
 use crate::{
 	body::Body,
 	body::IncomingBody,
-	middleware::{Layer, RequestBodyAdapter},
+	middleware::{IntoResponseAdapter, Layer, RequestBodyAdapter, ResponseFutureBoxer},
 	request::Request,
-	response::Response,
+	response::{IntoResponse, Response},
 	utils::{BoxedError, BoxedFuture},
 };
 
@@ -179,6 +179,19 @@ impl Default for BoxedHandler {
 	fn default() -> Self {
 		Box::new(DummyHandler::<BoxedFuture<Response>>::new())
 	}
+}
+
+pub(crate) fn wrap_boxed_handler<L, LayeredB>(boxed_handler: BoxedHandler, layer: L) -> BoxedHandler
+where
+	L: Layer<AdaptiveHandler<LayeredB>, LayeredB>,
+	L::Handler: Handler<IncomingBody> + Sync + 'static,
+	<L::Handler as Handler<IncomingBody>>::Response: IntoResponse,
+{
+	let adaptive_handler = AdaptiveHandler::from(RequestBodyAdapter::wrap(boxed_handler));
+	let layered_handler = layer.wrap(adaptive_handler);
+	let ready_handler = ResponseFutureBoxer::wrap(IntoResponseAdapter::wrap(layered_handler));
+
+	ready_handler.into_boxed_handler()
 }
 
 // --------------------------------------------------

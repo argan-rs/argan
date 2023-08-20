@@ -9,7 +9,7 @@ use crate::{
 	utils::BoxedFuture,
 };
 
-use super::{AdaptiveHandler, BoxedHandler, Handler};
+use super::{wrap_boxed_handler, AdaptiveHandler, BoxedHandler, Handler};
 
 // --------------------------------------------------------------------------------
 // --------------------------------------------------------------------------------
@@ -55,12 +55,9 @@ impl MethodHandlers {
 		};
 
 		let (method, boxed_handler) = std::mem::take(&mut self.method_handlers[position]);
-		let adaptive_handler = AdaptiveHandler::from(RequestBodyAdapter::wrap(boxed_handler));
-		let layered_handler = layer.wrap(adaptive_handler);
-		let ready_handler = ResponseFutureBoxer::wrap(IntoResponseAdapter::wrap(layered_handler));
-		let handler = ready_handler.into_boxed_handler();
+		let boxed_handler = wrap_boxed_handler(boxed_handler, layer);
 
-		self.method_handlers[position] = (method, handler);
+		self.method_handlers[position] = (method, boxed_handler);
 	}
 
 	#[inline]
