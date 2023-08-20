@@ -7,7 +7,7 @@ use std::{
 use crate::{
 	body::IncomingBody,
 	middleware::{IntoResponseAdapter, Layer, ResponseFutureBoxer},
-	response::IntoResponse,
+	response::IntoResponse, handler::impls::HandlerFn,
 };
 
 use super::{
@@ -778,17 +778,32 @@ impl Resource {
 			.set_handler(method, ready_handler.into_boxed_handler())
 	}
 
-	// pub fn wrap_request_receiver<H>(&mut self, layer: impl Layer<H>)
-	// where
-	// 	H: Handler<
-	// 		Response = Response,
-	// 		Error = BoxedError,
-	// 		Future = BoxedFuture<Result<Response, BoxedError>>,
-	// 	>,
-	// {
-	// 	todo!()
-	// }
-	//
+	#[allow(clippy::type_complexity)]
+	pub fn wrap_request_receiver<L, LayeredB>(&mut self, layer: L)
+	where
+		L: Layer<AdaptiveHandler<LayeredB>, LayeredB>,
+		<L>::Handler: Handler<IncomingBody> + Sync + 'static,
+		<L::Handler as Handler<IncomingBody>>::Response: IntoResponse,
+	{
+		let boxed_request_receiver = match self.request_receiver.take() {
+			Some(request_receiver) => request_receiver,
+			None => {
+				let request_receiver_ptr: fn(Request) -> BoxedFuture<Response> = request_receiver;
+
+				let request_receiver: HandlerFn<
+					fn(Request) -> BoxedFuture<Response>,
+					((), Request<IncomingBody>)
+				> = request_receiver_ptr.into_handler();
+
+				ResponseFutureBoxer::wrap(request_receiver).into_boxed_handler()
+			}
+		};
+
+		let boxed_request_receiver = wrap_boxed_handler(boxed_request_receiver, layer);
+
+		self.request_receiver.replace(boxed_request_receiver);
+	}
+
 	// pub fn wrap_request_passer<H>(&mut self, layer: impl Layer<H>)
 	// where
 	// 	H: Handler<
@@ -799,17 +814,32 @@ impl Resource {
 	// {
 	// 	todo!()
 	// }
-	//
-	// pub fn wrap_request_handler<H>(&mut self, layer: impl Layer<H>)
-	// where
-	// 	H: Handler<
-	// 		Response = Response,
-	// 		Error = BoxedError,
-	// 		Future = BoxedFuture<Result<Response, BoxedError>>,
-	// 	>,
-	// {
-	// 	todo!()
-	// }
+
+		#[allow(clippy::type_complexity)]
+	pub fn wrap_request_handler<L, LayeredB>(&mut self, layer: L)
+	where
+		L: Layer<AdaptiveHandler<LayeredB>, LayeredB>,
+		<L>::Handler: Handler<IncomingBody> + Sync + 'static,
+		<L::Handler as Handler<IncomingBody>>::Response: IntoResponse,
+	{
+		let boxed_request_handler = match self.request_handler.take() {
+			Some(request_receiver) => request_receiver,
+			None => {
+				let request_handler_ptr: fn(Request) -> BoxedFuture<Response> = request_handler;
+
+				let request_handler: HandlerFn<
+					fn(Request) -> BoxedFuture<Response>,
+					((), Request<IncomingBody>)
+				> = request_handler_ptr.into_handler();
+
+				ResponseFutureBoxer::wrap(request_handler).into_boxed_handler()
+			}
+		};
+
+		let boxed_request_handler = wrap_boxed_handler(boxed_request_handler, layer);
+
+		self.request_handler.replace(boxed_request_handler);
+	}
 
 	pub fn wrap_method_handler<L, LayeredB>(&mut self, method: Method, layer: L)
 	where

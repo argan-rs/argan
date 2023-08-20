@@ -62,12 +62,12 @@ macro_rules! impl_handler_fn {
 			B: 'static,
 		{
 			type Response = Response;
-			type Future = HandlerFuture<Func, (M, $($($ps,)*)? $($lp)?), B>;
+			type Future = HandlerFnFuture<Func, (M, $($($ps,)*)? $($lp)?), B>;
 
 			fn handle(&self, request: Request<B>) -> Self::Future {
 				let func_clone = self.func.clone();
 
-				HandlerFuture::new(func_clone, request)
+				HandlerFnFuture::new(func_clone, request)
 
 				// Box::pin(async move {
 				// 	$(
@@ -96,7 +96,7 @@ macro_rules! impl_handler_fn {
 		}
 
 		#[allow(non_snake_case)]
-		impl<Func, M, $($($ps,)*)? $($lp,)? Fut, O, B> Future for HandlerFuture<Func, (M, $($($ps,)*)? $($lp)?), B>
+		impl<Func, M, $($($ps,)*)? $($lp,)? Fut, O, B> Future for HandlerFnFuture<Func, (M, $($($ps,)*)? $($lp)?), B>
 		where
 			Func: Fn($($($ps,)*)? $($lp)?) -> Fut + Clone + 'static,
 			$($($ps: FromRequestParts,)*)?
@@ -176,13 +176,13 @@ impl_handler_fn!(
 // --------------------------------------------------
 
 #[pin_project]
-pub struct HandlerFuture<Func, M, B> {
+pub struct HandlerFnFuture<Func, M, B> {
 	func: Func,
 	some_request: Option<Request<B>>,
 	_mark: PhantomData<fn(M)>,
 }
 
-impl<Func, M, B> HandlerFuture<Func, M, B> {
+impl<Func, M, B> HandlerFnFuture<Func, M, B> {
 	fn new(func: Func, request: Request<B>) -> Self {
 		Self {
 			func,
