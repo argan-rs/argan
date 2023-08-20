@@ -6,8 +6,9 @@ use std::{
 
 use crate::{
 	body::IncomingBody,
+	handler::{futures::RequestReceiverFuture, impls::HandlerFn},
 	middleware::{IntoResponseAdapter, Layer, ResponseFutureBoxer},
-	response::IntoResponse, handler::impls::HandlerFn,
+	response::IntoResponse,
 };
 
 use super::{
@@ -23,18 +24,18 @@ use super::utils::*;
 // --------------------------------------------------
 
 pub struct Resource {
-	pattern: Pattern,
+	pub(crate) pattern: Pattern,
 	prefix_path_patterns: Vec<Pattern>,
 
-	static_resources: Vec<Resource>,
-	regex_resources: Vec<Resource>,
-	wildcard_resource: Option<Box<Resource>>,
+	pub(crate) static_resources: Vec<Resource>,
+	pub(crate) regex_resources: Vec<Resource>,
+	pub(crate) wildcard_resource: Option<Box<Resource>>,
 
-	request_receiver: Option<BoxedHandler>,
-	request_passer: Option<BoxedHandler>,
-	request_handler: Option<BoxedHandler>,
+	pub(crate) request_receiver: Option<BoxedHandler>,
+	pub(crate) request_passer: Option<BoxedHandler>,
+	pub(crate) request_handler: Option<BoxedHandler>,
 
-	method_handlers: MethodHandlers,
+	pub(crate) method_handlers: MethodHandlers,
 
 	state: Vec<Arc<dyn Any + Send + Sync>>,
 
@@ -788,11 +789,11 @@ impl Resource {
 		let boxed_request_receiver = match self.request_receiver.take() {
 			Some(request_receiver) => request_receiver,
 			None => {
-				let request_receiver_ptr: fn(Request) -> BoxedFuture<Response> = request_receiver;
+				let request_receiver_ptr: fn(Request) -> RequestReceiverFuture = request_receiver;
 
 				let request_receiver: HandlerFn<
-					fn(Request) -> BoxedFuture<Response>,
-					((), Request<IncomingBody>)
+					fn(Request) -> RequestReceiverFuture,
+					((), Request<IncomingBody>),
 				> = request_receiver_ptr.into_handler();
 
 				ResponseFutureBoxer::wrap(request_receiver).into_boxed_handler()
@@ -815,7 +816,7 @@ impl Resource {
 	// 	todo!()
 	// }
 
-		#[allow(clippy::type_complexity)]
+	#[allow(clippy::type_complexity)]
 	pub fn wrap_request_handler<L, LayeredB>(&mut self, layer: L)
 	where
 		L: Layer<AdaptiveHandler<LayeredB>, LayeredB>,
@@ -829,7 +830,7 @@ impl Resource {
 
 				let request_handler: HandlerFn<
 					fn(Request) -> BoxedFuture<Response>,
-					((), Request<IncomingBody>)
+					((), Request<IncomingBody>),
 				> = request_handler_ptr.into_handler();
 
 				ResponseFutureBoxer::wrap(request_handler).into_boxed_handler()
@@ -1018,106 +1019,4 @@ impl Resource {
 	// {
 	// 	todo!()
 	// }
-}
-
-// --------------------------------------------------
-
-fn request_receiver(mut request: Request) -> BoxedFuture<Response> {
-	Box::pin(async move {
-		let mut routing_state = request.extensions_mut().get_mut::<RoutingState>().unwrap();
-		let current_resource = routing_state.current_resource.unwrap();
-
-		if routing_state.path_segments.has_remaining_segments() {
-			if current_resource.is_subtree_handler() {
-				routing_state.subtree_handler_exists = true;
-			}
-
-			let mut response = match current_resource.request_passer.as_ref() {
-				Some(request_passer) => request_passer.handle(request).await,
-				None => request_passer(request).await,
-			};
-
-			if response.status() != StatusCode::NOT_FOUND
-				|| !current_resource.is_subtree_handler()
-				|| !current_resource.can_handle_request()
-			{
-				return response;
-			}
-
-			let Some(unused_request) = response.extensions_mut().remove::<UnusedRequest>() else {
-				return response;
-			};
-
-			request = unused_request.into_request()
-		}
-
-		if let Some(request_handler) = current_resource.request_handler.as_ref() {
-			return request_handler.handle(request).await;
-		}
-
-		if current_resource.method_handlers.is_empty() {
-			return misdirected_request_handler(request).await;
-		}
-
-		current_resource.method_handlers.handle(request).await
-	})
-}
-
-#[inline]
-async fn request_passer(mut request: Request) -> Response {
-	let routing_state = request.extensions_mut().get_mut::<RoutingState>().unwrap();
-	let current_resource = routing_state.current_resource.unwrap();
-	let next_path_segment = routing_state.path_segments.next().unwrap();
-
-	let some_next_resource = 'some_next_resource: {
-		if let Some(next_resource) = current_resource
-			.static_resources
-			.iter()
-			.find(|resource| resource.pattern.is_match(next_path_segment.as_str()))
-		{
-			break 'some_next_resource Some(next_resource);
-		}
-
-		if let Some(next_resource) = current_resource
-			.regex_resources
-			.iter()
-			.find(|resource| resource.pattern.is_match(next_path_segment.as_str()))
-		{
-			break 'some_next_resource Some(next_resource);
-		}
-
-		current_resource.wildcard_resource.as_deref()
-	};
-
-	if let Some(next_resource) = some_next_resource {
-		routing_state.current_resource.replace(next_resource);
-
-		let mut response = match next_resource.request_receiver.as_ref() {
-			Some(request_receiver) => request_receiver.handle(request).await,
-			None => request_receiver(request).await,
-		};
-
-		let Some(unused_request) = response.extensions_mut().get_mut::<UnusedRequest>() else {
-			return response;
-		};
-
-		let req = unused_request.as_mut();
-
-		let routing_state = req.extensions_mut().get_mut::<RoutingState>().unwrap();
-		routing_state.current_resource.replace(current_resource);
-		routing_state
-			.path_segments
-			.revert_to_segment(next_path_segment);
-
-		return response;
-	}
-
-	misdirected_request_handler(request).await
-}
-
-fn request_handler(mut request: Request) -> BoxedFuture<Response> {
-	let routing_state = request.extensions_mut().get_mut::<RoutingState>().unwrap();
-	let current_resource = routing_state.current_resource.unwrap();
-
-	current_resource.method_handlers.handle(request)
 }

@@ -108,10 +108,10 @@ macro_rules! impl_handler_fn {
 			type Output = Response;
 
 			fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-				let self_project = self.project();
+				let self_projection = self.project();
 
 				$(
-					let (head, body) = self_project.some_request.take().unwrap().into_parts();
+					let (head, body) = self_projection.some_request.take().unwrap().into_parts();
 
 					$(
 						let $ps = match pin!($ps::from_request_parts(&head)).poll(cx) {
@@ -125,11 +125,11 @@ macro_rules! impl_handler_fn {
 						};
 					)*
 
-					self_project.some_request.replace(Request::<B>::from_parts(head, body));
+					self_projection.some_request.replace(Request::<B>::from_parts(head, body));
 				)?
 
 				$(
-					let $lp = match pin!($lp::from_request(self_project.some_request.take().unwrap())).poll(cx) {
+					let $lp = match pin!($lp::from_request(self_projection.some_request.take().unwrap())).poll(cx) {
 						Poll::Ready(result) => {
 							match result {
 								Ok(value) => value,
@@ -140,7 +140,7 @@ macro_rules! impl_handler_fn {
 					};
 				)?
 
-				match pin!((self_project.func)($($($ps,)*)? $($lp)?)).poll(cx) {
+				match pin!((self_projection.func)($($($ps,)*)? $($lp)?)).poll(cx) {
 					Poll::Ready(value) => Poll::Ready(value.into_response()),
 					Poll::Pending => Poll::Pending,
 				}
