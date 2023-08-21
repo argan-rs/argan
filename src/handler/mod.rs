@@ -181,11 +181,13 @@ impl Default for BoxedHandler {
 	}
 }
 
+// -------------------------
+
 pub(crate) fn wrap_boxed_handler<L, LayeredB>(boxed_handler: BoxedHandler, layer: L) -> BoxedHandler
 where
 	L: Layer<AdaptiveHandler<LayeredB>, LayeredB>,
-	L::Handler: Handler<IncomingBody> + Sync + 'static,
-	<L::Handler as Handler<IncomingBody>>::Response: IntoResponse,
+	L::Handler: Handler + Sync + 'static,
+	<L::Handler as Handler>::Response: IntoResponse,
 {
 	let adaptive_handler = AdaptiveHandler::from(RequestBodyAdapter::wrap(boxed_handler));
 	let layered_handler = layer.wrap(adaptive_handler);

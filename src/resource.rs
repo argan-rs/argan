@@ -6,7 +6,10 @@ use std::{
 
 use crate::{
 	body::IncomingBody,
-	handler::{futures::RequestReceiverFuture, impls::HandlerFn},
+	handler::{
+		futures::{RequestPasserFuture, RequestReceiverFuture},
+		impls::HandlerFn,
+	},
 	middleware::{IntoResponseAdapter, Layer, ResponseFutureBoxer},
 	response::IntoResponse,
 };
@@ -764,13 +767,11 @@ impl Resource {
 	// 	todo!()
 	// }
 
-	pub fn set_handler<H>(
-		&mut self,
-		method: Method,
-		handler: impl IntoHandler<IncomingBody, Handler = H>,
-	) where
-		H: Handler + Sync + 'static,
-		H::Response: IntoResponse,
+	pub fn set_handler<H, M>(&mut self, method: Method, handler: H)
+	where
+		H: IntoHandler<M, IncomingBody>,
+		H::Handler: Handler + Sync + 'static,
+		<H::Handler as Handler>::Response: IntoResponse,
 	{
 		let ready_handler =
 			ResponseFutureBoxer::wrap(IntoResponseAdapter::wrap(handler.into_handler()));
@@ -783,18 +784,16 @@ impl Resource {
 	pub fn wrap_request_receiver<L, LayeredB>(&mut self, layer: L)
 	where
 		L: Layer<AdaptiveHandler<LayeredB>, LayeredB>,
-		<L>::Handler: Handler<IncomingBody> + Sync + 'static,
-		<L::Handler as Handler<IncomingBody>>::Response: IntoResponse,
+		<L>::Handler: Handler + Sync + 'static,
+		<L::Handler as Handler>::Response: IntoResponse,
 	{
 		let boxed_request_receiver = match self.request_receiver.take() {
 			Some(request_receiver) => request_receiver,
 			None => {
 				let request_receiver_ptr: fn(Request) -> RequestReceiverFuture = request_receiver;
 
-				let request_receiver: HandlerFn<
-					fn(Request) -> RequestReceiverFuture,
-					((), Request<IncomingBody>),
-				> = request_receiver_ptr.into_handler();
+				let request_receiver: HandlerFn<fn(Request) -> RequestReceiverFuture, ((), Request)> =
+					request_receiver_ptr.into_handler();
 
 				ResponseFutureBoxer::wrap(request_receiver).into_boxed_handler()
 			}
@@ -805,33 +804,44 @@ impl Resource {
 		self.request_receiver.replace(boxed_request_receiver);
 	}
 
-	// pub fn wrap_request_passer<H>(&mut self, layer: impl Layer<H>)
-	// where
-	// 	H: Handler<
-	// 		Response = Response,
-	// 		Error = BoxedError,
-	// 		Future = BoxedFuture<Result<Response, BoxedError>>,
-	// 	>,
-	// {
-	// 	todo!()
-	// }
+	#[allow(clippy::type_complexity)]
+	pub fn wrap_request_passer<L, LayeredB>(&mut self, layer: L)
+	where
+		L: Layer<AdaptiveHandler<LayeredB>, LayeredB>,
+		<L>::Handler: Handler + Sync + 'static,
+		<L::Handler as Handler>::Response: IntoResponse,
+	{
+		let boxed_request_passer = match self.request_passer.take() {
+			Some(request_passer) => request_passer,
+			None => {
+				let request_passer_ptr: fn(Request) -> RequestPasserFuture = request_passer;
+
+				let request_passer: HandlerFn<fn(Request) -> RequestPasserFuture, ((), Request)> =
+					request_passer_ptr.into_handler();
+
+				ResponseFutureBoxer::wrap(request_passer.into_handler()).into_boxed_handler()
+			}
+		};
+
+		let boxed_request_passer = wrap_boxed_handler(boxed_request_passer, layer);
+
+		self.request_passer.replace(boxed_request_passer);
+	}
 
 	#[allow(clippy::type_complexity)]
 	pub fn wrap_request_handler<L, LayeredB>(&mut self, layer: L)
 	where
 		L: Layer<AdaptiveHandler<LayeredB>, LayeredB>,
-		<L>::Handler: Handler<IncomingBody> + Sync + 'static,
-		<L::Handler as Handler<IncomingBody>>::Response: IntoResponse,
+		<L>::Handler: Handler + Sync + 'static,
+		<L::Handler as Handler>::Response: IntoResponse,
 	{
 		let boxed_request_handler = match self.request_handler.take() {
-			Some(request_receiver) => request_receiver,
+			Some(request_handler) => request_handler,
 			None => {
 				let request_handler_ptr: fn(Request) -> BoxedFuture<Response> = request_handler;
 
-				let request_handler: HandlerFn<
-					fn(Request) -> BoxedFuture<Response>,
-					((), Request<IncomingBody>),
-				> = request_handler_ptr.into_handler();
+				let request_handler: HandlerFn<fn(Request) -> BoxedFuture<Response>, ((), Request)> =
+					request_handler_ptr.into_handler();
 
 				ResponseFutureBoxer::wrap(request_handler).into_boxed_handler()
 			}
@@ -845,8 +855,8 @@ impl Resource {
 	pub fn wrap_method_handler<L, LayeredB>(&mut self, method: Method, layer: L)
 	where
 		L: Layer<AdaptiveHandler<LayeredB>, LayeredB>,
-		<L>::Handler: Handler<IncomingBody> + Sync + 'static,
-		<L::Handler as Handler<IncomingBody>>::Response: IntoResponse,
+		<L>::Handler: Handler + Sync + 'static,
+		<L::Handler as Handler>::Response: IntoResponse,
 	{
 		self.method_handlers.wrap_handler(method, layer);
 	}
@@ -883,73 +893,63 @@ impl Resource {
 	// 	sub_resource.config()
 	// }
 
-	pub fn set_sub_resource_handler<H>(
-		&mut self,
-		route: &str,
-		method: Method,
-		handler: impl IntoHandler<IncomingBody, Handler = H>,
-	) where
-		H: Handler + Sync + 'static,
-		H::Response: IntoResponse,
+	pub fn set_sub_resource_handler<H, M>(&mut self, route: &str, method: Method, handler: H)
+	where
+		H: IntoHandler<M, IncomingBody>,
+		H::Handler: Handler + Sync + 'static,
+		<H::Handler as Handler>::Response: IntoResponse,
 	{
 		let sub_resource = self.sub_resource_mut(route);
 		sub_resource.set_handler(method, handler);
 	}
 
-	// pub fn wrap_sub_resource_request_receiver<H>(&mut self, route: &str, layer: impl Layer<H>)
-	// where
-	// 	H: Handler<
-	// 		Response = Response,
-	// 		Error = BoxedError,
-	// 		Future = BoxedFuture<Result<Response, BoxedError>>,
-	// 	>,
-	// {
-	// 	todo!()
-	// }
-	//
-	// pub fn wrap_sub_resource_request_passer<H>(&mut self, route: &str, layer: impl Layer<H>)
-	// where
-	// 	H: Handler<
-	// 		Response = Response,
-	// 		Error = BoxedError,
-	// 		Future = BoxedFuture<Result<Response, BoxedError>>,
-	// 	>,
-	// {
-	// 	todo!()
-	// }
-	//
-	// pub fn wrap_sub_resource_request_handler<H>(&mut self, route: &str, layer: impl Layer<H>)
-	// where
-	// 	H: Handler<
-	// 		Response = Response,
-	// 		Error = BoxedError,
-	// 		Future = BoxedFuture<Result<Response, BoxedError>>,
-	// 	>,
-	// {
-	// 	todo!()
-	// }
-	//
-	// pub fn wrap_sub_resource_method_handler<H>(
-	// 	&mut self,
-	// 	route: &str,
-	// 	method: Method,
-	// 	layer: impl Layer<H>,
-	// ) where
-	// 	H: Handler<
-	// 		Response = Response,
-	// 		Error = BoxedError,
-	// 		Future = BoxedFuture<Result<Response, BoxedError>>,
-	// 	>,
-	// {
-	// 	todo!()
-	// }
+	pub fn wrap_sub_resource_request_receiver<L, LayeredB>(&mut self, route: &str, layer: L)
+	where
+		L: Layer<AdaptiveHandler<LayeredB>, LayeredB>,
+		L::Handler: Handler + Sync + 'static,
+		<L::Handler as Handler>::Response: IntoResponse,
+	{
+		let sub_resource = self.sub_resource_mut(route);
+		sub_resource.wrap_request_receiver(layer);
+	}
+
+	pub fn wrap_sub_resource_request_passer<L, LayeredB>(&mut self, route: &str, layer: L)
+	where
+		L: Layer<AdaptiveHandler<LayeredB>, LayeredB>,
+		L::Handler: Handler + Sync + 'static,
+		<L::Handler as Handler>::Response: IntoResponse,
+	{
+		let sub_resource = self.sub_resource_mut(route);
+		sub_resource.wrap_request_passer(layer);
+	}
+
+	pub fn wrap_sub_resource_request_handler<L, LayeredB>(&mut self, route: &str, layer: L)
+	where
+		L: Layer<AdaptiveHandler<LayeredB>, LayeredB>,
+		L::Handler: Handler + Sync + 'static,
+		<L::Handler as Handler>::Response: IntoResponse,
+	{
+		let sub_resource = self.sub_resource_mut(route);
+		sub_resource.wrap_request_handler(layer);
+	}
+
+	pub fn wrap_sub_resource_method_handler<L, LayeredB>(
+		&mut self,
+		route: &str,
+		method: Method,
+		layer: L,
+	) where
+		L: Layer<AdaptiveHandler<LayeredB>, LayeredB>,
+		L::Handler: Handler + Sync + 'static,
+		<L::Handler as Handler>::Response: IntoResponse,
+	{
+		let sub_resource = self.sub_resource_mut(route);
+		sub_resource.wrap_method_handler(method, layer);
+	}
 
 	// -------------------------
 
-	pub fn set_sub_resources_state<S>(&mut self, state: S)
-	where
-		S: Clone + Send + Sync + 'static,
-	{
+	fn call_for_each_sub_resource(&mut self, func: impl Fn(&mut Resource)) {
 		let mut sub_resources = Vec::new();
 		sub_resources.extend(self.static_resources.iter_mut());
 		sub_resources.extend(self.regex_resources.iter_mut());
@@ -962,7 +962,7 @@ impl Resource {
 				break;
 			};
 
-			sub_resource.set_state(state.clone());
+			func(sub_resource);
 
 			sub_resources.extend(sub_resource.static_resources.iter_mut());
 			sub_resources.extend(sub_resource.regex_resources.iter_mut());
@@ -972,51 +972,55 @@ impl Resource {
 		}
 	}
 
+	pub fn set_sub_resources_state<S>(&mut self, state: S)
+	where
+		S: Clone + Send + Sync + 'static,
+	{
+		self.call_for_each_sub_resource(|sub_resource| {
+			sub_resource.set_state(state.clone());
+		});
+	}
+
 	// pub fn set_sub_resources_config(&mut self, config: Config) {
 	// 	todo!()
 	// }
 
-	// pub fn wrap_sub_resources_request_receivers<H>(&mut self, layer: impl Layer<H>)
-	// where
-	// 	H: Handler<
-	// 		Response = Response,
-	// 		Error = BoxedError,
-	// 		Future = BoxedFuture<Result<Response, BoxedError>>,
-	// 	>,
-	// {
-	// 	todo!()
-	// }
-	//
-	// pub fn wrap_sub_resources_request_passers<H>(&mut self, layer: impl Layer<H>)
-	// where
-	// 	H: Handler<
-	// 		Response = Response,
-	// 		Error = BoxedError,
-	// 		Future = BoxedFuture<Result<Response, BoxedError>>,
-	// 	>,
-	// {
-	// 	todo!()
-	// }
-	//
-	// pub fn wrap_sub_resources_request_handlers<H>(&mut self, layer: impl Layer<H>)
-	// where
-	// 	H: Handler<
-	// 		Response = Response,
-	// 		Error = BoxedError,
-	// 		Future = BoxedFuture<Result<Response, BoxedError>>,
-	// 	>,
-	// {
-	// 	todo!()
-	// }
-	//
-	// pub fn wrap_sub_resources_method_handlers<H>(&mut self, method: Method, layer: impl Layer<H>)
-	// where
-	// 	H: Handler<
-	// 		Response = Response,
-	// 		Error = BoxedError,
-	// 		Future = BoxedFuture<Result<Response, BoxedError>>,
-	// 	>,
-	// {
-	// 	todo!()
-	// }
+	pub fn wrap_sub_resources_request_receivers<L, LayeredB>(&mut self, layer: L)
+	where
+		L: Layer<AdaptiveHandler<LayeredB>, LayeredB> + Clone,
+		L::Handler: Handler + Sync + 'static,
+		<L::Handler as Handler>::Response: IntoResponse,
+	{
+		self
+			.call_for_each_sub_resource(|sub_resource| sub_resource.wrap_request_receiver(layer.clone()))
+	}
+
+	pub fn wrap_sub_resources_request_passers<L, LayeredB>(&mut self, layer: L)
+	where
+		L: Layer<AdaptiveHandler<LayeredB>, LayeredB> + Clone,
+		L::Handler: Handler + Sync + 'static,
+		<L::Handler as Handler>::Response: IntoResponse,
+	{
+		self.call_for_each_sub_resource(|sub_resource| sub_resource.wrap_request_passer(layer.clone()))
+	}
+
+	pub fn wrap_sub_resources_request_handlers<L, LayeredB>(&mut self, layer: L)
+	where
+		L: Layer<AdaptiveHandler<LayeredB>, LayeredB> + Clone,
+		L::Handler: Handler + Sync + 'static,
+		<L::Handler as Handler>::Response: IntoResponse,
+	{
+		self.call_for_each_sub_resource(|sub_resource| sub_resource.wrap_request_handler(layer.clone()))
+	}
+
+	pub fn wrap_sub_resources_method_handlers<L, LayeredB>(&mut self, method: Method, layer: L)
+	where
+		L: Layer<AdaptiveHandler<LayeredB>, LayeredB> + Clone,
+		L::Handler: Handler + Sync + 'static,
+		<L::Handler as Handler>::Response: IntoResponse,
+	{
+		self.call_for_each_sub_resource(|sub_resource| {
+			sub_resource.wrap_method_handler(method.clone(), layer.clone())
+		})
+	}
 }

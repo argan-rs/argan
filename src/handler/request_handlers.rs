@@ -10,7 +10,8 @@ use crate::{
 };
 
 use super::{
-	futures::RequestReceiverFuture, wrap_boxed_handler, AdaptiveHandler, BoxedHandler, Handler,
+	futures::{RequestPasserFuture, RequestReceiverFuture},
+	wrap_boxed_handler, AdaptiveHandler, BoxedHandler, Handler,
 };
 
 // --------------------------------------------------------------------------------
@@ -136,55 +137,9 @@ pub(crate) fn request_receiver(mut request: Request) -> RequestReceiverFuture {
 	RequestReceiverFuture::from(request)
 }
 
-pub(crate) async fn request_passer(mut request: Request) -> Response {
-	let routing_state = request.extensions_mut().get_mut::<RoutingState>().unwrap();
-	let current_resource = routing_state.current_resource.unwrap();
-	let next_path_segment = routing_state.path_segments.next().unwrap();
-
-	let some_next_resource = 'some_next_resource: {
-		if let Some(next_resource) = current_resource
-			.static_resources
-			.iter()
-			.find(|resource| resource.pattern.is_match(next_path_segment.as_str()))
-		{
-			break 'some_next_resource Some(next_resource);
-		}
-
-		if let Some(next_resource) = current_resource
-			.regex_resources
-			.iter()
-			.find(|resource| resource.pattern.is_match(next_path_segment.as_str()))
-		{
-			break 'some_next_resource Some(next_resource);
-		}
-
-		current_resource.wildcard_resource.as_deref()
-	};
-
-	if let Some(next_resource) = some_next_resource {
-		routing_state.current_resource.replace(next_resource);
-
-		let mut response = match next_resource.request_receiver.as_ref() {
-			Some(request_receiver) => request_receiver.handle(request).await,
-			None => request_receiver(request).await,
-		};
-
-		let Some(unused_request) = response.extensions_mut().get_mut::<UnusedRequest>() else {
-			return response;
-		};
-
-		let req = unused_request.as_mut();
-
-		let routing_state = req.extensions_mut().get_mut::<RoutingState>().unwrap();
-		routing_state.current_resource.replace(current_resource);
-		routing_state
-			.path_segments
-			.revert_to_segment(next_path_segment);
-
-		return response;
-	}
-
-	misdirected_request_handler(request).await
+#[inline]
+pub(crate) fn request_passer(mut request: Request) -> RequestPasserFuture {
+	RequestPasserFuture::from(request)
 }
 
 pub(crate) fn request_handler(mut request: Request) -> BoxedFuture<Response> {
