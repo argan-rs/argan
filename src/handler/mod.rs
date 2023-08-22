@@ -65,7 +65,7 @@ pub trait IntoHandler<M, B = IncomingBody>: Sized {
 	}
 }
 
-impl<H, B> IntoHandler<Request<B>, B> for H
+impl<H, B> IntoHandler<H, B> for H
 where
 	H: Handler<B>,
 {
@@ -160,6 +160,14 @@ impl<H> ReadyHandler for H where
 {
 }
 
+pub(crate) trait IntoBoxedHandler: ReadyHandler + Sized + 'static {
+	fn into_boxed_handler(self) -> BoxedHandler {
+		Box::new(self)
+	}
+}
+
+impl<H> IntoBoxedHandler for H where H: ReadyHandler + 'static {}
+
 // --------------------------------------------------
 
 pub(crate) type BoxedHandler = Box<dyn ReadyHandler>;
@@ -208,7 +216,7 @@ impl DummyHandler<DefaultResponseFuture> {
 	}
 }
 
-impl Handler<IncomingBody> for DummyHandler<DefaultResponseFuture> {
+impl Handler for DummyHandler<DefaultResponseFuture> {
 	type Response = Response;
 	type Future = DefaultResponseFuture;
 
@@ -224,7 +232,7 @@ impl DummyHandler<BoxedFuture<Response>> {
 	}
 }
 
-impl Handler<IncomingBody> for DummyHandler<BoxedFuture<Response>> {
+impl Handler for DummyHandler<BoxedFuture<Response>> {
 	type Response = Response;
 	type Future = BoxedFuture<Response>;
 

@@ -32,6 +32,30 @@ impl<Func, M> From<Func> for HandlerFn<Func, M> {
 	}
 }
 
+impl<Func> IntoHandler<()> for Func
+where
+	Func: Fn(Request) -> BoxedFuture<Response>,
+	HandlerFn<Func, ()>: Handler,
+{
+	type Handler = HandlerFn<Func, ()>;
+
+	fn into_handler(self) -> Self::Handler {
+		HandlerFn::from(self)
+	}
+}
+
+impl<Func> Handler for HandlerFn<Func, ()>
+where
+	Func: Fn(Request) -> BoxedFuture<Response>,
+{
+	type Response = Response;
+	type Future = BoxedFuture<Self::Response>;
+
+	fn handle(&self, request: Request) -> Self::Future {
+		(self.func)(request)
+	}
+}
+
 // --------------------------------------------------
 
 macro_rules! impl_handler_fn {
