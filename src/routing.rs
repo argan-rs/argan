@@ -1,3 +1,5 @@
+use crate::utils::RouteTraversalState;
+
 use super::{request::Request, resource::Resource, utils::RouteSegments};
 
 pub use hyper::Method;
@@ -6,10 +8,23 @@ pub use hyper::StatusCode;
 // --------------------------------------------------
 
 pub(crate) struct RoutingState<'req> {
-	pub(crate) path_segments: RouteSegments<'req>,
+	pub(crate) path_traversal: RouteTraversalState,
 	pub(crate) current_resource: Option<&'req Resource>,
 
 	pub(crate) subtree_handler_exists: bool,
+}
+
+impl<'req> RoutingState<'req> {
+	pub(crate) fn new(
+		path_segments: RouteTraversalState,
+		resource: &'req Resource,
+	) -> RoutingState<'req> {
+		Self {
+			path_traversal: path_segments,
+			current_resource: Some(resource),
+			subtree_handler_exists: false,
+		}
+	}
 }
 
 // --------------------------------------------------

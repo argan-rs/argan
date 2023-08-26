@@ -780,7 +780,6 @@ impl Resource {
 			.set_handler(method, ready_handler.into_boxed_handler())
 	}
 
-	#[allow(clippy::type_complexity)]
 	pub fn wrap_request_receiver<L, LayeredB>(&mut self, layer: L)
 	where
 		L: Layer<AdaptiveHandler<LayeredB>, LayeredB>,
@@ -804,7 +803,6 @@ impl Resource {
 		self.request_receiver.replace(boxed_request_receiver);
 	}
 
-	#[allow(clippy::type_complexity)]
 	pub fn wrap_request_passer<L, LayeredB>(&mut self, layer: L)
 	where
 		L: Layer<AdaptiveHandler<LayeredB>, LayeredB>,
@@ -828,7 +826,6 @@ impl Resource {
 		self.request_passer.replace(boxed_request_passer);
 	}
 
-	#[allow(clippy::type_complexity)]
 	pub fn wrap_request_handler<L, LayeredB>(&mut self, layer: L)
 	where
 		L: Layer<AdaptiveHandler<LayeredB>, LayeredB>,

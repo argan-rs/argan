@@ -98,15 +98,20 @@ impl Future for RequestReceiverFuture {
 
 	fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
 		let self_projection = self.project();
-		let mut request = self_projection.0.take().unwrap();
 
-		let mut routing_state = request.extensions_mut().get_mut::<RoutingState>().unwrap();
+		let mut request = self_projection.0.take().unwrap();
+		let mut routing_state = request.extensions_mut().remove::<RoutingState>().unwrap();
 		let current_resource = routing_state.current_resource.unwrap();
 
-		if routing_state.path_segments.has_remaining_segments() {
+		if routing_state
+			.path_traversal
+			.has_remaining_segments(request.uri().path())
+		{
 			if current_resource.is_subtree_handler() {
 				routing_state.subtree_handler_exists = true;
 			}
+
+			request.extensions_mut().insert(routing_state);
 
 			let mut response = match current_resource.request_passer.as_ref() {
 				Some(request_passer) => {
@@ -137,6 +142,8 @@ impl Future for RequestReceiverFuture {
 			};
 
 			request = unused_request.into_request()
+		} else {
+			request.extensions_mut().insert(routing_state);
 		}
 
 		if let Some(request_handler) = current_resource.request_handler.as_ref() {
@@ -169,32 +176,40 @@ impl Future for RequestPasserFuture {
 		let self_projection = self.project();
 
 		let mut request = self_projection.0.take().unwrap();
-		let routing_state = request.extensions_mut().get_mut::<RoutingState>().unwrap();
+		let mut routing_state = request.extensions_mut().remove::<RoutingState>().unwrap();
 		let current_resource = routing_state.current_resource.unwrap();
-		let next_path_segment = routing_state.path_segments.next().unwrap();
 
-		let some_next_resource = 'some_next_resource: {
+		let (some_next_resource, next_segment_index) = 'some_next_resource: {
+			let (next_segment, next_segment_index) = routing_state
+				.path_traversal
+				.next_segment(request.uri().path())
+				.unwrap();
+
 			if let Some(next_resource) = current_resource
 				.static_resources
 				.iter()
-				.find(|resource| resource.pattern.is_match(next_path_segment.as_str()))
+				.find(|resource| resource.pattern.is_match(next_segment))
 			{
-				break 'some_next_resource Some(next_resource);
+				break 'some_next_resource (Some(next_resource), next_segment_index);
 			}
 
 			if let Some(next_resource) = current_resource
 				.regex_resources
 				.iter()
-				.find(|resource| resource.pattern.is_match(next_path_segment.as_str()))
+				.find(|resource| resource.pattern.is_match(next_segment))
 			{
-				break 'some_next_resource Some(next_resource);
+				break 'some_next_resource (Some(next_resource), next_segment_index);
 			}
 
-			current_resource.wildcard_resource.as_deref()
+			(
+				current_resource.wildcard_resource.as_deref(),
+				next_segment_index,
+			)
 		};
 
 		if let Some(next_resource) = some_next_resource {
 			routing_state.current_resource.replace(next_resource);
+			request.extensions_mut().insert(routing_state);
 
 			let mut response = match next_resource.request_receiver.as_ref() {
 				Some(request_receiver) => {
@@ -222,11 +237,13 @@ impl Future for RequestPasserFuture {
 			let routing_state = req.extensions_mut().get_mut::<RoutingState>().unwrap();
 			routing_state.current_resource.replace(current_resource);
 			routing_state
-				.path_segments
-				.revert_to_segment(next_path_segment);
+				.path_traversal
+				.revert_to_segment(next_segment_index);
 
 			return Poll::Ready(response);
 		}
+
+		request.extensions_mut().insert(routing_state);
 
 		pin!(misdirected_request_handler(request)).poll(cx)
 	}
