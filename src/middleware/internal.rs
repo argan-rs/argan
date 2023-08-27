@@ -9,7 +9,7 @@ use pin_project::pin_project;
 
 use crate::{
 	body::{Body, IncomingBody},
-	handler::{BoxedHandler, Handler},
+	handler::Handler,
 	request::Request,
 	response::{IntoResponse, Response},
 	utils::{BoxedError, BoxedFuture},
@@ -128,14 +128,14 @@ impl<H> ResponseFutureBoxer<H> {
 	}
 }
 
-impl<H> ResponseFutureBoxer<H>
-where
-	H: Handler<IncomingBody, Response = Response> + Sync + 'static,
-{
-	#[inline]
-	pub(crate) fn into_boxed_handler(self) -> BoxedHandler {
-		Box::new(self)
-	}
-}
+// impl<H> ResponseFutureBoxer<H>
+// where
+// 	H: Handler<IncomingBody, Response = Response> + Sync + 'static,
+// {
+// 	#[inline]
+// 	pub(crate) fn into_boxed_handler(self) -> ArcHandler {
+// 		ArcHandler::new(self)
+// 	}
+// }
 
 // --------------------------------------------------------------------------------

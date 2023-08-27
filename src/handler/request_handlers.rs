@@ -11,15 +11,15 @@ use crate::{
 
 use super::{
 	futures::{RequestPasserFuture, RequestReceiverFuture},
-	wrap_boxed_handler, AdaptiveHandler, BoxedHandler, Handler,
+	wrap_boxed_handler, AdaptiveHandler, ArcHandler, Handler,
 };
 
 // --------------------------------------------------------------------------------
 // --------------------------------------------------------------------------------
 
 pub(crate) struct MethodHandlers {
-	method_handlers: Vec<(Method, BoxedHandler)>,
-	unsupported_method_handler: Option<BoxedHandler>,
+	method_handlers: Vec<(Method, ArcHandler)>,
+	unsupported_method_handler: Option<ArcHandler>,
 }
 
 impl MethodHandlers {
@@ -38,7 +38,7 @@ impl MethodHandlers {
 	}
 
 	#[inline]
-	pub(crate) fn set_handler(&mut self, method: Method, handler: BoxedHandler) {
+	pub(crate) fn set_handler(&mut self, method: Method, handler: ArcHandler) {
 		if self.method_handlers.iter().any(|(m, _)| m == method) {
 			panic!("{} handler already exists", method)
 		}
@@ -50,7 +50,7 @@ impl MethodHandlers {
 	pub(crate) fn wrap_handler<L, LayeredB>(&mut self, method: Method, layer: L)
 	where
 		L: Layer<AdaptiveHandler<LayeredB>, LayeredB>,
-		L::Handler: Handler<IncomingBody> + Sync + 'static,
+		L::Handler: Handler<IncomingBody> + Send + Sync + 'static,
 		<L::Handler as Handler<IncomingBody>>::Response: IntoResponse,
 	{
 		let Some(position) = self.method_handlers.iter().position(|(m, _)| m == method) else {

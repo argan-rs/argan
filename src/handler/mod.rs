@@ -1,4 +1,4 @@
-use std::{convert::Infallible, fmt::Debug, future::Future, marker::PhantomData};
+use std::{convert::Infallible, fmt::Debug, future::Future, marker::PhantomData, sync::Arc};
 
 pub use hyper::service::Service;
 
@@ -151,57 +151,63 @@ pub struct HandlerState<S>(S);
 
 pub(crate) trait ReadyHandler
 where
-	Self: Handler<IncomingBody, Response = Response, Future = BoxedFuture<Response>> + Sync,
+	Self: Handler<IncomingBody, Response = Response, Future = BoxedFuture<Response>> + Send + Sync,
 {
 }
 
 impl<H> ReadyHandler for H where
-	H: Handler<IncomingBody, Response = Response, Future = BoxedFuture<Response>> + Sync
+	H: Handler<IncomingBody, Response = Response, Future = BoxedFuture<Response>> + Send + Sync
 {
 }
 
-pub(crate) trait IntoBoxedHandler: ReadyHandler + Sized + 'static {
-	fn into_boxed_handler(self) -> BoxedHandler {
-		Box::new(self)
+pub(crate) trait IntoArcHandler: ReadyHandler + Sized + 'static {
+	fn into_arc_handler(self) -> ArcHandler {
+		ArcHandler::new(self)
 	}
 }
 
-impl<H> IntoBoxedHandler for H where H: ReadyHandler + 'static {}
+impl<H> IntoArcHandler for H where H: ReadyHandler + 'static {}
 
 // --------------------------------------------------
 
-pub(crate) type BoxedHandler = Box<dyn ReadyHandler>;
+pub(crate) struct ArcHandler(Arc<dyn ReadyHandler>);
 
-impl Handler<IncomingBody> for BoxedHandler {
+impl Default for ArcHandler {
+	#[inline]
+	fn default() -> Self {
+		ArcHandler(Arc::new(DummyHandler::<BoxedFuture<Response>>::new()))
+	}
+}
+
+impl ArcHandler {
+	fn new<H: ReadyHandler + 'static>(handler: H) -> Self {
+		ArcHandler(Arc::new(handler))
+	}
+}
+
+impl Handler for ArcHandler {
 	type Response = Response;
 	type Future = BoxedFuture<Self::Response>;
 
 	#[inline]
 	fn handle(&self, request: Request<IncomingBody>) -> Self::Future {
-		self.as_ref().handle(request)
-	}
-}
-
-impl Default for BoxedHandler {
-	#[inline]
-	fn default() -> Self {
-		Box::new(DummyHandler::<BoxedFuture<Response>>::new())
+		self.0.handle(request)
 	}
 }
 
 // -------------------------
 
-pub(crate) fn wrap_boxed_handler<L, LayeredB>(boxed_handler: BoxedHandler, layer: L) -> BoxedHandler
+pub(crate) fn wrap_boxed_handler<L, LayeredB>(boxed_handler: ArcHandler, layer: L) -> ArcHandler
 where
 	L: Layer<AdaptiveHandler<LayeredB>, LayeredB>,
-	L::Handler: Handler + Sync + 'static,
+	L::Handler: Handler + Send + Sync + 'static,
 	<L::Handler as Handler>::Response: IntoResponse,
 {
 	let adaptive_handler = AdaptiveHandler::from(RequestBodyAdapter::wrap(boxed_handler));
 	let layered_handler = layer.wrap(adaptive_handler);
 	let ready_handler = ResponseFutureBoxer::wrap(IntoResponseAdapter::wrap(layered_handler));
 
-	ready_handler.into_boxed_handler()
+	ready_handler.into_arc_handler()
 }
 
 // --------------------------------------------------
@@ -245,7 +251,7 @@ impl Handler for DummyHandler<BoxedFuture<Response>> {
 // --------------------------------------------------
 
 pub struct AdaptiveHandler<B> {
-	inner: RequestBodyAdapter<BoxedHandler>,
+	inner: RequestBodyAdapter<ArcHandler>,
 	_body: PhantomData<B>,
 }
 
@@ -267,9 +273,9 @@ where
 	}
 }
 
-impl<B> From<RequestBodyAdapter<BoxedHandler>> for AdaptiveHandler<B> {
+impl<B> From<RequestBodyAdapter<ArcHandler>> for AdaptiveHandler<B> {
 	#[inline]
-	fn from(handler: RequestBodyAdapter<BoxedHandler>) -> Self {
+	fn from(handler: RequestBodyAdapter<ArcHandler>) -> Self {
 		Self {
 			inner: handler,
 			_body: PhantomData,
