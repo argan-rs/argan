@@ -1,3 +1,5 @@
+use std::future::{ready, Ready};
+
 use hyper::header::{HeaderName, HeaderValue};
 
 use crate::{
@@ -17,6 +19,7 @@ use super::{
 // --------------------------------------------------------------------------------
 // --------------------------------------------------------------------------------
 
+#[derive(Clone)]
 pub(crate) struct MethodHandlers {
 	method_handlers: Vec<(Method, ArcHandler)>,
 	unsupported_method_handler: Option<ArcHandler>,
@@ -120,14 +123,14 @@ async fn handle_not_allowed_method(mut request: Request<IncomingBody>) -> Respon
 }
 
 #[inline]
-pub(crate) async fn misdirected_request_handler(request: Request<IncomingBody>) -> Response {
+pub(crate) fn misdirected_request_handler(request: Request<IncomingBody>) -> Ready<Response> {
 	let mut response = Response::default();
 	*response.status_mut() = StatusCode::NOT_FOUND;
 	response
 		.extensions_mut()
 		.insert(UnusedRequest::from(request));
 
-	response
+	ready(response)
 }
 
 // --------------------------------------------------------------------------------
@@ -144,7 +147,7 @@ pub(crate) fn request_passer(mut request: Request) -> RequestPasserFuture {
 
 pub(crate) fn request_handler(mut request: Request) -> BoxedFuture<Response> {
 	let routing_state = request.extensions_mut().get_mut::<RoutingState>().unwrap();
-	let current_resource = routing_state.current_resource.unwrap();
+	let current_resource = routing_state.current_resource.take().unwrap();
 
 	current_resource.method_handlers.handle(request)
 }

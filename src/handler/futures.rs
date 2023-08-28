@@ -15,7 +15,10 @@ use crate::{
 	routing::{RoutingState, StatusCode, UnusedRequest},
 };
 
-use super::request_handlers::{misdirected_request_handler, request_passer, request_receiver};
+use super::{
+	request_handlers::{misdirected_request_handler, request_passer, request_receiver},
+	Handler,
+};
 
 // --------------------------------------------------------------------------------
 // --------------------------------------------------------------------------------
@@ -101,7 +104,7 @@ impl Future for RequestReceiverFuture {
 
 		let mut request = self_projection.0.take().unwrap();
 		let mut routing_state = request.extensions_mut().remove::<RoutingState>().unwrap();
-		let current_resource = routing_state.current_resource.unwrap();
+		let current_resource = routing_state.current_resource.clone().unwrap();
 
 		if routing_state
 			.path_traversal
@@ -177,7 +180,7 @@ impl Future for RequestPasserFuture {
 
 		let mut request = self_projection.0.take().unwrap();
 		let mut routing_state = request.extensions_mut().remove::<RoutingState>().unwrap();
-		let current_resource = routing_state.current_resource.unwrap();
+		let current_resource = routing_state.current_resource.take().unwrap();
 
 		let (some_next_resource, next_segment_index) = 'some_next_resource: {
 			let (next_segment, next_segment_index) = routing_state
@@ -208,7 +211,9 @@ impl Future for RequestPasserFuture {
 		};
 
 		if let Some(next_resource) = some_next_resource {
-			routing_state.current_resource.replace(next_resource);
+			routing_state
+				.current_resource
+				.replace(next_resource.clone());
 			request.extensions_mut().insert(routing_state);
 
 			let mut response = match next_resource.request_receiver.as_ref() {

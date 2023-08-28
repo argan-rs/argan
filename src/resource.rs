@@ -1,25 +1,32 @@
 use std::{
 	any::{Any, TypeId},
+	convert::Infallible,
+	future::{Future, Ready},
 	ops::Deref,
+	pin::Pin,
 	sync::Arc,
+	task::{Context, Poll},
 };
+
+use pin_project::pin_project;
 
 use crate::{
-	body::IncomingBody,
-	handler::futures::{RequestPasserFuture, RequestReceiverFuture},
+	body::{Incoming, IncomingBody},
+	handler::{
+		futures::{RequestPasserFuture, RequestReceiverFuture, ResponseToResultFuture},
+		request_handlers::{
+			misdirected_request_handler, request_handler, request_passer, request_receiver,
+			MethodHandlers,
+		},
+		wrap_boxed_handler, AdaptiveHandler, ArcHandler, Handler, IntoArcHandler, IntoHandler, Service,
+	},
 	middleware::{IntoResponseAdapter, Layer, ResponseFutureBoxer},
-	response::IntoResponse,
-};
-
-use super::{
-	handler::{request_handlers::*, *},
 	pattern::{Pattern, Similarity},
 	request::Request,
-	response::Response,
-	routing::Method,
+	response::{IntoResponse, Response},
+	routing::{Method, RoutingState},
+	utils::{BoxedFuture, RouteSegments, RouteTraversalState},
 };
-
-use super::utils::*;
 
 // --------------------------------------------------
 
@@ -1013,6 +1020,147 @@ impl Resource {
 			if let Some(resource) = sub_resource.wildcard_resource.as_deref_mut() {
 				sub_resources.push(resource);
 			}
+		}
+	}
+}
+
+// --------------------------------------------------------------------------------
+// --------------------------------------------------------------------------------
+
+#[derive(Clone)]
+pub struct ResourceService {
+	pub(crate) pattern: Pattern,
+
+	pub(crate) static_resources: Arc<[ResourceService]>,
+	pub(crate) regex_resources: Arc<[ResourceService]>,
+	pub(crate) wildcard_resource: Option<Arc<ResourceService>>,
+
+	pub(crate) request_receiver: Option<ArcHandler>,
+	pub(crate) request_passer: Option<ArcHandler>,
+	pub(crate) request_handler: Option<ArcHandler>,
+
+	pub(crate) method_handlers: MethodHandlers,
+
+	// request_redirector: Option<BoxedCloneableService>, // ???
+	state: Arc<[Arc<dyn Any + Send + Sync>]>,
+
+	// TODO: configs, state, redirect, parent
+	is_subtree_handler: bool,
+}
+
+impl ResourceService {
+	#[inline]
+	pub fn is_subtree_handler(&self) -> bool {
+		self.is_subtree_handler
+	}
+
+	#[inline]
+	pub fn can_handle_request(&self) -> bool {
+		self.method_handlers.is_empty()
+	}
+}
+
+// --------------------------------------------------
+
+impl Service<Request<Incoming>> for ResourceService {
+	type Response = Response;
+	type Error = Infallible;
+	type Future = ResourceFuture;
+
+	#[inline]
+	fn call(&self, request: Request<Incoming>) -> Self::Future {
+		let (head, body) = request.into_parts();
+		let incoming_body = IncomingBody::new(body);
+		let mut request = Request::<IncomingBody>::from_parts(head, incoming_body);
+
+		let route = request.uri().path();
+		let mut route_traversal_state = RouteTraversalState::new();
+
+		let matched = if route == "/" {
+			self.pattern.is_match(route)
+		} else {
+			let (next_segment, _) = route_traversal_state
+				.next_segment(request.uri().path())
+				.unwrap();
+
+			self.pattern.is_match(next_segment)
+		};
+
+		let routing_state = RoutingState::new(route_traversal_state, self.clone());
+		request.extensions_mut().insert(routing_state);
+
+		if matched {
+			match self.request_receiver.as_ref() {
+				Some(request_receiver) => {
+					ResourceInternalFuture::from(request_receiver.handle(request)).into()
+				}
+				None => ResourceInternalFuture::from(request_receiver(request)).into(),
+			}
+		} else {
+			ResourceInternalFuture::from(misdirected_request_handler(request)).into()
+		}
+	}
+}
+
+// --------------------------------------------------------------------------------
+
+#[pin_project]
+pub struct ResourceFuture(#[pin] ResourceInternalFuture);
+
+impl From<ResourceInternalFuture> for ResourceFuture {
+	fn from(internal: ResourceInternalFuture) -> Self {
+		Self(internal)
+	}
+}
+
+impl Future for ResourceFuture {
+	type Output = Result<Response, Infallible>;
+
+	#[inline]
+	fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+		self.project().0.poll(cx)
+	}
+}
+
+// ----------
+
+#[pin_project(project = ResourceInternalFutureProjection)]
+pub(crate) enum ResourceInternalFuture {
+	Boxed(#[pin] ResponseToResultFuture<BoxedFuture<Response>>),
+	Unboxed(#[pin] ResponseToResultFuture<RequestReceiverFuture>),
+	Ready(#[pin] ResponseToResultFuture<Ready<Response>>),
+}
+
+impl From<BoxedFuture<Response>> for ResourceInternalFuture {
+	#[inline]
+	fn from(boxed_future: BoxedFuture<Response>) -> Self {
+		Self::Boxed(ResponseToResultFuture::from(boxed_future))
+	}
+}
+
+impl From<RequestReceiverFuture> for ResourceInternalFuture {
+	#[inline]
+	fn from(request_receiver_future: RequestReceiverFuture) -> Self {
+		Self::Unboxed(ResponseToResultFuture::from(request_receiver_future))
+	}
+}
+
+impl From<Ready<Response>> for ResourceInternalFuture {
+	#[inline]
+	fn from(ready_future: Ready<Response>) -> Self {
+		Self::Ready(ResponseToResultFuture::from(ready_future))
+	}
+}
+
+impl Future for ResourceInternalFuture {
+	type Output = Result<Response, Infallible>;
+
+	#[inline]
+	fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+		match self.project() {
+			ResourceInternalFutureProjection::Boxed(boxed) => boxed.poll(cx),
+			ResourceInternalFutureProjection::Unboxed(unboxed) => unboxed.poll(cx),
+			ResourceInternalFutureProjection::Ready(ready) => ready.poll(cx),
 		}
 	}
 }
