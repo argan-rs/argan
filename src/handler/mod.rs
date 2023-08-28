@@ -170,6 +170,7 @@ impl<H> IntoArcHandler for H where H: ReadyHandler + 'static {}
 
 // --------------------------------------------------
 
+#[derive(Clone)]
 pub(crate) struct ArcHandler(Arc<dyn ReadyHandler>);
 
 impl Default for ArcHandler {
