@@ -44,7 +44,7 @@ pub struct Resource {
 
 	pub(crate) method_handlers: MethodHandlers,
 
-	state: Vec<Arc<dyn Any + Send + Sync>>,
+	state: Vec<Box<dyn Any + Send + Sync>>,
 
 	// TODO: configs, state, redirect, parent
 	is_subtree_handler: bool,
@@ -750,7 +750,7 @@ impl Resource {
 			);
 		}
 
-		self.state.push(Arc::new(state));
+		self.state.push(Box::new(state));
 	}
 
 	pub fn state<S>(&self) -> Option<&S>
@@ -1022,6 +1022,47 @@ impl Resource {
 			}
 		}
 	}
+
+	pub fn into_service(self) -> ResourceService {
+		let Resource {
+			pattern,
+			static_resources,
+			regex_resources,
+			wildcard_resource,
+			request_receiver,
+			request_passer,
+			request_handler,
+			method_handlers,
+			state,
+			is_subtree_handler,
+			..
+		} = self;
+
+		let static_resources = static_resources
+			.into_iter()
+			.map(|resource| resource.into_service())
+			.collect::<Arc<[ResourceService]>>();
+
+		let regex_resources = regex_resources
+			.into_iter()
+			.map(|resource| resource.into_service())
+			.collect::<Arc<[ResourceService]>>();
+
+		let wildcard_resource = wildcard_resource.map(|resource| Arc::new(resource.into_service()));
+
+		ResourceService {
+			pattern,
+			static_resources,
+			regex_resources,
+			wildcard_resource,
+			request_receiver,
+			request_passer,
+			request_handler,
+			method_handlers,
+			state: Arc::from(state),
+			is_subtree_handler,
+		}
+	}
 }
 
 // --------------------------------------------------------------------------------
@@ -1042,7 +1083,7 @@ pub struct ResourceService {
 	pub(crate) method_handlers: MethodHandlers,
 
 	// request_redirector: Option<BoxedCloneableService>, // ???
-	state: Arc<[Arc<dyn Any + Send + Sync>]>,
+	state: Arc<[Box<dyn Any + Send + Sync>]>,
 
 	// TODO: configs, state, redirect, parent
 	is_subtree_handler: bool,
