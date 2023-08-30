@@ -8,7 +8,7 @@ use std::{
 use hyper::HeaderMap;
 use pin_project::pin_project;
 
-// -------------------------
+// ----------
 
 pub use hyper::body::{Body, Buf, Bytes, Frame, Incoming};
 

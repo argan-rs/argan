@@ -1,48 +1,50 @@
 use std::{
 	any::{Any, TypeId},
-	convert::Infallible,
-	future::{Future, Ready},
-	ops::Deref,
-	pin::Pin,
 	sync::Arc,
-	task::{Context, Poll},
 };
 
-use pin_project::pin_project;
-
 use crate::{
-	body::{Incoming, IncomingBody},
+	body::IncomingBody,
 	handler::{
-		futures::{RequestPasserFuture, RequestReceiverFuture, ResponseToResultFuture},
-		request_handlers::{
-			misdirected_request_handler, request_handler, request_passer, request_receiver,
-			MethodHandlers,
-		},
-		wrap_boxed_handler, AdaptiveHandler, ArcHandler, Handler, IntoArcHandler, IntoHandler, Service,
+		request_handlers::MethodHandlers, wrap_arc_handler, AdaptiveHandler, ArcHandler, Handler,
+		IntoArcHandler, IntoHandler,
 	},
 	middleware::{IntoResponseAdapter, Layer, ResponseFutureBoxer},
 	pattern::{Pattern, Similarity},
 	request::Request,
 	response::{IntoResponse, Response},
-	routing::{Method, RoutingState},
-	utils::{BoxedFuture, RouteSegments, RouteTraversalState},
+	routing::{Method, RouteSegments},
+	utils::{BoxedError, BoxedFuture},
 };
 
 // --------------------------------------------------
 
+mod futures;
+mod service;
+
+use self::{
+	futures::{RequestPasserFuture, RequestReceiverFuture},
+	service::{request_handler, request_passer, request_receiver},
+};
+
+pub use service::ResourceService;
+
+// --------------------------------------------------------------------------------
+// --------------------------------------------------------------------------------
+
 pub struct Resource {
-	pub(crate) pattern: Pattern,
+	pattern: Pattern,
 	prefix_path_patterns: Vec<Pattern>,
 
-	pub(crate) static_resources: Vec<Resource>,
-	pub(crate) regex_resources: Vec<Resource>,
-	pub(crate) wildcard_resource: Option<Box<Resource>>,
+	static_resources: Vec<Resource>,
+	regex_resources: Vec<Resource>,
+	wildcard_resource: Option<Box<Resource>>,
 
-	pub(crate) request_receiver: Option<ArcHandler>,
-	pub(crate) request_passer: Option<ArcHandler>,
-	pub(crate) request_handler: Option<ArcHandler>,
+	request_receiver: Option<ArcHandler>,
+	request_passer: Option<ArcHandler>,
+	request_handler: Option<ArcHandler>,
 
-	pub(crate) method_handlers: MethodHandlers,
+	method_handlers: MethodHandlers,
 
 	state: Vec<Box<dyn Any + Send + Sync>>,
 
@@ -71,14 +73,14 @@ impl Resource {
 		let mut route_segments = RouteSegments::new(path_pattern);
 
 		let mut resource_pattern: Pattern;
-		let mut prefix_path_patterns = Vec::new();
+		let mut prefix_segment_patterns = Vec::new();
 
 		let resource_pattern = loop {
-			let route_segment = route_segments.next().unwrap();
-			let pattern = Pattern::parse(route_segment.as_str());
+			let (route_segment, _) = route_segments.next().unwrap();
+			let pattern = Pattern::parse(route_segment);
 
 			if route_segments.has_remaining_segments() {
-				prefix_path_patterns.push(pattern);
+				prefix_segment_patterns.push(pattern);
 
 				continue;
 			}
@@ -86,7 +88,7 @@ impl Resource {
 			break pattern;
 		};
 
-		Self::with_path_pattern(prefix_path_patterns, resource_pattern)
+		Self::with_prefix_path_patterns(prefix_segment_patterns, resource_pattern)
 	}
 
 	#[inline]
@@ -98,11 +100,11 @@ impl Resource {
 
 	#[inline]
 	pub(crate) fn with_pattern(pattern: Pattern) -> Resource {
-		Self::with_path_pattern(Vec::new(), pattern)
+		Self::with_prefix_path_patterns(Vec::new(), pattern)
 	}
 
 	#[inline]
-	pub(crate) fn with_path_pattern(
+	pub(crate) fn with_prefix_path_patterns(
 		prefix_path_patterns: Vec<Pattern>,
 		resource_pattern: Pattern,
 	) -> Resource {
@@ -156,7 +158,7 @@ impl Resource {
 			let mut prefix_path_patterns =
 				std::mem::take(&mut new_resource.prefix_path_patterns).into_iter();
 
-			self.check_path_patterns_are_the_same(&mut prefix_path_patterns);
+			self.check_path_segments_are_the_same(&mut prefix_path_patterns);
 
 			if prefix_path_patterns.len() > 0 {
 				let sub_resource_to_be_parent = self.by_patterns_sub_resource_mut(prefix_path_patterns);
@@ -174,19 +176,16 @@ impl Resource {
 
 		macro_rules! add_resource {
 			($resources:expr, $new_resource:ident) => {
-				if let Some(position) = $resources
-					.iter_mut()
-					.position(|resource| resource.pattern.compare(&$new_resource.pattern) == Similarity::Same)
-				{
-					// TODO: Provide default constructor.
-					let dummy_resource = Resource::with_pattern_str("dummy");
+				if let Some(position) = $resources.iter_mut().position(
+					|resource| resource.pattern.compare(&$new_resource.pattern) == Similarity::Same
+				) {
+					let dummy_resource = Resource::with_pattern_str("dummy"); // TODO: Provide default constructor.
 					let mut existing_resource = std::mem::replace(&mut $resources[position], dummy_resource);
 
 					if !$new_resource.has_some_effect() {
 						existing_resource.keep_sub_resources($new_resource);
 					} else if !existing_resource.has_some_effect() {
-						$new_resource.prefix_path_patterns =
-							std::mem::take(&mut existing_resource.prefix_path_patterns);
+						$new_resource.prefix_path_patterns = std::mem::take(&mut existing_resource.prefix_path_patterns);
 						$new_resource.keep_sub_resources(existing_resource);
 						existing_resource = $new_resource;
 					} else {
@@ -199,7 +198,7 @@ impl Resource {
 					$new_resource.prefix_path_patterns = self.path_patterns();
 					$resources.push($new_resource);
 				}
-			};
+			}
 		}
 
 		// -----
@@ -233,16 +232,16 @@ impl Resource {
 	}
 
 	#[inline]
-	fn check_path_patterns_are_the_same(
+	fn check_path_segments_are_the_same(
 		&self,
-		prefix_path_patterns: &mut impl Iterator<Item = Pattern>,
+		prefix_segment_patterns: &mut impl Iterator<Item = Pattern>,
 	) {
 		let self_path_patterns = self
 			.prefix_path_patterns
 			.iter()
 			.chain(std::iter::once(&self.pattern));
 		for self_path_segment_pattern in self_path_patterns {
-			let Some(prefix_path_segment_pattern) = prefix_path_patterns.next() else {
+			let Some(prefix_path_segment_pattern) = prefix_segment_patterns.next() else {
 				panic!("prefix path patterns must be the same with the path patterns of the parent")
 			};
 
@@ -277,7 +276,6 @@ impl Resource {
 		leaf_resource_in_the_path.by_patterns_new_sub_resource_mut(patterns)
 	}
 
-	#[inline]
 	fn by_patterns_leaf_resource_mut(
 		&mut self,
 		patterns: &mut impl Iterator<Item = Pattern>,
@@ -357,14 +355,6 @@ impl Resource {
 		}
 
 		current_resource
-	}
-
-	#[inline]
-	fn path_patterns(&mut self) -> Vec<Pattern> {
-		let mut prefix_patterns = self.prefix_path_patterns.clone();
-		prefix_patterns.push(self.pattern.clone());
-
-		prefix_patterns
 	}
 
 	#[inline]
@@ -472,14 +462,22 @@ impl Resource {
 		}
 	}
 
-	pub fn add_sub_resource_under(&mut self, prefix_route: &str, mut new_resource: Resource) {
+	#[inline]
+	fn path_patterns(&self) -> Vec<Pattern> {
+		let mut prefix_patterns = self.prefix_path_patterns.clone();
+		prefix_patterns.push(self.pattern.clone());
+
+		prefix_patterns
+	}
+
+	pub fn add_sub_resource_under(&mut self, route: &str, mut new_resource: Resource) {
 		if !new_resource.prefix_path_patterns.is_empty() {
 			let mut new_resource_prefix_path_patterns =
 				std::mem::take(&mut new_resource.prefix_path_patterns).into_iter();
 
-			self.check_path_patterns_are_the_same(&mut new_resource_prefix_path_patterns);
+			self.check_path_segments_are_the_same(&mut new_resource_prefix_path_patterns);
 
-			if prefix_route.is_empty() {
+			if route.is_empty() {
 				if new_resource_prefix_path_patterns.len() > 0 {
 					let sub_resource_to_be_parent =
 						self.by_patterns_sub_resource_mut(new_resource_prefix_path_patterns);
@@ -493,13 +491,13 @@ impl Resource {
 
 			let mut prefix_route_patterns = Vec::new();
 
-			let prefix_route_segments = RouteSegments::new(prefix_route);
-			for prefix_route_segment in prefix_route_segments {
+			let prefix_route_segments = RouteSegments::new(route);
+			for (prefix_route_segment, _) in prefix_route_segments {
 				let Some(prefix_path_segment_pattern) = new_resource_prefix_path_patterns.next() else {
 					panic!("prefix path patterns must be the same with the path patterns of the parent")
 				};
 
-				let prefix_route_segment_pattern = Pattern::parse(prefix_route_segment.as_str());
+				let prefix_route_segment_pattern = Pattern::parse(prefix_route_segment);
 				if let Pattern::Regex(ref prefix_route_segment_name, None) = prefix_route_segment_pattern {
 					if let Pattern::Regex(ref prefix_path_segment_name, _) = prefix_path_segment_pattern {
 						if prefix_path_segment_name == prefix_route_segment_name {
@@ -540,10 +538,10 @@ impl Resource {
 			return;
 		}
 
-		if prefix_route.is_empty() {
+		if route.is_empty() {
 			self.add_sub_resource(new_resource);
 		} else {
-			let sub_resource_to_be_parent = self.sub_resource_mut(prefix_route);
+			let sub_resource_to_be_parent = self.sub_resource_mut(route);
 			sub_resource_to_be_parent.add_sub_resource(new_resource);
 		}
 	}
@@ -564,15 +562,14 @@ impl Resource {
 		let mut segments = RouteSegments::new(route);
 		let mut leaf_resource_in_the_path = self.leaf_resource_mut(&mut segments);
 
-		leaf_resource_in_the_path.new_sub_resource_mut(&mut segments)
+		leaf_resource_in_the_path.new_sub_resource_mut(segments)
 	}
 
-	#[inline]
 	fn leaf_resource(&self, patterns: &mut RouteSegments) -> &Resource {
 		let mut existing_resource = self;
 
-		for segment in patterns.by_ref() {
-			let pattern = Pattern::parse(segment.as_str());
+		for (segment, segment_index) in patterns.by_ref() {
+			let pattern = Pattern::parse(segment);
 
 			match pattern {
 				Pattern::Static(_) => {
@@ -584,7 +581,7 @@ impl Resource {
 					if let Some(position) = some_position {
 						existing_resource = &existing_resource.static_resources[position];
 					} else {
-						patterns.revert_to_segment(segment);
+						patterns.revert_to_segment(segment_index);
 
 						break;
 					}
@@ -605,7 +602,7 @@ impl Resource {
 					if let Some(position) = some_position {
 						existing_resource = &existing_resource.regex_resources[position];
 					} else {
-						patterns.revert_to_segment(segment);
+						patterns.revert_to_segment(segment_index);
 
 						break;
 					}
@@ -618,7 +615,7 @@ impl Resource {
 					{
 						existing_resource = existing_resource.wildcard_resource.as_deref().unwrap();
 					} else {
-						patterns.revert_to_segment(segment);
+						patterns.revert_to_segment(segment_index);
 
 						break;
 					}
@@ -629,12 +626,11 @@ impl Resource {
 		existing_resource
 	}
 
-	#[inline]
 	fn leaf_resource_mut(&mut self, patterns: &mut RouteSegments) -> &mut Resource {
 		let mut existing_resource = self;
 
-		for segment in patterns.by_ref() {
-			let pattern = Pattern::parse(segment.as_str());
+		for (segment, segment_index) in patterns.by_ref() {
+			let pattern = Pattern::parse(segment);
 
 			match pattern {
 				Pattern::Static(_) => {
@@ -646,7 +642,7 @@ impl Resource {
 					if let Some(position) = some_position {
 						existing_resource = &mut existing_resource.static_resources[position];
 					} else {
-						patterns.revert_to_segment(segment);
+						patterns.revert_to_segment(segment_index);
 
 						break;
 					}
@@ -667,7 +663,7 @@ impl Resource {
 					if let Some(position) = some_position {
 						existing_resource = &mut existing_resource.regex_resources[position];
 					} else {
-						patterns.revert_to_segment(segment);
+						patterns.revert_to_segment(segment_index);
 
 						break;
 					}
@@ -680,7 +676,7 @@ impl Resource {
 					{
 						existing_resource = existing_resource.wildcard_resource.as_deref_mut().unwrap();
 					} else {
-						patterns.revert_to_segment(segment);
+						patterns.revert_to_segment(segment_index);
 
 						break;
 					}
@@ -692,11 +688,11 @@ impl Resource {
 	}
 
 	#[inline]
-	fn new_sub_resource_mut(&mut self, segments: &mut RouteSegments) -> &mut Resource {
+	fn new_sub_resource_mut(&mut self, segments: RouteSegments) -> &mut Resource {
 		let mut current_resource = self;
 
-		for segment in segments {
-			let pattern = Pattern::parse(segment.as_str());
+		for (segment, _) in segments {
+			let pattern = Pattern::parse(segment);
 
 			if let Some(name) = pattern.name() {
 				if current_resource.path_has_the_same_name(name) {
@@ -705,7 +701,7 @@ impl Resource {
 
 				let new_sub_resource = Resource::with_pattern(pattern);
 				current_resource.add_sub_resource(new_sub_resource);
-				current_resource = current_resource.sub_resource_mut(segment.as_str());
+				current_resource = current_resource.sub_resource_mut(segment);
 			}
 		}
 
@@ -733,34 +729,40 @@ impl Resource {
 
 	// -------------------------
 
-	pub fn set_state<S>(&mut self, state: S)
-	where
-		S: Clone + Send + Sync + 'static,
-	{
+	// TODO: Remove BoxedErrors.
+	pub fn set_state<S: Clone + Send + Sync + 'static>(
+		&mut self,
+		state: S,
+	) -> Result<(), BoxedError> {
 		let state_type_id = state.type_id();
 
 		if self
 			.state
 			.iter()
-			.any(|existing_state| existing_state.deref().type_id() == state_type_id)
+			.any(|existing_state| (*existing_state).type_id() == state_type_id)
 		{
-			panic!(
+			return Err(BoxedError::from(format!(
 				"resource already has a state of type '{:?}'",
 				TypeId::of::<S>()
-			);
+			)));
 		}
 
 		self.state.push(Box::new(state));
+
+		Ok(())
 	}
 
-	pub fn state<S>(&self) -> Option<&S>
-	where
-		S: Clone + Send + Sync + 'static,
-	{
+	pub fn state<S: Clone + Send + Sync + 'static>(&self) -> Result<&S, BoxedError> {
 		self
 			.state
 			.iter()
 			.find_map(|state| state.downcast_ref::<S>())
+			.ok_or_else(|| {
+				BoxedError::from(format!(
+					"resource has no state of type '{:?}'",
+					TypeId::of::<S>()
+				))
+			})
 	}
 
 	// pub fn set_config(&mut self, config: Config) {
@@ -771,6 +773,7 @@ impl Resource {
 	// 	todo!()
 	// }
 
+	// TODO: Create IntoMethod sealed trait and implement it for a Method and String.
 	pub fn set_handler<H, M>(&mut self, method: Method, handler: H)
 	where
 		H: IntoHandler<M, IncomingBody>,
@@ -802,7 +805,7 @@ impl Resource {
 			}
 		};
 
-		let boxed_request_receiver = wrap_boxed_handler(boxed_request_receiver, layer);
+		let boxed_request_receiver = wrap_arc_handler(boxed_request_receiver, layer);
 
 		self.request_receiver.replace(boxed_request_receiver);
 	}
@@ -825,7 +828,7 @@ impl Resource {
 			}
 		};
 
-		let boxed_request_passer = wrap_boxed_handler(boxed_request_passer, layer);
+		let boxed_request_passer = wrap_arc_handler(boxed_request_passer, layer);
 
 		self.request_passer.replace(boxed_request_passer);
 	}
@@ -846,7 +849,7 @@ impl Resource {
 			}
 		};
 
-		let boxed_request_handler = wrap_boxed_handler(boxed_request_handler, layer);
+		let boxed_request_handler = wrap_arc_handler(boxed_request_handler, layer);
 
 		self.request_handler.replace(boxed_request_handler);
 	}
@@ -862,18 +865,19 @@ impl Resource {
 
 	// -------------------------
 
-	pub fn set_sub_resource_state<S>(&mut self, route: &str, state: S)
-	where
-		S: Clone + Send + Sync + 'static,
-	{
+	pub fn set_sub_resource_state<S: Clone + Send + Sync + 'static>(
+		&mut self,
+		route: &str,
+		state: S,
+	) {
 		let sub_resource = self.sub_resource_mut(route);
 		sub_resource.set_state(state);
 	}
 
-	pub fn sub_resource_state<S>(&self, route: &str) -> Option<&S>
-	where
-		S: Clone + Send + Sync + 'static,
-	{
+	pub fn sub_resource_state<S: Clone + Send + Sync + 'static>(
+		&self,
+		route: &str,
+	) -> Result<&S, BoxedError> {
 		let mut route_segments = RouteSegments::new(route);
 		let sub_resource = self.leaf_resource(&mut route_segments);
 
@@ -948,10 +952,7 @@ impl Resource {
 
 	// -------------------------
 
-	pub fn set_sub_resources_state<S>(&mut self, state: S)
-	where
-		S: Clone + Send + Sync + 'static,
-	{
+	pub fn set_sub_resources_state<S: Clone + Send + Sync + 'static>(&mut self, state: S) {
 		self.call_for_each_sub_resource(|sub_resource| {
 			sub_resource.set_state(state.clone());
 		});
@@ -1061,147 +1062,6 @@ impl Resource {
 			method_handlers,
 			state: Arc::from(state),
 			is_subtree_handler,
-		}
-	}
-}
-
-// --------------------------------------------------------------------------------
-// --------------------------------------------------------------------------------
-
-#[derive(Clone)]
-pub struct ResourceService {
-	pub(crate) pattern: Pattern,
-
-	pub(crate) static_resources: Arc<[ResourceService]>,
-	pub(crate) regex_resources: Arc<[ResourceService]>,
-	pub(crate) wildcard_resource: Option<Arc<ResourceService>>,
-
-	pub(crate) request_receiver: Option<ArcHandler>,
-	pub(crate) request_passer: Option<ArcHandler>,
-	pub(crate) request_handler: Option<ArcHandler>,
-
-	pub(crate) method_handlers: MethodHandlers,
-
-	// request_redirector: Option<BoxedCloneableService>, // ???
-	state: Arc<[Box<dyn Any + Send + Sync>]>,
-
-	// TODO: configs, state, redirect, parent
-	is_subtree_handler: bool,
-}
-
-impl ResourceService {
-	#[inline]
-	pub fn is_subtree_handler(&self) -> bool {
-		self.is_subtree_handler
-	}
-
-	#[inline]
-	pub fn can_handle_request(&self) -> bool {
-		self.method_handlers.is_empty()
-	}
-}
-
-// --------------------------------------------------
-
-impl Service<Request<Incoming>> for ResourceService {
-	type Response = Response;
-	type Error = Infallible;
-	type Future = ResourceFuture;
-
-	#[inline]
-	fn call(&self, request: Request<Incoming>) -> Self::Future {
-		let (head, body) = request.into_parts();
-		let incoming_body = IncomingBody::new(body);
-		let mut request = Request::<IncomingBody>::from_parts(head, incoming_body);
-
-		let route = request.uri().path();
-		let mut route_traversal_state = RouteTraversalState::new();
-
-		let matched = if route == "/" {
-			self.pattern.is_match(route)
-		} else {
-			let (next_segment, _) = route_traversal_state
-				.next_segment(request.uri().path())
-				.unwrap();
-
-			self.pattern.is_match(next_segment)
-		};
-
-		let routing_state = RoutingState::new(route_traversal_state, self.clone());
-		request.extensions_mut().insert(routing_state);
-
-		if matched {
-			match self.request_receiver.as_ref() {
-				Some(request_receiver) => {
-					ResourceInternalFuture::from(request_receiver.handle(request)).into()
-				}
-				None => ResourceInternalFuture::from(request_receiver(request)).into(),
-			}
-		} else {
-			ResourceInternalFuture::from(misdirected_request_handler(request)).into()
-		}
-	}
-}
-
-// --------------------------------------------------------------------------------
-
-#[pin_project]
-pub struct ResourceFuture(#[pin] ResourceInternalFuture);
-
-impl From<ResourceInternalFuture> for ResourceFuture {
-	fn from(internal: ResourceInternalFuture) -> Self {
-		Self(internal)
-	}
-}
-
-impl Future for ResourceFuture {
-	type Output = Result<Response, Infallible>;
-
-	#[inline]
-	fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-		self.project().0.poll(cx)
-	}
-}
-
-// ----------
-
-#[pin_project(project = ResourceInternalFutureProjection)]
-pub(crate) enum ResourceInternalFuture {
-	Boxed(#[pin] ResponseToResultFuture<BoxedFuture<Response>>),
-	Unboxed(#[pin] ResponseToResultFuture<RequestReceiverFuture>),
-	Ready(#[pin] ResponseToResultFuture<Ready<Response>>),
-}
-
-impl From<BoxedFuture<Response>> for ResourceInternalFuture {
-	#[inline]
-	fn from(boxed_future: BoxedFuture<Response>) -> Self {
-		Self::Boxed(ResponseToResultFuture::from(boxed_future))
-	}
-}
-
-impl From<RequestReceiverFuture> for ResourceInternalFuture {
-	#[inline]
-	fn from(request_receiver_future: RequestReceiverFuture) -> Self {
-		Self::Unboxed(ResponseToResultFuture::from(request_receiver_future))
-	}
-}
-
-impl From<Ready<Response>> for ResourceInternalFuture {
-	#[inline]
-	fn from(ready_future: Ready<Response>) -> Self {
-		Self::Ready(ResponseToResultFuture::from(ready_future))
-	}
-}
-
-impl Future for ResourceInternalFuture {
-	type Output = Result<Response, Infallible>;
-
-	#[inline]
-	fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-		match self.project() {
-			ResourceInternalFutureProjection::Boxed(boxed) => boxed.poll(cx),
-			ResourceInternalFutureProjection::Unboxed(unboxed) => unboxed.poll(cx),
-			ResourceInternalFutureProjection::Ready(ready) => ready.poll(cx),
 		}
 	}
 }

@@ -14,10 +14,10 @@ use crate::{
 // --------------------------------------------------
 
 pub(crate) mod futures;
-use self::futures::*;
-
 pub mod impls;
 pub(crate) mod request_handlers;
+
+use self::futures::{DefaultResponseFuture, ResponseToResultFuture, ResultToResponseFuture};
 
 // --------------------------------------------------------------------------------
 // --------------------------------------------------------------------------------
@@ -198,7 +198,7 @@ impl Handler for ArcHandler {
 
 // -------------------------
 
-pub(crate) fn wrap_boxed_handler<L, LayeredB>(boxed_handler: ArcHandler, layer: L) -> ArcHandler
+pub(crate) fn wrap_arc_handler<L, LayeredB>(boxed_handler: ArcHandler, layer: L) -> ArcHandler
 where
 	L: Layer<AdaptiveHandler<LayeredB>, LayeredB>,
 	L::Handler: Handler + Send + Sync + 'static,

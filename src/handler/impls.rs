@@ -8,11 +8,12 @@ use std::{
 use pin_project::pin_project;
 
 use crate::{
-	request::{FromRequest, FromRequestParts},
+	request::{FromRequest, FromRequestParts, Request},
 	response::{IntoResponse, Response},
+	utils::BoxedFuture,
 };
 
-use super::*;
+use super::{Handler, IntoHandler};
 
 // --------------------------------------------------------------------------------
 // --------------------------------------------------------------------------------
