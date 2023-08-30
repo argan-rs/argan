@@ -1,16 +1,14 @@
-use std::{
-	convert::Infallible,
-	future::{ready, Future, Ready},
-};
+use std::future::{ready, Future, Ready};
 
 use hyper::http::request::Parts;
 
-use super::{
-	body::*,
+use crate::{
+	body::IncomingBody,
 	response::{IntoResponse, Response},
 };
 
-// --------------------------------------------------
+// --------------------------------------------------------------------------------
+// --------------------------------------------------------------------------------
 
 pub type Request<B = IncomingBody> = hyper::Request<B>;
 

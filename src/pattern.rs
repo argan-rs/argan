@@ -2,6 +2,9 @@ use std::{fmt::Display, iter::Peekable, str::Chars, sync::Arc};
 
 use regex::Regex;
 
+// --------------------------------------------------------------------------------
+// --------------------------------------------------------------------------------
+
 // --------------------------------------------------
 // static:		static, resource
 // regex:			$name:@capture_name(pattern)escaped@(pattern)escaped@capture_name(pattern)
@@ -407,3 +410,13 @@ pub(crate) enum Similarity {
 }
 
 // --------------------------------------------------------------------------------
+
+pub(crate) fn patterns_to_string(patterns: &Vec<Pattern>) -> String {
+	let mut string = String::new();
+	for pattern in patterns {
+		string.push('/');
+		string.push_str(&pattern.to_string());
+	}
+
+	string
+}
