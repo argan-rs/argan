@@ -9,7 +9,7 @@ use crate::{
 	pattern::Pattern,
 	request::Request,
 	response::Response,
-	routing::{RouteTraversalState, RoutingState},
+	routing::{RouteTraversal, RoutingState},
 	utils::BoxedFuture,
 };
 
@@ -66,19 +66,17 @@ impl Service<Request<Incoming>> for ResourceService {
 		let mut request = Request::<IncomingBody>::from_parts(head, incoming_body);
 
 		let route = request.uri().path();
-		let mut route_traversal_state = RouteTraversalState::new();
+		let mut route_traversal = RouteTraversal::new();
 
 		let matched = if route == "/" {
 			self.pattern.is_match(route)
 		} else {
-			let (next_segment, _) = route_traversal_state
-				.next_segment(request.uri().path())
-				.unwrap();
+			let (next_segment, _) = route_traversal.next_segment(request.uri().path()).unwrap();
 
 			self.pattern.is_match(next_segment)
 		};
 
-		let routing_state = RoutingState::new(route_traversal_state, self.clone());
+		let routing_state = RoutingState::new(route_traversal, self.clone());
 		request.extensions_mut().insert(routing_state);
 
 		if matched {
