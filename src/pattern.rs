@@ -88,7 +88,7 @@ impl Pattern {
 						let regex_subpattern = if let Some(capture_name) = some_name {
 							if capturing_segment_without_name {
 								panic!(
-									"regex pattern without a capture name cannot have multiple capturing segments",
+									"regex pattern without a capture name cannot have multiple capturing segments"
 								)
 							}
 
@@ -329,8 +329,8 @@ fn split_at_delimiter(
 	(buf, None)
 }
 
-// Returns a regex subpattern if the end of the regex segment is found. Otherwise None.
-// Regex pattern maybe empty if the end of the regex segment is met right away.
+// Returns the regex subpattern if the end of the regex segment is found. Otherwise None.
+// The regex pattern may be empty if the end of the regex segment is met right away.
 fn split_off_subpattern(chars: &mut Peekable<Chars<'_>>) -> Option<String> {
 	let mut subpattern = String::new();
 	let mut depth = 1; // We are already inside the opened '(' bracket.
@@ -419,4 +419,50 @@ pub(crate) fn patterns_to_string(patterns: &Vec<Pattern>) -> String {
 	}
 
 	string
+}
+
+// --------------------------------------------------------------------------------
+// --------------------------------------------------------------------------------
+
+#[cfg(test)]
+mod test {
+	use super::*;
+
+	#[test]
+	fn split_at_delimiter() {
+		let mut pattern = "escaped@capture(regex)".chars().peekable();
+
+		let (escaped, some_delimiter) =
+			super::split_at_delimiter(&mut pattern, |ch| ch == '@' || ch == '(' || ch == ')');
+		assert_eq!(escaped, "escaped");
+		assert_eq!(some_delimiter, Some('@'));
+
+		let (capture, some_delimiter) =
+			super::split_at_delimiter(&mut pattern, |ch| ch == '@' || ch == '(' || ch == ')');
+		assert_eq!(capture, "capture");
+		assert_eq!(some_delimiter, Some('('));
+
+		let (regex, some_delimiter) =
+			super::split_at_delimiter(&mut pattern, |ch| ch == '@' || ch == '(' || ch == ')');
+		assert_eq!(regex, "regex");
+		assert_eq!(some_delimiter, Some(')'));
+	}
+
+	#[test]
+	fn split_off_subpattern() {
+		let subpattern1 = r"(?<year>\d{4})-(?<month>\d{2})-(?<day>\d{2})";
+		let subpattern2 = r"(.+)$";
+		let pattern = format!("({}):({})", subpattern1, subpattern2);
+		let mut pattern = pattern.chars().peekable();
+		pattern.next(); // We must remove the opening parenthesis.
+
+		let subpattern = super::split_off_subpattern(&mut pattern);
+		assert_eq!(subpattern, Some(subpattern1.to_owned()));
+
+		assert_eq!(pattern.next(), Some(':'));
+		assert_eq!(pattern.next(), Some('('));
+
+		let subpattern = super::split_off_subpattern(&mut pattern);
+		assert_eq!(subpattern, Some(subpattern2.to_owned()));
+	}
 }
