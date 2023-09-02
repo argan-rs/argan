@@ -338,7 +338,7 @@ fn split_off_subpattern(chars: &mut Peekable<Chars<'_>>) -> Option<String> {
 	let mut in_character_class = -1i8;
 
 	while let Some(ch) = chars.next() {
-		if ch == ')' && (unescaped || in_character_class < 0) {
+		if ch == ')' && unescaped && in_character_class < 0 {
 			depth -= 1;
 			if depth == 0 {
 				return Some(subpattern);
@@ -376,7 +376,7 @@ fn split_off_subpattern(chars: &mut Peekable<Chars<'_>>) -> Option<String> {
 				}
 			}
 			']' => {
-				if unescaped || in_character_class > -1 {
+				if unescaped && in_character_class > -1 {
 					in_character_class = -1;
 				}
 			}
@@ -452,17 +452,48 @@ mod test {
 	fn split_off_subpattern() {
 		let subpattern1 = r"(?<year>\d{4})-(?<month>\d{2})-(?<day>\d{2})";
 		let subpattern2 = r"(.+)$";
-		let pattern = format!("({}):({})", subpattern1, subpattern2);
+		let subpattern3 = r"[^0-9)]+";
+		let subpattern4 = r"[^])]";
+		let subpattern5 = r"[^a])]";
+		let pattern = format!(
+			"({}):({}):({}):({}):({})",
+			subpattern1, subpattern2, subpattern3, subpattern4, subpattern5
+		);
 		let mut pattern = pattern.chars().peekable();
 		pattern.next(); // We must remove the opening parenthesis.
 
 		let subpattern = super::split_off_subpattern(&mut pattern);
 		assert_eq!(subpattern, Some(subpattern1.to_owned()));
+		println!("subpattern 1: {}", subpattern.unwrap());
 
 		assert_eq!(pattern.next(), Some(':'));
 		assert_eq!(pattern.next(), Some('('));
 
 		let subpattern = super::split_off_subpattern(&mut pattern);
 		assert_eq!(subpattern, Some(subpattern2.to_owned()));
+		println!("subpattern 2: {}", subpattern.unwrap());
+
+		assert_eq!(pattern.next(), Some(':'));
+		assert_eq!(pattern.next(), Some('('));
+
+		let subpattern = super::split_off_subpattern(&mut pattern);
+		assert_eq!(subpattern, Some(subpattern3.to_owned()));
+		println!("subpattern 3: {}", subpattern.unwrap());
+
+		assert_eq!(pattern.next(), Some(':'));
+		assert_eq!(pattern.next(), Some('('));
+
+		let subpattern = super::split_off_subpattern(&mut pattern);
+		assert_eq!(subpattern, Some(subpattern4.to_owned()));
+		println!("subpattern 4: {}", subpattern.unwrap());
+
+		assert_eq!(pattern.next(), Some(':'));
+		assert_eq!(pattern.next(), Some('('));
+
+		let subpattern = super::split_off_subpattern(&mut pattern);
+		assert_ne!(subpattern, Some(subpattern5.to_owned()));
+		println!("subpattern 5: {}", subpattern.unwrap());
+
+		assert_eq!(pattern.next(), Some(']'));
 	}
 }
