@@ -34,7 +34,7 @@ impl RouteTraversal {
 	#[inline]
 	pub(crate) fn new() -> RouteTraversal {
 		// Route must contain at least a slash or must begin with one.
-		Self(0)
+		Self(1)
 	}
 
 	#[inline]
@@ -44,11 +44,11 @@ impl RouteTraversal {
 
 	#[inline]
 	pub(crate) fn remaining_segments<'req>(&self, route: &'req str) -> Option<&'req str> {
-		if self.0 == route.len() {
-			return None;
+		if self.0 < route.len() {
+			return Some(&route[self.0..]);
 		}
 
-		Some(&route[self.0..])
+		None
 	}
 
 	#[inline]
@@ -63,27 +63,23 @@ impl RouteTraversal {
 
 	#[inline]
 	pub(crate) fn next_segment<'req>(&mut self, route: &'req str) -> Option<(&'req str, usize)> {
-		if self.0 == route.len() {
-			return None;
+		if self.0 < route.len() {
+			let next_segment_start_index = self.0;
+			let remaining_segments = &route[next_segment_start_index..];
+
+			if let Some(next_segment_end_index) = remaining_segments.find('/') {
+				self.0 += next_segment_end_index + 1;
+				let next_segment = &remaining_segments[..next_segment_end_index];
+
+				return Some((next_segment, next_segment_start_index));
+			} else {
+				self.0 = route.len();
+
+				return Some((remaining_segments, next_segment_start_index));
+			}
 		}
 
-		let next_segment_start_index = self.0;
-		let remaining_segments = &route[self.0 + 1..];
-		println!(
-			"next segment index: {}, remaining segments: {}",
-			next_segment_start_index, remaining_segments
-		);
-
-		if let Some(next_segment_end_index) = remaining_segments.find('/') {
-			self.0 += next_segment_end_index + 1;
-			let next_segment = &remaining_segments[..next_segment_end_index];
-
-			Some((next_segment, next_segment_start_index))
-		} else {
-			self.0 = route.len();
-
-			Some((remaining_segments, next_segment_start_index))
-		}
+		None
 	}
 }
 
@@ -175,9 +171,9 @@ mod test {
 
 		let route = ["/abc", "/$regex_name:@capture_name(pattern)", "/*wildcard"];
 		let route_segments = [
-			(&route[0][1..], 0),
-			(&route[1][1..], route[0].len()),
-			(&route[2][1..], route[0].len() + route[1].len()),
+			(&route[0][1..], 1),
+			(&route[1][1..], route[0].len() + 1),
+			(&route[2][1..], route[0].len() + route[1].len() + 1),
 		];
 
 		let route_str = route.concat();
@@ -191,7 +187,7 @@ mod test {
 
 		assert!(route_traversal.has_remaining_segments(&route_str));
 		assert_eq!(
-			route[1].to_owned() + route[2],
+			route[1][1..].to_owned() + route[2],
 			route_traversal.remaining_segments(&route_str).unwrap()
 		);
 	}
