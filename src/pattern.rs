@@ -18,62 +18,62 @@ pub(crate) enum Pattern {
 }
 
 impl Pattern {
-	pub fn parse(pattern: &str) -> Pattern {
+	pub fn parse(pattern: &str) -> Result<Pattern, &'static str /*TODO*/> {
 		// Wildcard pattern.
 		if let Some(wildcard_name) = pattern.strip_prefix('*') {
 			if wildcard_name.is_empty() {
-				panic!("empty wildcard pattern name")
+				return Err("empty wildcard pattern name");
 			}
 
-			return Pattern::Wildcard(wildcard_name.into());
+			return Ok(Pattern::Wildcard(wildcard_name.into()));
 		}
 
 		let mut chars = pattern.chars().peekable();
 
 		// Regex pattern.
 		if let Some('$') = chars.peek() {
-			chars.next();
+			chars.next(); // discarding '$'
 
 			let (name, some_delimiter) = split_at_delimiter(&mut chars, |ch| ch == ':');
 			if name.is_empty() {
-				panic!("empty regex pattern name")
+				return Err("empty regex pattern name");
 			}
 
 			if some_delimiter.is_none() {
-				return Pattern::Regex(name.into(), None);
+				return Ok(Pattern::Regex(name.into(), None));
 			}
 
-			let mut segments = split(chars);
+			let mut segments = split(chars)?; // TODO: Return an error.
 
 			if segments.is_empty() {
-				panic!("incomplete regex pattern")
+				return Err("incomplete regex pattern");
 			}
 
 			if let [segment] = segments.as_slice() {
 				match segment {
 					Segment::Static(pattern) => {
-						panic!("regex pattern must have at least one capturing segment")
+						return Err("regex pattern must have at least one capturing segment")
 					}
 					Segment::Capturing {
 						some_name,
 						subpattern,
 					} => {
 						let regex_pattern = if let Some(capture_name) = some_name {
-							format!("\\A(?P<{}>{})\\z", capture_name, subpattern)
+							format!(r"\A(?P<{}>{})\z", capture_name, subpattern)
 						} else {
-							format!("\\A({})\\z", subpattern)
+							format!(r"\A({})\z", subpattern)
 						};
 
 						let regex = Regex::new(&regex_pattern).unwrap();
 
-						return Pattern::Regex(name.into(), Some(regex));
+						return Ok(Pattern::Regex(name.into(), Some(regex)));
 					}
 				};
 			}
 
 			let mut regex_pattern = "\\A".to_owned();
 
-			let mut capturing_segment_without_name = false;
+			let mut nameless_capturing_segment_exists = false;
 			let mut capturing_segments_count = 0;
 			for segment in segments {
 				match segment {
@@ -86,19 +86,21 @@ impl Pattern {
 						subpattern,
 					} => {
 						let regex_subpattern = if let Some(capture_name) = some_name {
-							if capturing_segment_without_name {
-								panic!(
-									"regex pattern without a capture name cannot have multiple capturing segments"
-								)
+							if nameless_capturing_segment_exists {
+								return Err(
+									"regex pattern without a capture name cannot have multiple capturing segments",
+								);
 							}
 
 							format!("(?P<{}>{})", capture_name, subpattern)
 						} else {
 							if capturing_segments_count > 0 {
-								panic!("regex pattern with multiple capturing segments cannot omit a capture name")
+								return Err(
+									"regex pattern with multiple capturing segments cannot omit a capture name",
+								);
 							}
 
-							capturing_segment_without_name = true;
+							nameless_capturing_segment_exists = true;
 							format!("({})", subpattern)
 						};
 
@@ -111,7 +113,7 @@ impl Pattern {
 			regex_pattern.push_str("\\z");
 			let regex = Regex::new(&regex_pattern).unwrap();
 
-			return Pattern::Regex(name.into(), Some(regex));
+			return Ok(Pattern::Regex(name.into(), Some(regex)));
 		}
 
 		if let Some('\\') = chars.peek() {
@@ -131,10 +133,10 @@ impl Pattern {
 			}
 
 			buf.extend(chars);
-			return Pattern::Static(buf.into());
+			return Ok(Pattern::Static(buf.into()));
 		}
 
-		Pattern::Static(pattern.into())
+		Ok(Pattern::Static(pattern.into()))
 	}
 
 	#[inline]
@@ -172,12 +174,13 @@ impl Pattern {
 		false
 	}
 
-	pub fn is_match(&self, string: &str) -> bool {
+	// TODO: ???
+	pub fn is_match(&self, text: &str) -> bool {
 		match self {
-			Pattern::Static(pattern) => pattern.as_ref() == string,
+			Pattern::Static(pattern) => pattern.as_ref() == text,
 			Pattern::Regex(_, some_regex) => {
 				if let Some(regex) = some_regex {
-					regex.is_match(string)
+					regex.is_match(text)
 				} else {
 					panic!("regex pattern has no regex")
 				}
@@ -197,13 +200,14 @@ impl Pattern {
 			}
 			Pattern::Regex(name, some_regex) => {
 				if let Pattern::Regex(other_name, some_other_regex) = other {
-					if some_regex.as_ref().is_some_and(|regex| {
-						if let Some(other_regex) = some_other_regex.as_ref() {
-							regex.as_str() == other_regex.as_str()
-						} else {
-							false
-						}
-					}) {
+					if (some_regex.is_none() && some_other_regex.is_none())
+						|| some_regex.as_ref().is_some_and(|regex| {
+							if let Some(other_regex) = some_other_regex.as_ref() {
+								regex.as_str() == other_regex.as_str()
+							} else {
+								false
+							}
+						}) {
 						if name == other_name {
 							return Similarity::Same;
 						} else {
@@ -242,6 +246,7 @@ impl Display for Pattern {
 
 // --------------------------------------------------
 
+#[derive(PartialEq, Debug)]
 enum Segment {
 	Static(String),
 	Capturing {
@@ -251,7 +256,7 @@ enum Segment {
 }
 
 #[inline]
-fn split(mut chars: Peekable<Chars>) -> Vec<Segment> {
+fn split(mut chars: Peekable<Chars>) -> Result<Vec<Segment>, &'static str /*TODO*/> {
 	let mut slices = Vec::new();
 	let mut parsing_static = true;
 
@@ -271,17 +276,17 @@ fn split(mut chars: Peekable<Chars>) -> Vec<Segment> {
 			let (name, some_delimiter) = split_at_delimiter(&mut chars, |ch| ch == '(');
 
 			let Some(delimiter) = some_delimiter else {
-				panic!("incomplete pattern")
+				return Err("incomplete pattern");
 			};
 
 			let some_name = if name.is_empty() { None } else { Some(name) };
 
 			let Some(subpattern) = split_off_subpattern(&mut chars) else {
-				panic!("incomplete pattern")
+				return Err("incomplete pattern");
 			};
 
 			if subpattern.is_empty() {
-				panic!("empty regex subpattern")
+				return Err("empty regex subpattern");
 			}
 
 			slices.push(Segment::Capturing {
@@ -292,7 +297,7 @@ fn split(mut chars: Peekable<Chars>) -> Vec<Segment> {
 		}
 	}
 
-	slices
+	Ok(slices)
 }
 
 // Returns the segment before the delimiter and the delimiter. If the delimiter is
@@ -495,5 +500,213 @@ mod test {
 		println!("subpattern 5: {}", subpattern.unwrap());
 
 		assert_eq!(pattern.next(), Some(']'));
+	}
+
+	#[test]
+	fn split() {
+		let cases = [
+			(
+				"static@capture_name(pattern)-@(pattern)",
+				vec![
+					Segment::Static("static".to_owned()),
+					Segment::Capturing {
+						some_name: Some("capture_name".to_owned()),
+						subpattern: "pattern".to_owned(),
+					},
+					Segment::Static("-".to_owned()),
+					Segment::Capturing {
+						some_name: None,
+						subpattern: "pattern".to_owned(),
+					},
+				],
+			),
+			(
+				"static@(pattern)static",
+				vec![
+					Segment::Static("static".to_owned()),
+					Segment::Capturing {
+						some_name: None,
+						subpattern: "pattern".to_owned(),
+					},
+					Segment::Static("static".to_owned()),
+				],
+			),
+			(
+				"@capture_name(pattern)@capture_name(pattern)",
+				vec![
+					Segment::Capturing {
+						some_name: Some("capture_name".to_owned()),
+						subpattern: "pattern".to_owned(),
+					},
+					Segment::Capturing {
+						some_name: Some("capture_name".to_owned()),
+						subpattern: "pattern".to_owned(),
+					},
+				],
+			),
+			(
+				"@capture_name(pattern)-static",
+				vec![
+					Segment::Capturing {
+						some_name: Some("capture_name".to_owned()),
+						subpattern: "pattern".to_owned(),
+					},
+					Segment::Static("-static".to_owned()),
+				],
+			),
+		];
+
+		for case in cases {
+			let segments = super::split(case.0.chars().peekable()).unwrap();
+			assert_eq!(segments, case.1);
+		}
+
+		let cases = [
+			"static@capture_name",
+			"static@(pattern",
+			"@capture_name()@capture_name(pattern)",
+		];
+
+		for case in cases {
+			println!("case: {}", case);
+			let result = super::split(case.chars().peekable());
+			assert!(result.is_err());
+		}
+	}
+
+	#[test]
+	fn parse() {
+		let some_regex = Option::<&Regex>::None;
+		let some_ref_regex = some_regex.as_ref();
+		let cases = [
+			("", Pattern::Static(Arc::from(""))),
+			("static", Pattern::Static(Arc::from("static"))),
+			(
+				"@capture_name(pattern)",
+				Pattern::Static(Arc::from("@capture_name(pattern)")),
+			),
+			(
+				r"\$name:@(pattern)",
+				Pattern::Static(Arc::from("$name:@(pattern)")),
+			),
+			(
+				r"\\$name:@(pattern)",
+				Pattern::Static(Arc::from(r"\$name:@(pattern)")),
+			),
+			(r"\*wildcard", Pattern::Static(Arc::from("*wildcard"))),
+			(r"\\*wildcard", Pattern::Static(Arc::from(r"\*wildcard"))),
+			(
+				"$name:@capture_name(pattern)",
+				Pattern::Regex(
+					Arc::from("name"),
+					Some(Regex::new(r"\A(?P<capture_name>pattern)\z").unwrap()),
+				),
+			),
+			(
+				"$name:@(pattern)",
+				Pattern::Regex(
+					Arc::from("name"),
+					Some(Regex::new(r"\A(pattern)\z").unwrap()),
+				),
+			),
+			("$name", Pattern::Regex(Arc::from("name"), None)),
+			(
+				"$@capture_name(pattern)",
+				Pattern::Regex(Arc::from("@capture_name(pattern)"), None),
+			),
+			(
+				"$name:static@capture_name(pattern).static[pattern]",
+				Pattern::Regex(
+					Arc::from("name"),
+					Some(Regex::new(r"\Astatic(?P<capture_name>pattern)\.static\[pattern\]\z").unwrap()),
+				),
+			),
+			(
+				r"$name:\@capture_name(pattern)@(pattern)\@",
+				Pattern::Regex(
+					Arc::from("name"),
+					Some(Regex::new(r"\A@capture_name\(pattern\)(pattern)@\z").unwrap()),
+				),
+			),
+			("*wildcard", Pattern::Wildcard(Arc::from("wildcard"))),
+		];
+
+		for case in cases {
+			let result = Pattern::parse(case.0);
+			println!(
+				"case: {}\n\tpattern:  {}\n\texpected: {}",
+				case.0,
+				result.as_ref().unwrap(),
+				&case.1
+			);
+
+			assert!(result.unwrap().compare(&case.1) == Similarity::Same);
+		}
+
+		println!("--------------------------------------------------");
+
+		let cases = [
+			"$:@capture_name(pattern)",
+			"$name:@capture_name()",
+			"$name:@()",
+			"$name:static@capture_name(pattern)@(pattern)",
+			"$name:static@(pattern)@capture_name(pattern)",
+			r"$name:\@capture_name(pattern)@capture_name",
+			"*",
+		];
+
+		for case in cases {
+			let result = Pattern::parse(case);
+			println!("case: {}", case);
+
+			assert!(result.is_err());
+
+			println!("\tresult: {}", result.err().unwrap());
+		}
+	}
+
+	#[test]
+	fn is_match() {
+		struct Case<'a> {
+			pattern: &'a str,
+			matching: &'a [&'a str],
+			nonmatching: &'a [&'a str],
+		}
+
+		let cases = [
+			Case {
+				pattern: "login",
+				matching: &["login"],
+				nonmatching: &["logout"],
+			},
+			Case {
+				pattern: r"$id:@prefix(A|B|C)@number(\d{5})",
+				matching: &["A12345", "B54321", "C11111"],
+				nonmatching: &["D12345", "0ABCDEF", "AA12345", "B123456", "C1234", "AB1234"],
+			},
+			Case {
+				pattern: r"$car:@brand(.+) (@model(.+))",
+				matching: &["Audi (e-tron GT)", "Volvo (XC40 Recharge)"],
+				nonmatching: &["Audi(Q8)", "Volvo C40", "Audi [A4]"],
+			},
+			Case {
+				pattern: "*anything",
+				matching: &["StarWars", "A.I."],
+				nonmatching: &[],
+			},
+		];
+
+		for case in cases {
+			let pattern = Pattern::parse(case.pattern).unwrap();
+			println!("pattern: {}", pattern);
+
+			for text in case.matching {
+				assert!(pattern.is_match(text));
+			}
+
+			for text in case.nonmatching {
+				assert!(!pattern.is_match(text));
+			}
+		}
 	}
 }

@@ -55,19 +55,19 @@ pub struct Resource {
 // -------------------------
 
 impl Resource {
-	pub fn new(path_pattern: &str) -> Resource {
+	pub fn new(path_pattern: &str) -> Result<Resource, &'static str> {
 		if path_pattern.is_empty() {
 			panic!("empty path pattern")
 		}
 
 		if path_pattern == "/" {
-			let pattern = Pattern::parse(path_pattern);
+			let pattern = Pattern::parse(path_pattern)?;
 
 			return Resource::with_pattern(pattern);
 		}
 
 		if !path_pattern.starts_with('/') {
-			panic!("path pattern must start with a slash or must be a root pattern '/'")
+			return Err("path pattern must start with a slash or must be a root pattern '/'");
 		}
 
 		let mut route_segments = RouteSegments::new(path_pattern);
@@ -77,7 +77,7 @@ impl Resource {
 
 		let resource_pattern = loop {
 			let (route_segment, _) = route_segments.next().unwrap();
-			let pattern = Pattern::parse(route_segment);
+			let pattern = Pattern::parse(route_segment)?;
 
 			if route_segments.has_remaining_segments() {
 				prefix_segment_patterns.push(pattern);
@@ -92,14 +92,14 @@ impl Resource {
 	}
 
 	#[inline]
-	pub(crate) fn with_pattern_str(pattern: &str) -> Resource {
-		let pattern = Pattern::parse(pattern);
+	pub(crate) fn with_pattern_str(pattern: &str) -> Result<Resource, &'static str /*TODO*/> {
+		let pattern = Pattern::parse(pattern)?;
 
 		Self::with_pattern(pattern)
 	}
 
 	#[inline]
-	pub(crate) fn with_pattern(pattern: Pattern) -> Resource {
+	pub(crate) fn with_pattern(pattern: Pattern) -> Result<Resource, &'static str /*TODO*/> {
 		Self::with_prefix_path_patterns(Vec::new(), pattern)
 	}
 
@@ -107,12 +107,12 @@ impl Resource {
 	pub(crate) fn with_prefix_path_patterns(
 		prefix_path_patterns: Vec<Pattern>,
 		resource_pattern: Pattern,
-	) -> Resource {
+	) -> Result<Resource, &'static str /*TODO*/> {
 		if let Pattern::Regex(ref name, None) = resource_pattern {
 			panic!("{} pattern has no regex segment", name.as_ref())
 		}
 
-		Resource {
+		Ok(Resource {
 			pattern: resource_pattern,
 			prefix_path_patterns,
 			static_resources: Vec::new(),
@@ -124,7 +124,7 @@ impl Resource {
 			method_handlers: MethodHandlers::new(),
 			state: Vec::new(),
 			is_subtree_handler: false,
-		}
+		})
 	}
 
 	// -------------------------
@@ -179,7 +179,7 @@ impl Resource {
 				if let Some(position) = $resources.iter_mut().position(
 					|resource| resource.pattern.compare(&$new_resource.pattern) == Similarity::Same
 				) {
-					let dummy_resource = Resource::with_pattern_str("dummy"); // TODO: Provide default constructor.
+					let dummy_resource = Resource::with_pattern_str("dummy").unwrap(); // TODO: Provide default constructor.
 					let mut existing_resource = std::mem::replace(&mut $resources[position], dummy_resource);
 
 					if !$new_resource.has_some_effect() {
@@ -347,7 +347,7 @@ impl Resource {
 				}
 
 				let pattern_clone = pattern.clone();
-				let new_sub_resource = Resource::with_pattern(pattern);
+				let new_sub_resource = Resource::with_pattern(pattern).unwrap();
 				current_resource.add_sub_resource(new_sub_resource);
 				current_resource =
 					current_resource.by_patterns_leaf_resource_mut(&mut std::iter::once(pattern_clone));
@@ -400,7 +400,7 @@ impl Resource {
 							if let Some(position) = $resources.iter().position(
 								|resource| resource.pattern.compare(&other_resource.pattern) == Similarity::Same
 							) {
-								let dummy_resource = Resource::with_pattern_str("dummy"); // TODO: Provide default constructor;
+								let dummy_resource = Resource::with_pattern_str("dummy").unwrap(); // TODO: Provide default constructor;
 								let mut resource = std::mem::replace(&mut $resources[position], dummy_resource);
 
 								if !other_resource.has_some_effect() {
@@ -497,7 +497,7 @@ impl Resource {
 					panic!("prefix path patterns must be the same with the path patterns of the parent")
 				};
 
-				let prefix_route_segment_pattern = Pattern::parse(prefix_route_segment);
+				let prefix_route_segment_pattern = Pattern::parse(prefix_route_segment).unwrap();
 				if let Pattern::Regex(ref prefix_route_segment_name, None) = prefix_route_segment_pattern {
 					if let Pattern::Regex(ref prefix_path_segment_name, _) = prefix_path_segment_pattern {
 						if prefix_path_segment_name == prefix_route_segment_name {
@@ -569,7 +569,7 @@ impl Resource {
 		let mut existing_resource = self;
 
 		for (segment, segment_index) in patterns.by_ref() {
-			let pattern = Pattern::parse(segment);
+			let pattern = Pattern::parse(segment).unwrap();
 
 			match pattern {
 				Pattern::Static(_) => {
@@ -630,7 +630,7 @@ impl Resource {
 		let mut existing_resource = self;
 
 		for (segment, segment_index) in patterns.by_ref() {
-			let pattern = Pattern::parse(segment);
+			let pattern = Pattern::parse(segment).unwrap();
 
 			match pattern {
 				Pattern::Static(_) => {
@@ -692,14 +692,14 @@ impl Resource {
 		let mut current_resource = self;
 
 		for (segment, _) in segments {
-			let pattern = Pattern::parse(segment);
+			let pattern = Pattern::parse(segment).unwrap();
 
 			if let Some(name) = pattern.name() {
 				if current_resource.path_has_the_same_name(name) {
 					panic!("{} is not unique in the path", name)
 				}
 
-				let new_sub_resource = Resource::with_pattern(pattern);
+				let new_sub_resource = Resource::with_pattern(pattern).unwrap();
 				current_resource.add_sub_resource(new_sub_resource);
 				current_resource = current_resource.sub_resource_mut(segment);
 			}
