@@ -1,5 +1,6 @@
 use std::{
 	any::{Any, TypeId},
+	fmt::{Debug, Display},
 	sync::Arc,
 };
 
@@ -10,7 +11,7 @@ use crate::{
 		IntoArcHandler, IntoHandler,
 	},
 	middleware::{IntoResponseAdapter, Layer, ResponseFutureBoxer},
-	pattern::{Pattern, Similarity},
+	pattern::{patterns_to_string, Pattern, Similarity},
 	request::Request,
 	response::{IntoResponse, Response},
 	routing::{Method, RouteSegments},
@@ -46,7 +47,7 @@ pub struct Resource {
 
 	method_handlers: MethodHandlers,
 
-	state: Vec<Box<dyn Any + Send + Sync>>,
+	states: Vec<Box<dyn Any + Send + Sync>>,
 
 	// TODO: configs, state, redirect, parent
 	is_subtree_handler: bool,
@@ -55,32 +56,32 @@ pub struct Resource {
 // -------------------------
 
 impl Resource {
-	pub fn new(path_pattern: &str) -> Result<Resource, &'static str> {
-		if path_pattern.is_empty() {
-			panic!("empty path pattern")
+	pub fn new(path_patterns: &str) -> Resource {
+		if path_patterns.is_empty() {
+			panic!("empty path patterns")
 		}
 
-		if path_pattern == "/" {
-			let pattern = Pattern::parse(path_pattern)?;
+		if path_patterns == "/" {
+			let pattern = Pattern::parse(path_patterns);
 
 			return Resource::with_pattern(pattern);
 		}
 
-		if !path_pattern.starts_with('/') {
-			return Err("path pattern must start with a slash or must be a root pattern '/'");
+		if !path_patterns.starts_with('/') {
+			panic!("path patterns must start with a slash or must be a root pattern '/'")
 		}
 
-		let mut route_segments = RouteSegments::new(path_pattern);
+		let mut route_segments = RouteSegments::new(path_patterns);
 
 		let mut resource_pattern: Pattern;
-		let mut prefix_segment_patterns = Vec::new();
+		let mut prefix_path_patterns = Vec::new();
 
 		let resource_pattern = loop {
 			let (route_segment, _) = route_segments.next().unwrap();
-			let pattern = Pattern::parse(route_segment)?;
+			let pattern = Pattern::parse(route_segment);
 
 			if route_segments.has_remaining_segments() {
-				prefix_segment_patterns.push(pattern);
+				prefix_path_patterns.push(pattern);
 
 				continue;
 			}
@@ -88,18 +89,18 @@ impl Resource {
 			break pattern;
 		};
 
-		Self::with_prefix_path_patterns(prefix_segment_patterns, resource_pattern)
+		Self::with_prefix_path_patterns(prefix_path_patterns, resource_pattern)
 	}
 
 	#[inline]
-	pub(crate) fn with_pattern_str(pattern: &str) -> Result<Resource, &'static str /*TODO*/> {
-		let pattern = Pattern::parse(pattern)?;
+	pub(crate) fn with_pattern_str(pattern: &str) -> Resource {
+		let pattern = Pattern::parse(pattern);
 
 		Self::with_pattern(pattern)
 	}
 
 	#[inline]
-	pub(crate) fn with_pattern(pattern: Pattern) -> Result<Resource, &'static str /*TODO*/> {
+	pub(crate) fn with_pattern(pattern: Pattern) -> Resource {
 		Self::with_prefix_path_patterns(Vec::new(), pattern)
 	}
 
@@ -107,12 +108,12 @@ impl Resource {
 	pub(crate) fn with_prefix_path_patterns(
 		prefix_path_patterns: Vec<Pattern>,
 		resource_pattern: Pattern,
-	) -> Result<Resource, &'static str /*TODO*/> {
+	) -> Resource {
 		if let Pattern::Regex(ref name, None) = resource_pattern {
-			panic!("{} pattern has no regex segment", name.as_ref())
+			panic!("pattern has no regex segment")
 		}
 
-		Ok(Resource {
+		Resource {
 			pattern: resource_pattern,
 			prefix_path_patterns,
 			static_resources: Vec::new(),
@@ -122,9 +123,9 @@ impl Resource {
 			request_passer: None,
 			request_handler: None,
 			method_handlers: MethodHandlers::new(),
-			state: Vec::new(),
+			states: Vec::new(),
 			is_subtree_handler: false,
-		})
+		}
 	}
 
 	// -------------------------
@@ -141,12 +142,13 @@ impl Resource {
 
 	#[inline]
 	pub fn can_handle_request(&self) -> bool {
-		self.method_handlers.is_empty()
+		!self.method_handlers.is_empty()
 	}
 
 	#[inline]
 	fn has_some_effect(&self) -> bool {
-		self.request_handler.is_some()
+		self.method_handlers.has_some_effect()
+			|| self.request_handler.is_some()
 			|| self.request_passer.is_some()
 			|| self.request_receiver.is_some()
 	}
@@ -179,7 +181,7 @@ impl Resource {
 				if let Some(position) = $resources.iter_mut().position(
 					|resource| resource.pattern.compare(&$new_resource.pattern) == Similarity::Same
 				) {
-					let dummy_resource = Resource::with_pattern_str("dummy").unwrap(); // TODO: Provide default constructor.
+					let dummy_resource = Resource::with_pattern_str("dummy"); // TODO: Provide default constructor.
 					let mut existing_resource = std::mem::replace(&mut $resources[position], dummy_resource);
 
 					if !$new_resource.has_some_effect() {
@@ -272,14 +274,14 @@ impl Resource {
 		&mut self,
 		mut patterns: impl Iterator<Item = Pattern>,
 	) -> &mut Resource {
-		let mut leaf_resource_in_the_path = self.by_patterns_leaf_resource_mut(&mut patterns);
+		let (mut leaf_resource_in_the_path, patterns) = self.by_patterns_leaf_resource_mut(patterns);
 		leaf_resource_in_the_path.by_patterns_new_sub_resource_mut(patterns)
 	}
 
 	fn by_patterns_leaf_resource_mut(
 		&mut self,
-		patterns: &mut impl Iterator<Item = Pattern>,
-	) -> &mut Resource {
+		patterns: impl Iterator<Item = Pattern>,
+	) -> (&mut Resource, impl Iterator<Item = Pattern>) {
 		let mut leaf_resource = self;
 
 		let mut peekable_patterns = patterns.peekable();
@@ -330,7 +332,7 @@ impl Resource {
 			}
 		}
 
-		leaf_resource
+		(leaf_resource, peekable_patterns)
 	}
 
 	#[inline]
@@ -345,13 +347,13 @@ impl Resource {
 				if current_resource.path_has_the_same_name(name) {
 					panic!("{} is not unique in the path", name)
 				}
-
-				let pattern_clone = pattern.clone();
-				let new_sub_resource = Resource::with_pattern(pattern).unwrap();
-				current_resource.add_sub_resource(new_sub_resource);
-				current_resource =
-					current_resource.by_patterns_leaf_resource_mut(&mut std::iter::once(pattern_clone));
 			}
+
+			let pattern_clone = pattern.clone();
+			let new_sub_resource = Resource::with_pattern(pattern);
+			current_resource.add_sub_resource(new_sub_resource);
+			(current_resource, _) =
+				current_resource.by_patterns_leaf_resource_mut(std::iter::once(pattern_clone));
 		}
 
 		current_resource
@@ -400,7 +402,7 @@ impl Resource {
 							if let Some(position) = $resources.iter().position(
 								|resource| resource.pattern.compare(&other_resource.pattern) == Similarity::Same
 							) {
-								let dummy_resource = Resource::with_pattern_str("dummy").unwrap(); // TODO: Provide default constructor;
+								let dummy_resource = Resource::with_pattern_str("dummy"); // TODO: Provide default constructor;
 								let mut resource = std::mem::replace(&mut $resources[position], dummy_resource);
 
 								if !other_resource.has_some_effect() {
@@ -497,7 +499,7 @@ impl Resource {
 					panic!("prefix path patterns must be the same with the path patterns of the parent")
 				};
 
-				let prefix_route_segment_pattern = Pattern::parse(prefix_route_segment).unwrap();
+				let prefix_route_segment_pattern = Pattern::parse(prefix_route_segment);
 				if let Pattern::Regex(ref prefix_route_segment_name, None) = prefix_route_segment_pattern {
 					if let Pattern::Regex(ref prefix_path_segment_name, _) = prefix_path_segment_pattern {
 						if prefix_path_segment_name == prefix_route_segment_name {
@@ -569,7 +571,7 @@ impl Resource {
 		let mut existing_resource = self;
 
 		for (segment, segment_index) in patterns.by_ref() {
-			let pattern = Pattern::parse(segment).unwrap();
+			let pattern = Pattern::parse(segment);
 
 			match pattern {
 				Pattern::Static(_) => {
@@ -630,7 +632,7 @@ impl Resource {
 		let mut existing_resource = self;
 
 		for (segment, segment_index) in patterns.by_ref() {
-			let pattern = Pattern::parse(segment).unwrap();
+			let pattern = Pattern::parse(segment);
 
 			match pattern {
 				Pattern::Static(_) => {
@@ -692,14 +694,14 @@ impl Resource {
 		let mut current_resource = self;
 
 		for (segment, _) in segments {
-			let pattern = Pattern::parse(segment).unwrap();
+			let pattern = Pattern::parse(segment);
 
 			if let Some(name) = pattern.name() {
 				if current_resource.path_has_the_same_name(name) {
 					panic!("{} is not unique in the path", name)
 				}
 
-				let new_sub_resource = Resource::with_pattern(pattern).unwrap();
+				let new_sub_resource = Resource::with_pattern(pattern);
 				current_resource.add_sub_resource(new_sub_resource);
 				current_resource = current_resource.sub_resource_mut(segment);
 			}
@@ -737,7 +739,7 @@ impl Resource {
 		let state_type_id = state.type_id();
 
 		if self
-			.state
+			.states
 			.iter()
 			.any(|existing_state| (*existing_state).type_id() == state_type_id)
 		{
@@ -747,14 +749,14 @@ impl Resource {
 			)));
 		}
 
-		self.state.push(Box::new(state));
+		self.states.push(Box::new(state));
 
 		Ok(())
 	}
 
 	pub fn state<S: Clone + Send + Sync + 'static>(&self) -> Result<&S, BoxedError> {
 		self
-			.state
+			.states
 			.iter()
 			.find_map(|state| state.downcast_ref::<S>())
 			.ok_or_else(|| {
@@ -1034,7 +1036,7 @@ impl Resource {
 			request_passer,
 			request_handler,
 			method_handlers,
-			state,
+			states: state,
 			is_subtree_handler,
 			..
 		} = self;
@@ -1063,5 +1065,195 @@ impl Resource {
 			state: Arc::from(state),
 			is_subtree_handler,
 		}
+	}
+}
+
+impl Display for Resource {
+	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+		write!(
+			f,
+			"{}/{}",
+			patterns_to_string(&self.prefix_path_patterns),
+			&self.pattern
+		)
+	}
+}
+
+impl Debug for Resource {
+	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+		write!(
+			f,
+			"Resource {{
+				pattern: {},
+				prefix_path_patterns: {},
+				static_resources_count: {},
+				regex_resources_count: {},
+				wildcard_resource_exists: {},
+				layered_request_receiver: {},
+				layered_request_passer: {},
+				layered_request_handler: {},
+				method_handlers: {{ count: {}, unsupported_method_handler_exists: {} }},
+				states_count: {},
+				is_subtree_handler: {},
+			}}",
+			&self.pattern,
+			patterns_to_string(&self.prefix_path_patterns),
+			self.static_resources.len(),
+			self.regex_resources.len(),
+			self.wildcard_resource.is_some(),
+			self.request_receiver.is_some(),
+			self.request_passer.is_some(),
+			self.request_handler.is_some(),
+			self.method_handlers.count(),
+			self
+				.method_handlers
+				.has_layered_unsupported_method_handler(),
+			self.states.len(),
+			self.is_subtree_handler,
+		)
+	}
+}
+
+// --------------------------------------------------------------------------------
+// --------------------------------------------------------------------------------
+
+#[cfg(test)]
+mod test {
+	use crate::{
+		handler::{futures::DefaultResponseFuture, DummyHandler},
+		pattern::string_to_patterns,
+	};
+
+	use super::*;
+
+	#[test]
+	fn new() {
+		let path_patterns = [
+			"/news",
+			"/news/$area:@(local|worldwide)",
+			"/products/",
+			"/products/*category",
+			"/products/*category/$page:@(\\d+)/",
+			"/$forecast:@days(5|10)-forecast",
+			"/*random",
+		];
+
+		for path_pattern in path_patterns {
+			let result = Resource::new(path_pattern);
+			println!("path pattern: {}\n\t resource: {}", path_pattern, result);
+		}
+	}
+
+	#[test]
+	#[should_panic(expected = "empty path patterns")]
+	fn new_with_empty_pattern() {
+		Resource::new("");
+	}
+
+	#[test]
+	#[should_panic(expected = "must start with a slash")]
+	fn new_with_invalid_path_patterns() {
+		Resource::new("products/*category");
+	}
+
+	#[test]
+	fn add_sub_resource() {
+		let mut parent = Resource::new("/abc0/*abc00");
+		println!("parent before: {:?}", parent);
+
+		let cases = [
+			("/abc0/*abc00/$abc000:@(\\d+)/", "/$abc000:@(\\d+)/"),
+			("/abc0/*abc00/abc001", "/abc001"),
+			(
+				"/abc0/*abc00/abc001/*abc0000/$abc00000:@(pattern0)/",
+				"/abc001/*abc0000/$abc00000:@(pattern0)",
+			),
+			(
+				"/abc0/*abc00/abc001/*abc0000/$abc00001:@(pattern1)",
+				"/abc001/*abc0000/$abc00001:@(pattern1)/",
+			),
+			("/abc0/*abc00/abc001/*abc0000", "/abc001/*abc0000"),
+		];
+
+		for case in cases {
+			println!("path: {}\n\troute: {}", case.0, case.1);
+
+			let resource = Resource::new(case.0);
+			println!("resource before: {:?}", resource);
+
+			parent.add_sub_resource(resource);
+
+			let (resource, _) =
+				parent.by_patterns_leaf_resource_mut(string_to_patterns(case.1).into_iter());
+			resource.check_path_segments_are_the_same(&mut string_to_patterns(case.0).into_iter());
+			println!("resource after: {:?}", resource);
+		}
+
+		let mut resource = Resource::new("/abc0/*abc00/abc001/*abc0000");
+		resource.by_patterns_new_sub_resource_mut(std::iter::once(Pattern::parse("abc00002")));
+		resource.set_handler(Method::GET, DummyHandler::<DefaultResponseFuture>::new());
+		println!("new resource: {:?}", resource);
+
+		parent.add_sub_resource(resource);
+		let (resource, _) =
+			parent.by_patterns_leaf_resource_mut(string_to_patterns("/abc001/*abc0000").into_iter());
+		println!("returned resource: {:?}", resource);
+	}
+
+	#[test]
+	fn check_path_segments_are_the_same() {
+		let path_patterns = [
+			("/news", "/news"),
+			(
+				"/news/$area:@(local|worldwide)",
+				"/news/$area:@(local|worldwide)",
+			),
+			("/products/", "/products/"),
+			("/products/*category", "/products/*category"),
+			(
+				"/products/*category/$page:@(\\d+)/",
+				"/products/*category/$page/",
+			),
+			("/$forecast:@days(5|10)-forecast/*city", "/$forecast/*city"),
+		];
+
+		for segment_patterns in path_patterns {
+			let resource = Resource::new(segment_patterns.0);
+			let mut segmets = RouteSegments::new(segment_patterns.1);
+			let mut segment_patterns = Vec::new();
+			for (segment, _) in segmets {
+				let pattern = Pattern::parse(segment);
+				segment_patterns.push(pattern);
+			}
+
+			resource.check_path_segments_are_the_same(&mut segment_patterns.into_iter());
+		}
+	}
+
+	#[test]
+	#[should_panic]
+	fn check_path_segments_are_the_same_panic1() {
+		let resource = Resource::new("/news/$area:@(local|worldwide)");
+		let mut segment_patterns = vec![Pattern::parse("news"), Pattern::parse("local")].into_iter();
+
+		resource.check_path_segments_are_the_same(&mut segment_patterns);
+	}
+
+	#[test]
+	#[should_panic(expected = "no prefix path segment resource")]
+	fn check_path_segments_are_the_same_panic2() {
+		let resource = Resource::new("/news/$area:@(local|worldwide)");
+		let mut segment_patterns = vec![Pattern::parse("news"), Pattern::parse("$city")].into_iter();
+
+		resource.check_path_segments_are_the_same(&mut segment_patterns);
+	}
+
+	#[test]
+	#[should_panic(expected = "no prefix path segment resource")]
+	fn check_path_segments_are_the_same_panic3() {
+		let resource = Resource::new("/news/$area:@(local|worldwide)");
+		let mut segment_patterns = vec![Pattern::parse("news"), Pattern::parse("*area")].into_iter();
+
+		resource.check_path_segments_are_the_same(&mut segment_patterns);
 	}
 }
