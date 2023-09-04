@@ -2,6 +2,8 @@ use std::{fmt::Display, iter::Peekable, str::Chars, sync::Arc};
 
 use regex::Regex;
 
+use crate::routing::RouteSegments;
+
 // --------------------------------------------------------------------------------
 // --------------------------------------------------------------------------------
 
@@ -18,14 +20,14 @@ pub(crate) enum Pattern {
 }
 
 impl Pattern {
-	pub fn parse(pattern: &str) -> Result<Pattern, &'static str /*TODO*/> {
+	pub fn parse(pattern: &str) -> Pattern {
 		// Wildcard pattern.
 		if let Some(wildcard_name) = pattern.strip_prefix('*') {
 			if wildcard_name.is_empty() {
-				return Err("empty wildcard pattern name");
+				panic!("empty wildcard pattern name")
 			}
 
-			return Ok(Pattern::Wildcard(wildcard_name.into()));
+			return Pattern::Wildcard(wildcard_name.into());
 		}
 
 		let mut chars = pattern.chars().peekable();
@@ -36,37 +38,37 @@ impl Pattern {
 
 			let (name, some_delimiter) = split_at_delimiter(&mut chars, |ch| ch == ':');
 			if name.is_empty() {
-				return Err("empty regex pattern name");
+				panic!("empty regex pattern name")
 			}
 
 			if some_delimiter.is_none() {
-				return Ok(Pattern::Regex(name.into(), None));
+				return Pattern::Regex(name.into(), None);
 			}
 
-			let mut segments = split(chars)?; // TODO: Return an error.
+			let mut segments = split(chars);
 
 			if segments.is_empty() {
-				return Err("incomplete regex pattern");
+				panic!("incomplete regex pattern")
 			}
 
 			if let [segment] = segments.as_slice() {
 				match segment {
-					Segment::Static(pattern) => {
-						return Err("regex pattern must have at least one capturing segment")
+					Segment::Static(_) => {
+						panic!("regex pattern must have at least one capturing or non-capturing segment")
 					}
 					Segment::Capturing {
 						some_name,
 						subpattern,
 					} => {
-						let regex_pattern = if let Some(capture_name) = some_name {
+						let regex_subpattern = if let Some(capture_name) = some_name {
 							format!(r"\A(?P<{}>{})\z", capture_name, subpattern)
 						} else {
-							format!(r"\A({})\z", subpattern)
+							format!(r"\A(?P<{}>{})\z", &name, subpattern)
 						};
 
-						let regex = Regex::new(&regex_pattern).unwrap();
+						let regex = Regex::new(&regex_subpattern).unwrap();
 
-						return Ok(Pattern::Regex(name.into(), Some(regex)));
+						return Pattern::Regex(name.into(), Some(regex));
 					}
 				};
 			}
@@ -77,35 +79,33 @@ impl Pattern {
 			let mut capturing_segments_count = 0;
 			for segment in segments {
 				match segment {
-					Segment::Static(mut pattern) => {
-						pattern = regex::escape(pattern.as_ref());
-						regex_pattern.push_str(&pattern);
+					Segment::Static(mut subpattern) => {
+						subpattern = regex::escape(subpattern.as_ref());
+						regex_pattern.push_str(&subpattern);
 					}
 					Segment::Capturing {
 						some_name,
-						subpattern,
+						mut subpattern,
 					} => {
-						let regex_subpattern = if let Some(capture_name) = some_name {
+						subpattern = if let Some(capture_name) = some_name {
 							if nameless_capturing_segment_exists {
-								return Err(
-									"regex pattern without a capture name cannot have multiple capturing segments",
-								);
+								panic!(
+									"regex pattern without a capture name cannot have multiple capturing segments"
+								)
 							}
 
 							format!("(?P<{}>{})", capture_name, subpattern)
 						} else {
 							if capturing_segments_count > 0 {
-								return Err(
-									"regex pattern with multiple capturing segments cannot omit a capture name",
-								);
+								panic!("regex pattern with multiple capturing segments cannot omit a capture name")
 							}
 
 							nameless_capturing_segment_exists = true;
-							format!("({})", subpattern)
+							format!("(?P<{}>{})", &name, subpattern)
 						};
 
 						capturing_segments_count += 1;
-						regex_pattern.push_str(&regex_subpattern);
+						regex_pattern.push_str(&subpattern);
 					}
 				}
 			}
@@ -113,7 +113,7 @@ impl Pattern {
 			regex_pattern.push_str("\\z");
 			let regex = Regex::new(&regex_pattern).unwrap();
 
-			return Ok(Pattern::Regex(name.into(), Some(regex)));
+			return Pattern::Regex(name.into(), Some(regex));
 		}
 
 		if let Some('\\') = chars.peek() {
@@ -133,10 +133,10 @@ impl Pattern {
 			}
 
 			buf.extend(chars);
-			return Ok(Pattern::Static(buf.into()));
+			return Pattern::Static(buf.into());
 		}
 
-		Ok(Pattern::Static(pattern.into()))
+		Pattern::Static(pattern.into())
 	}
 
 	#[inline]
@@ -182,7 +182,7 @@ impl Pattern {
 				if let Some(regex) = some_regex {
 					regex.is_match(text)
 				} else {
-					panic!("regex pattern has no regex")
+					panic!("regex pattern has only a name")
 				}
 			}
 			_ => true,
@@ -256,7 +256,7 @@ enum Segment {
 }
 
 #[inline]
-fn split(mut chars: Peekable<Chars>) -> Result<Vec<Segment>, &'static str /*TODO*/> {
+fn split(mut chars: Peekable<Chars>) -> Vec<Segment> {
 	let mut slices = Vec::new();
 	let mut parsing_static = true;
 
@@ -276,17 +276,17 @@ fn split(mut chars: Peekable<Chars>) -> Result<Vec<Segment>, &'static str /*TODO
 			let (name, some_delimiter) = split_at_delimiter(&mut chars, |ch| ch == '(');
 
 			let Some(delimiter) = some_delimiter else {
-				return Err("incomplete pattern");
+				panic!("incomplete pattern")
 			};
 
 			let some_name = if name.is_empty() { None } else { Some(name) };
 
 			let Some(subpattern) = split_off_subpattern(&mut chars) else {
-				return Err("incomplete pattern");
+				panic!("no closing parenthesis of regex subpattern found")
 			};
 
 			if subpattern.is_empty() {
-				return Err("empty regex subpattern");
+				panic!("empty regex subpattern")
 			}
 
 			slices.push(Segment::Capturing {
@@ -297,7 +297,7 @@ fn split(mut chars: Peekable<Chars>) -> Result<Vec<Segment>, &'static str /*TODO
 		}
 	}
 
-	Ok(slices)
+	slices
 }
 
 // Returns the segment before the delimiter and the delimiter. If the delimiter is
@@ -407,7 +407,7 @@ fn split_off_subpattern(chars: &mut Peekable<Chars<'_>>) -> Option<String> {
 // --------------------------------------------------
 
 #[repr(u8)]
-#[derive(PartialEq)]
+#[derive(PartialEq, Debug)]
 pub(crate) enum Similarity {
 	Different,
 	DifferentNames,
@@ -416,7 +416,7 @@ pub(crate) enum Similarity {
 
 // --------------------------------------------------------------------------------
 
-pub(crate) fn patterns_to_string(patterns: &Vec<Pattern>) -> String {
+pub(crate) fn patterns_to_string(patterns: &[Pattern]) -> String {
 	let mut string = String::new();
 	for pattern in patterns {
 		string.push('/');
@@ -424,6 +424,17 @@ pub(crate) fn patterns_to_string(patterns: &Vec<Pattern>) -> String {
 	}
 
 	string
+}
+
+pub(crate) fn string_to_patterns(patterns: &str) -> Vec<Pattern> {
+	let route_segments = RouteSegments::new(patterns);
+	let mut patterns = Vec::new();
+	for (segment, _) in route_segments {
+		let pattern = Pattern::parse(segment);
+		patterns.push(pattern);
+	}
+
+	patterns
 }
 
 // --------------------------------------------------------------------------------
@@ -557,21 +568,33 @@ mod test {
 		];
 
 		for case in cases {
-			let segments = super::split(case.0.chars().peekable()).unwrap();
+			let segments = super::split(case.0.chars().peekable());
 			assert_eq!(segments, case.1);
 		}
+	}
 
-		let cases = [
-			"static@capture_name",
-			"static@(pattern",
-			"@capture_name()@capture_name(pattern)",
-		];
+	#[test]
+	#[should_panic(expected = "incomplete pattern")]
+	fn split_incomplete_pattern() {
+		let pattern = "static@capture_name";
+		println!("pattern: {}", pattern);
+		super::split(pattern.chars().peekable());
+	}
 
-		for case in cases {
-			println!("case: {}", case);
-			let result = super::split(case.chars().peekable());
-			assert!(result.is_err());
-		}
+	#[test]
+	#[should_panic(expected = "no closing parenthesis")]
+	fn split_no_closing_parenthesis() {
+		let pattern = "static@(pattern";
+		println!("pattern: {}", pattern);
+		super::split(pattern.chars().peekable());
+	}
+
+	#[test]
+	#[should_panic(expected = "empty regex subpattern")]
+	fn split_empty_regex_subpattern() {
+		let pattern = "@capture_name()@capture_name(pattern)";
+		println!("pattern: {}", pattern);
+		super::split(pattern.chars().peekable());
 	}
 
 	#[test]
@@ -606,7 +629,7 @@ mod test {
 				"$name:@(pattern)",
 				Pattern::Regex(
 					Arc::from("name"),
-					Some(Regex::new(r"\A(pattern)\z").unwrap()),
+					Some(Regex::new(r"\A(?P<name>pattern)\z").unwrap()),
 				),
 			),
 			("$name", Pattern::Regex(Arc::from("name"), None)),
@@ -625,44 +648,51 @@ mod test {
 				r"$name:\@capture_name(pattern)@(pattern)\@",
 				Pattern::Regex(
 					Arc::from("name"),
-					Some(Regex::new(r"\A@capture_name\(pattern\)(pattern)@\z").unwrap()),
+					Some(Regex::new(r"\A@capture_name\(pattern\)(?P<name>pattern)@\z").unwrap()),
 				),
 			),
 			("*wildcard", Pattern::Wildcard(Arc::from("wildcard"))),
 		];
 
 		for case in cases {
-			let result = Pattern::parse(case.0);
+			let pattern = Pattern::parse(case.0);
 			println!(
 				"case: {}\n\tpattern:  {}\n\texpected: {}",
-				case.0,
-				result.as_ref().unwrap(),
-				&case.1
+				case.0, pattern, &case.1
 			);
 
-			assert!(result.unwrap().compare(&case.1) == Similarity::Same);
+			assert!(pattern.compare(&case.1) == Similarity::Same);
 		}
+	}
 
-		println!("--------------------------------------------------");
+	#[test]
+	#[should_panic(expected = "empty regex pattern name")]
+	fn parse_empty_regex_pattern_name() {
+		Pattern::parse("$:@capture_name(pattern)");
+	}
 
-		let cases = [
-			"$:@capture_name(pattern)",
-			"$name:@capture_name()",
-			"$name:@()",
-			"$name:static@capture_name(pattern)@(pattern)",
-			"$name:static@(pattern)@capture_name(pattern)",
-			r"$name:\@capture_name(pattern)@capture_name",
-			"*",
-		];
+	#[test]
+	#[should_panic(expected = "incomplete regex pattern")]
+	fn parse_incomplete_regex_pattern() {
+		Pattern::parse("$name:");
+	}
 
-		for case in cases {
-			let result = Pattern::parse(case);
-			println!("case: {}", case);
+	#[test]
+	#[should_panic(expected = "must have at least one capturing or non-capturing segment")]
+	fn parse_only_escaped_regex_pattern() {
+		Pattern::parse("$name:static");
+	}
 
-			assert!(result.is_err());
+	#[test]
+	#[should_panic(expected = "multiple capturing segments cannot omit a capture name")]
+	fn parse_without_capture_name1() {
+		Pattern::parse("$name:static@capture_name(pattern)@(pattern)");
+	}
 
-			println!("\tresult: {}", result.err().unwrap());
-		}
+	#[test]
+	#[should_panic(expected = "without a capture name cannot have multiple capturing segments")]
+	fn parse_without_capture_name2() {
+		Pattern::parse("$name:static@(pattern)@capture_name(pattern)");
 	}
 
 	#[test]
@@ -697,7 +727,7 @@ mod test {
 		];
 
 		for case in cases {
-			let pattern = Pattern::parse(case.pattern).unwrap();
+			let pattern = Pattern::parse(case.pattern);
 			println!("pattern: {}", pattern);
 
 			for text in case.matching {

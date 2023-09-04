@@ -1,4 +1,7 @@
-use std::future::{ready, Ready};
+use std::{
+	fmt::Debug,
+	future::{ready, Ready},
+};
 
 use hyper::header::{HeaderName, HeaderValue};
 
@@ -33,8 +36,18 @@ impl MethodHandlers {
 	// ----------
 
 	#[inline]
+	pub(crate) fn count(&self) -> usize {
+		self.method_handlers.len()
+	}
+
+	#[inline]
 	pub(crate) fn is_empty(&self) -> bool {
 		self.method_handlers.is_empty()
+	}
+
+	#[inline]
+	pub(crate) fn has_some_effect(&self) -> bool {
+		!self.method_handlers.is_empty() || self.unsupported_method_handler.is_some()
 	}
 
 	#[inline]
@@ -57,10 +70,10 @@ impl MethodHandlers {
 			panic!("{} handler doesn't exists", method)
 		};
 
-		let (method, arc_handler) = std::mem::take(&mut self.method_handlers[position]);
-		let arc_handler = wrap_arc_handler(arc_handler, layer);
+		let (method, boxed_handler) = std::mem::take(&mut self.method_handlers[position]);
+		let boxed_handler = wrap_arc_handler(boxed_handler, layer);
 
-		self.method_handlers[position] = (method, arc_handler);
+		self.method_handlers[position] = (method, boxed_handler);
 	}
 
 	#[inline]
@@ -72,6 +85,11 @@ impl MethodHandlers {
 			.for_each(|(method, _)| list.push_str(method.as_str()));
 
 		AllowedMethods(list)
+	}
+
+	#[inline]
+	pub(crate) fn has_layered_unsupported_method_handler(&self) -> bool {
+		self.unsupported_method_handler.is_some()
 	}
 
 	// ----------
@@ -100,12 +118,23 @@ impl MethodHandlers {
 	}
 }
 
+impl Debug for MethodHandlers {
+	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+		write!(
+			f,
+			"MethodHandlers {{ method_handlers_count: {}, unsupported_method_handler_exists: {} }}",
+			self.method_handlers.len(),
+			self.unsupported_method_handler.is_some(),
+		)
+	}
+}
+
 // --------------------------------------------------
 
 pub(crate) struct AllowedMethods(String);
 
 #[inline]
-async fn handle_not_allowed_method(mut request: Request) -> Response {
+async fn handle_not_allowed_method(mut request: Request<IncomingBody>) -> Response {
 	let allowed_methods = request.extensions_mut().remove::<AllowedMethods>().unwrap();
 	let allowed_methods_header_value = HeaderValue::from_str(&allowed_methods.0).unwrap();
 
@@ -120,7 +149,7 @@ async fn handle_not_allowed_method(mut request: Request) -> Response {
 }
 
 #[inline]
-pub(crate) fn misdirected_request_handler(request: Request) -> Ready<Response> {
+pub(crate) fn misdirected_request_handler(request: Request<IncomingBody>) -> Ready<Response> {
 	let mut response = Response::default();
 	*response.status_mut() = StatusCode::NOT_FOUND;
 	response
