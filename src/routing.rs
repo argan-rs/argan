@@ -32,9 +32,12 @@ pub(crate) struct RouteTraversal(usize);
 
 impl RouteTraversal {
 	#[inline]
-	pub(crate) fn new() -> RouteTraversal {
-		// Route must contain at least a slash or must begin with one.
-		Self(1)
+	pub(crate) fn for_route(route: &str) -> RouteTraversal {
+		if route.starts_with('/') {
+			Self(1)
+		} else {
+			Self(0)
+		}
 	}
 
 	#[inline]
@@ -94,7 +97,7 @@ impl<'r> RouteSegments<'r> {
 	pub(crate) fn new(route: &'r str) -> RouteSegments<'r> {
 		Self {
 			route,
-			route_traversal: RouteTraversal::new(),
+			route_traversal: RouteTraversal::for_route(route),
 		}
 	}
 
@@ -167,8 +170,6 @@ mod test {
 
 	#[test]
 	fn route_traversal() {
-		let mut route_traversal = RouteTraversal::new();
-
 		let route = ["/abc", "/$regex_name:@capture_name(pattern)", "/*wildcard"];
 		let route_segments = [
 			(&route[0][1..], 1),
@@ -178,6 +179,8 @@ mod test {
 
 		let route_str = route.concat();
 		println!("route str: {}", &route_str);
+
+		let mut route_traversal = RouteTraversal::for_route(&route_str);
 
 		for segment in route_segments {
 			assert_eq!(segment, route_traversal.next_segment(&route_str).unwrap());

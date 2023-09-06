@@ -66,7 +66,7 @@ impl Service<Request<Incoming>> for ResourceService {
 		let mut request = Request::<IncomingBody>::from_parts(head, incoming_body);
 
 		let route = request.uri().path();
-		let mut route_traversal = RouteTraversal::new();
+		let mut route_traversal = RouteTraversal::for_route(route);
 
 		let matched = if route == "/" {
 			self.pattern.is_match(route)
