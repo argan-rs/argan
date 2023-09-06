@@ -155,7 +155,7 @@ impl Resource {
 
 	// -------------------------
 
-	pub fn add_sub_resource(&mut self, mut new_resource: Resource) {
+	pub fn add_subresource(&mut self, mut new_resource: Resource) {
 		if !new_resource.prefix_path_patterns.is_empty() {
 			let mut prefix_path_patterns =
 				std::mem::take(&mut new_resource.prefix_path_patterns).into_iter();
@@ -163,16 +163,14 @@ impl Resource {
 			self.check_path_segments_are_the_same(&mut prefix_path_patterns);
 
 			if prefix_path_patterns.len() > 0 {
-				let sub_resource_to_be_parent = self.by_patterns_sub_resource_mut(prefix_path_patterns);
-				sub_resource_to_be_parent.add_sub_resource(new_resource);
+				let subresource_to_be_parent = self.by_patterns_subresource_mut(prefix_path_patterns);
+				subresource_to_be_parent.add_subresource(new_resource);
 
 				return;
 			}
 		};
 
-		if self.path_has_the_same_name_with_some_resources(&new_resource) {
-			panic!("some resources has duplicate names in the path");
-		}
+		self.check_names_are_unique_in_the_path(&new_resource);
 
 		// -----
 
@@ -185,10 +183,10 @@ impl Resource {
 					let mut existing_resource = std::mem::replace(&mut $resources[position], dummy_resource);
 
 					if !$new_resource.has_some_effect() {
-						existing_resource.keep_sub_resources($new_resource);
+						existing_resource.keep_subresources($new_resource);
 					} else if !existing_resource.has_some_effect() {
 						$new_resource.prefix_path_patterns = std::mem::take(&mut existing_resource.prefix_path_patterns);
-						$new_resource.keep_sub_resources(existing_resource);
+						$new_resource.keep_subresources(existing_resource);
 						existing_resource = $new_resource;
 					} else {
 						// TODO: Improve the error message.
@@ -212,11 +210,11 @@ impl Resource {
 				if let Some(mut wildcard_resource) = self.wildcard_resource.take() {
 					if wildcard_resource.pattern.compare(&new_resource.pattern) == Similarity::Same {
 						if !new_resource.has_some_effect() {
-							wildcard_resource.keep_sub_resources(new_resource);
+							wildcard_resource.keep_subresources(new_resource);
 						} else if !wildcard_resource.has_some_effect() {
 							new_resource.prefix_path_patterns =
 								std::mem::take(&mut wildcard_resource.prefix_path_patterns);
-							new_resource.keep_sub_resources(*wildcard_resource);
+							new_resource.keep_subresources(*wildcard_resource);
 							*wildcard_resource = new_resource;
 						}
 					} else {
@@ -270,12 +268,12 @@ impl Resource {
 	}
 
 	#[inline]
-	fn by_patterns_sub_resource_mut(
+	fn by_patterns_subresource_mut(
 		&mut self,
 		mut patterns: impl Iterator<Item = Pattern>,
 	) -> &mut Resource {
 		let (mut leaf_resource_in_the_path, patterns) = self.by_patterns_leaf_resource_mut(patterns);
-		leaf_resource_in_the_path.by_patterns_new_sub_resource_mut(patterns)
+		leaf_resource_in_the_path.by_patterns_new_subresource_mut(patterns)
 	}
 
 	fn by_patterns_leaf_resource_mut(
@@ -336,7 +334,7 @@ impl Resource {
 	}
 
 	#[inline]
-	fn by_patterns_new_sub_resource_mut(
+	fn by_patterns_new_subresource_mut(
 		&mut self,
 		patterns: impl Iterator<Item = Pattern>,
 	) -> &mut Resource {
@@ -350,8 +348,8 @@ impl Resource {
 			}
 
 			let pattern_clone = pattern.clone();
-			let new_sub_resource = Resource::with_pattern(pattern);
-			current_resource.add_sub_resource(new_sub_resource);
+			let new_subresource = Resource::with_pattern(pattern);
+			current_resource.add_subresource(new_subresource);
 			(current_resource, _) =
 				current_resource.by_patterns_leaf_resource_mut(std::iter::once(pattern_clone));
 		}
@@ -360,23 +358,31 @@ impl Resource {
 	}
 
 	#[inline]
-	fn path_has_the_same_name_with_some_resources(&self, new_resource: &Resource) -> bool {
-		let mut resources = if new_resource.name().is_some() {
-			vec![new_resource]
-		} else {
-			Vec::new()
-		};
+	fn check_names_are_unique_in_the_path(&self, new_resource: &Resource) {
+		if new_resource
+			.name()
+			.is_some_and(|name| self.path_has_the_same_name(name))
+		{
+			panic!("some resources have the same names in the path");
+		}
+
+		let mut resources = Vec::new();
+		resources.extend(new_resource.regex_resources.iter());
+
+		if let Some(wildcard_resource) = &new_resource.wildcard_resource {
+			resources.push(wildcard_resource);
+		}
 
 		loop {
 			let Some(resource) = resources.pop() else {
-				return false;
+				return;
 			};
 
 			// Regex and wildcard resources all must have a name.
 			// If the following unwrap() panics then we have a bug in our resource initialization logic.
-			let name = new_resource.name().unwrap();
+			let name = resource.name().unwrap();
 			if self.path_has_the_same_name(name) {
-				return true;
+				panic!("some resources have the same names in the path");
 			}
 
 			resources.extend(resource.regex_resources.iter());
@@ -387,7 +393,7 @@ impl Resource {
 		}
 	}
 
-	fn keep_sub_resources(&mut self, mut other: Resource) {
+	fn keep_subresources(&mut self, mut other: Resource) {
 		macro_rules! keep_other_resources {
 			(mut $resources:expr, mut $other_resources:expr) => {
 				if !$other_resources.is_empty() {
@@ -406,10 +412,10 @@ impl Resource {
 								let mut resource = std::mem::replace(&mut $resources[position], dummy_resource);
 
 								if !other_resource.has_some_effect() {
-									resource.keep_sub_resources(other_resource);
+									resource.keep_subresources(other_resource);
 								} else if !resource.has_some_effect() {
 									other_resource.prefix_path_patterns = std::mem::take(&mut resource.prefix_path_patterns);
-									other_resource.keep_sub_resources(resource);
+									other_resource.keep_subresources(resource);
 									resource = other_resource;
 								} else {
 									// TODO: Improve error message.
@@ -441,11 +447,11 @@ impl Resource {
 					== Similarity::Same
 				{
 					if !other_wildcard_resource.has_some_effect() {
-						wildcard_resource.keep_sub_resources(*other_wildcard_resource);
+						wildcard_resource.keep_subresources(*other_wildcard_resource);
 					} else if !wildcard_resource.has_some_effect() {
 						other_wildcard_resource.prefix_path_patterns =
 							std::mem::take(&mut wildcard_resource.prefix_path_patterns);
-						other_wildcard_resource.keep_sub_resources(*wildcard_resource);
+						other_wildcard_resource.keep_subresources(*wildcard_resource);
 						wildcard_resource = other_wildcard_resource;
 					} else {
 						// TODO: Improve the error message.
@@ -472,7 +478,7 @@ impl Resource {
 		prefix_patterns
 	}
 
-	pub fn add_sub_resource_under(&mut self, route: &str, mut new_resource: Resource) {
+	pub fn add_subresource_under(&mut self, route: &str, mut new_resource: Resource) {
 		if !new_resource.prefix_path_patterns.is_empty() {
 			let mut new_resource_prefix_path_patterns =
 				std::mem::take(&mut new_resource.prefix_path_patterns).into_iter();
@@ -481,11 +487,11 @@ impl Resource {
 
 			if route.is_empty() {
 				if new_resource_prefix_path_patterns.len() > 0 {
-					let sub_resource_to_be_parent =
-						self.by_patterns_sub_resource_mut(new_resource_prefix_path_patterns);
-					sub_resource_to_be_parent.add_sub_resource(new_resource);
+					let subresource_to_be_parent =
+						self.by_patterns_subresource_mut(new_resource_prefix_path_patterns);
+					subresource_to_be_parent.add_subresource(new_resource);
 				} else {
-					self.add_sub_resource(new_resource);
+					self.add_subresource(new_resource);
 				}
 
 				return;
@@ -527,28 +533,28 @@ impl Resource {
 				prefix_route_patterns.push(prefix_route_segment_pattern);
 			}
 
-			// TODO: Create a new method to get sub_resource from patterns.
-			let mut sub_resource_to_be_parent =
-				self.by_patterns_sub_resource_mut(prefix_route_patterns.into_iter());
+			// TODO: Create a new method to get subresource from patterns.
+			let mut subresource_to_be_parent =
+				self.by_patterns_subresource_mut(prefix_route_patterns.into_iter());
 			if new_resource_prefix_path_patterns.len() > 0 {
-				sub_resource_to_be_parent =
-					sub_resource_to_be_parent.by_patterns_sub_resource_mut(new_resource_prefix_path_patterns);
+				subresource_to_be_parent =
+					subresource_to_be_parent.by_patterns_subresource_mut(new_resource_prefix_path_patterns);
 			}
 
-			sub_resource_to_be_parent.add_sub_resource(new_resource);
+			subresource_to_be_parent.add_subresource(new_resource);
 
 			return;
 		}
 
 		if route.is_empty() {
-			self.add_sub_resource(new_resource);
+			self.add_subresource(new_resource);
 		} else {
-			let sub_resource_to_be_parent = self.sub_resource_mut(route);
-			sub_resource_to_be_parent.add_sub_resource(new_resource);
+			let subresource_to_be_parent = self.subresource_mut(route);
+			subresource_to_be_parent.add_subresource(new_resource);
 		}
 	}
 
-	pub fn sub_resource_mut(&mut self, route: &str) -> &mut Resource {
+	pub fn subresource_mut(&mut self, route: &str) -> &mut Resource {
 		if route.is_empty() {
 			panic!("empty route")
 		}
@@ -558,66 +564,66 @@ impl Resource {
 		}
 
 		if !route.starts_with('/') {
-			panic!("route must start with '/'")
+			panic!("{} route must start with '/'", route)
 		}
 
 		let mut segments = RouteSegments::new(route);
-		let mut leaf_resource_in_the_path = self.leaf_resource_mut(&mut segments);
+		let (mut leaf_resource_in_the_path, segments) = self.leaf_resource_mut(segments);
 
-		leaf_resource_in_the_path.new_sub_resource_mut(segments)
+		leaf_resource_in_the_path.new_subresource_mut(segments)
 	}
 
-	fn leaf_resource(&self, patterns: &mut RouteSegments) -> &Resource {
-		let mut existing_resource = self;
+	fn leaf_resource<'s, 'r>(
+		&'s self,
+		mut route_segments: RouteSegments<'r>,
+	) -> (&'s Resource, RouteSegments<'r>) {
+		let mut leaf_resource = self;
 
-		for (segment, segment_index) in patterns.by_ref() {
+		for (segment, segment_index) in route_segments.by_ref() {
 			let pattern = Pattern::parse(segment);
 
 			match pattern {
 				Pattern::Static(_) => {
-					let some_position = existing_resource
+					let some_position = leaf_resource
 						.static_resources
 						.iter()
 						.position(|resource| resource.pattern.compare(&pattern) == Similarity::Same);
 
 					if let Some(position) = some_position {
-						existing_resource = &existing_resource.static_resources[position];
+						leaf_resource = &leaf_resource.static_resources[position];
 					} else {
-						patterns.revert_to_segment(segment_index);
+						route_segments.revert_to_segment(segment_index);
 
 						break;
 					}
 				}
 				Pattern::Regex(ref name, ref some_regex) => {
-					let some_position = existing_resource
-						.regex_resources
-						.iter()
-						.position(|resource| {
-							if some_regex.is_some() {
-								resource.pattern.compare(&pattern) == Similarity::Same
-							} else {
-								// Unwrap safety: Regex resources must have a name.
-								resource.name().unwrap() == name.as_ref()
-							}
-						});
+					let some_position = leaf_resource.regex_resources.iter().position(|resource| {
+						if some_regex.is_some() {
+							resource.pattern.compare(&pattern) == Similarity::Same
+						} else {
+							// Unwrap safety: Regex resources must have a name.
+							resource.name().unwrap() == name.as_ref()
+						}
+					});
 
 					if let Some(position) = some_position {
-						existing_resource = &existing_resource.regex_resources[position];
+						leaf_resource = &leaf_resource.regex_resources[position];
 					} else {
-						patterns.revert_to_segment(segment_index);
+						route_segments.revert_to_segment(segment_index);
 
 						break;
 					}
 				}
 				Pattern::Wildcard(_) => {
-					if existing_resource
+					if leaf_resource
 						.wildcard_resource
 						.as_ref()
 						.is_some_and(|resource| resource.pattern.compare(&pattern) == Similarity::Same)
 					{
-						existing_resource = existing_resource.wildcard_resource.as_deref().unwrap();
+						leaf_resource = leaf_resource.wildcard_resource.as_deref().unwrap();
 					} else {
-						patterns.revert_to_segment(segment_index);
+						route_segments.revert_to_segment(segment_index);
 
 						break;
 					}
@@ -625,60 +631,60 @@ impl Resource {
 			}
 		}
 
-		existing_resource
+		(leaf_resource, route_segments)
 	}
 
-	fn leaf_resource_mut(&mut self, patterns: &mut RouteSegments) -> &mut Resource {
-		let mut existing_resource = self;
+	fn leaf_resource_mut<'s, 'r>(
+		&'s mut self,
+		mut route_segments: RouteSegments<'r>,
+	) -> (&'s mut Resource, RouteSegments<'r>) {
+		let mut leaf_resource = self;
 
-		for (segment, segment_index) in patterns.by_ref() {
+		for (segment, segment_index) in route_segments.by_ref() {
 			let pattern = Pattern::parse(segment);
 
 			match pattern {
 				Pattern::Static(_) => {
-					let some_position = existing_resource
+					let some_position = leaf_resource
 						.static_resources
 						.iter()
 						.position(|resource| resource.pattern.compare(&pattern) == Similarity::Same);
 
 					if let Some(position) = some_position {
-						existing_resource = &mut existing_resource.static_resources[position];
+						leaf_resource = &mut leaf_resource.static_resources[position];
 					} else {
-						patterns.revert_to_segment(segment_index);
+						route_segments.revert_to_segment(segment_index);
 
 						break;
 					}
 				}
 				Pattern::Regex(ref name, ref some_regex) => {
-					let some_position = existing_resource
-						.regex_resources
-						.iter()
-						.position(|resource| {
-							if some_regex.is_some() {
-								resource.pattern.compare(&pattern) == Similarity::Same
-							} else {
-								// Unwrap safety: Regex resources must have a name.
-								resource.name().unwrap() == name.as_ref()
-							}
-						});
+					let some_position = leaf_resource.regex_resources.iter().position(|resource| {
+						if some_regex.is_some() {
+							resource.pattern.compare(&pattern) == Similarity::Same
+						} else {
+							// Unwrap safety: Regex resources must have a name.
+							resource.name().unwrap() == name.as_ref()
+						}
+					});
 
 					if let Some(position) = some_position {
-						existing_resource = &mut existing_resource.regex_resources[position];
+						leaf_resource = &mut leaf_resource.regex_resources[position];
 					} else {
-						patterns.revert_to_segment(segment_index);
+						route_segments.revert_to_segment(segment_index);
 
 						break;
 					}
 				}
 				Pattern::Wildcard(_) => {
-					if existing_resource
+					if leaf_resource
 						.wildcard_resource
 						.as_ref()
 						.is_some_and(|resource| resource.pattern.compare(&pattern) == Similarity::Same)
 					{
-						existing_resource = existing_resource.wildcard_resource.as_deref_mut().unwrap();
+						leaf_resource = leaf_resource.wildcard_resource.as_deref_mut().unwrap();
 					} else {
-						patterns.revert_to_segment(segment_index);
+						route_segments.revert_to_segment(segment_index);
 
 						break;
 					}
@@ -686,11 +692,11 @@ impl Resource {
 			}
 		}
 
-		existing_resource
+		(leaf_resource, route_segments)
 	}
 
 	#[inline]
-	fn new_sub_resource_mut(&mut self, segments: RouteSegments) -> &mut Resource {
+	fn new_subresource_mut(&mut self, segments: RouteSegments) -> &mut Resource {
 		let mut current_resource = self;
 
 		for (segment, _) in segments {
@@ -700,11 +706,11 @@ impl Resource {
 				if current_resource.path_has_the_same_name(name) {
 					panic!("{} is not unique in the path", name)
 				}
-
-				let new_sub_resource = Resource::with_pattern(pattern);
-				current_resource.add_sub_resource(new_sub_resource);
-				current_resource = current_resource.sub_resource_mut(segment);
 			}
+
+			let new_subresource = Resource::with_pattern(pattern);
+			current_resource.add_subresource(new_subresource);
+			(current_resource, _) = current_resource.leaf_resource_mut(RouteSegments::new(segment));
 		}
 
 		current_resource
@@ -771,7 +777,7 @@ impl Resource {
 	// 	todo!()
 	// }
 	//
-	// pub fn config(&self) -> Config {
+	// pub fn config(&self) -> Result<Config, BoxedError> {
 	// 	todo!()
 	// }
 
@@ -867,78 +873,82 @@ impl Resource {
 
 	// -------------------------
 
-	pub fn set_sub_resource_state<S: Clone + Send + Sync + 'static>(
-		&mut self,
-		route: &str,
-		state: S,
-	) {
-		let sub_resource = self.sub_resource_mut(route);
-		sub_resource.set_state(state);
+	pub fn set_subresource_state<S: Clone + Send + Sync + 'static>(&mut self, route: &str, state: S) {
+		let subresource = self.subresource_mut(route);
+		subresource.set_state(state);
 	}
 
-	pub fn sub_resource_state<S: Clone + Send + Sync + 'static>(
+	pub fn subresource_state<S: Clone + Send + Sync + 'static>(
 		&self,
 		route: &str,
 	) -> Result<&S, BoxedError> {
 		let mut route_segments = RouteSegments::new(route);
-		let sub_resource = self.leaf_resource(&mut route_segments);
+		let (subresource, route_segments) = self.leaf_resource(route_segments);
 
-		sub_resource.state()
+		if route_segments.has_remaining_segments() {
+			return Err(format!("{} doesn't exist", route).into());
+		}
+
+		subresource.state()
 	}
 
-	// pub fn set_sub_resource_config(&mut self, route: &str, config: Config) {
-	// 	let sub_resource = self.sub_resource_mut(route);
-	// 	sub_resource.set_config(config);
+	// pub fn set_subresource_config(&mut self, route: &str, config: Config) {
+	// 	let subresource = self.subresource_mut(route);
+	// 	subresource.set_config(config);
 	// }
 	//
-	// pub fn sub_resource_config(&self, route: &str) -> Config {
+	// pub fn subresource_config(&self, route: &str) -> Result<Config, BoxedError> {
 	// 	let mut route_segments = RouteSegments::new(route);
-	// 	let sub_resource = self.leaf_resource(&mut route_segments);
+	// 	let (subresource, route_segments) = self.leaf_resource(route_segments);
 	//
-	// 	sub_resource.config()
+	// 	if route_segments.has_remaining_segments() {
+	// 		return Err(format!("{} doesn't exist", route).into());
+	// 	}
+	//
+	// 	subresource.config()
 	// }
 
-	pub fn set_sub_resource_handler<H, M>(&mut self, route: &str, method: Method, handler: H)
+	pub fn set_subresource_handler<H, M>(&mut self, route: &str, method: Method, handler: H)
 	where
 		H: IntoHandler<M, IncomingBody>,
 		H::Handler: Handler + Send + Sync + 'static,
 		<H::Handler as Handler>::Response: IntoResponse,
 	{
-		let sub_resource = self.sub_resource_mut(route);
-		sub_resource.set_handler(method, handler);
+		let subresource = self.subresource_mut(route);
+		subresource.set_handler(method, handler);
 	}
 
-	pub fn wrap_sub_resource_request_receiver<L, LayeredB>(&mut self, route: &str, layer: L)
+	pub fn wrap_subresource_request_receiver<L, LayeredB>(&mut self, route: &str, layer: L)
 	where
 		L: Layer<AdaptiveHandler<LayeredB>, LayeredB>,
 		L::Handler: Handler + Send + Sync + 'static,
 		<L::Handler as Handler>::Response: IntoResponse,
 	{
-		let sub_resource = self.sub_resource_mut(route);
-		sub_resource.wrap_request_receiver(layer);
+		let subresource = self.subresource_mut(route);
+		subresource.wrap_request_receiver(layer);
 	}
 
-	pub fn wrap_sub_resource_request_passer<L, LayeredB>(&mut self, route: &str, layer: L)
+	pub fn wrap_subresource_request_passer<L, LayeredB>(&mut self, route: &str, layer: L)
 	where
 		L: Layer<AdaptiveHandler<LayeredB>, LayeredB>,
 		L::Handler: Handler + Send + Sync + 'static,
 		<L::Handler as Handler>::Response: IntoResponse,
 	{
-		let sub_resource = self.sub_resource_mut(route);
-		sub_resource.wrap_request_passer(layer);
+		let subresource = self.subresource_mut(route);
+		subresource.wrap_request_passer(layer);
 	}
 
-	pub fn wrap_sub_resource_request_handler<L, LayeredB>(&mut self, route: &str, layer: L)
+	pub fn wrap_subresource_request_handler<L, LayeredB>(&mut self, route: &str, layer: L)
 	where
 		L: Layer<AdaptiveHandler<LayeredB>, LayeredB>,
 		L::Handler: Handler + Send + Sync + 'static,
 		<L::Handler as Handler>::Response: IntoResponse,
 	{
-		let sub_resource = self.sub_resource_mut(route);
-		sub_resource.wrap_request_handler(layer);
+		let subresource = self.subresource_mut(route);
+		subresource.wrap_request_handler(layer);
 	}
 
-	pub fn wrap_sub_resource_method_handler<L, LayeredB>(
+	pub fn wrap_subresource_method_handler<L, LayeredB>(
 		&mut self,
 		route: &str,
 		method: Method,
@@ -948,80 +958,79 @@ impl Resource {
 		L::Handler: Handler + Send + Sync + 'static,
 		<L::Handler as Handler>::Response: IntoResponse,
 	{
-		let sub_resource = self.sub_resource_mut(route);
-		sub_resource.wrap_method_handler(method, layer);
+		let subresource = self.subresource_mut(route);
+		subresource.wrap_method_handler(method, layer);
 	}
 
 	// -------------------------
 
-	pub fn set_sub_resources_state<S: Clone + Send + Sync + 'static>(&mut self, state: S) {
-		self.call_for_each_sub_resource(|sub_resource| {
-			sub_resource.set_state(state.clone());
+	pub fn set_subresources_state<S: Clone + Send + Sync + 'static>(&mut self, state: S) {
+		self.call_for_each_subresource(|subresource| {
+			subresource.set_state(state.clone());
 		});
 	}
 
-	// pub fn set_sub_resources_config(&mut self, config: Config) {
+	// pub fn set_subresources_config(&mut self, config: Config) {
 	// 	todo!()
 	// }
 
-	pub fn wrap_sub_resources_request_receivers<L, LayeredB>(&mut self, layer: L)
+	pub fn wrap_subresources_request_receivers<L, LayeredB>(&mut self, layer: L)
 	where
 		L: Layer<AdaptiveHandler<LayeredB>, LayeredB> + Clone,
 		L::Handler: Handler + Send + Sync + 'static,
 		<L::Handler as Handler>::Response: IntoResponse,
 	{
-		self
-			.call_for_each_sub_resource(|sub_resource| sub_resource.wrap_request_receiver(layer.clone()))
+		self.call_for_each_subresource(|subresource| subresource.wrap_request_receiver(layer.clone()))
 	}
 
-	pub fn wrap_sub_resources_request_passers<L, LayeredB>(&mut self, layer: L)
+	pub fn wrap_subresources_request_passers<L, LayeredB>(&mut self, layer: L)
 	where
 		L: Layer<AdaptiveHandler<LayeredB>, LayeredB> + Clone,
 		L::Handler: Handler + Send + Sync + 'static,
 		<L::Handler as Handler>::Response: IntoResponse,
 	{
-		self.call_for_each_sub_resource(|sub_resource| sub_resource.wrap_request_passer(layer.clone()))
+		self.call_for_each_subresource(|subresource| subresource.wrap_request_passer(layer.clone()))
 	}
 
-	pub fn wrap_sub_resources_request_handlers<L, LayeredB>(&mut self, layer: L)
+	pub fn wrap_subresources_request_handlers<L, LayeredB>(&mut self, layer: L)
 	where
 		L: Layer<AdaptiveHandler<LayeredB>, LayeredB> + Clone,
 		L::Handler: Handler + Send + Sync + 'static,
 		<L::Handler as Handler>::Response: IntoResponse,
 	{
-		self.call_for_each_sub_resource(|sub_resource| sub_resource.wrap_request_handler(layer.clone()))
+		self.call_for_each_subresource(|subresource| subresource.wrap_request_handler(layer.clone()))
 	}
 
-	pub fn wrap_sub_resources_method_handlers<L, LayeredB>(&mut self, method: Method, layer: L)
+	pub fn wrap_subresources_method_handlers<L, LayeredB>(&mut self, method: Method, layer: L)
 	where
 		L: Layer<AdaptiveHandler<LayeredB>, LayeredB> + Clone,
 		L::Handler: Handler + Send + Sync + 'static,
 		<L::Handler as Handler>::Response: IntoResponse,
 	{
-		self.call_for_each_sub_resource(|sub_resource| {
-			sub_resource.wrap_method_handler(method.clone(), layer.clone())
+		self.call_for_each_subresource(|subresource| {
+			subresource.wrap_method_handler(method.clone(), layer.clone())
 		})
 	}
 
-	fn call_for_each_sub_resource(&mut self, func: impl Fn(&mut Resource)) {
-		let mut sub_resources = Vec::new();
-		sub_resources.extend(self.static_resources.iter_mut());
-		sub_resources.extend(self.regex_resources.iter_mut());
+	fn call_for_each_subresource(&mut self, func: impl Fn(&mut Resource)) {
+		let mut subresources = Vec::new();
+		subresources.extend(self.static_resources.iter_mut());
+		subresources.extend(self.regex_resources.iter_mut());
 		if let Some(resource) = self.wildcard_resource.as_deref_mut() {
-			sub_resources.push(resource);
+			subresources.push(resource);
 		}
 
 		for i in 0.. {
-			let Some(sub_resource) = sub_resources.pop() else {
+			let Some(subresource) = subresources.pop() else {
 				break;
 			};
 
-			func(sub_resource);
+			func(subresource);
 
-			sub_resources.extend(sub_resource.static_resources.iter_mut());
-			sub_resources.extend(sub_resource.regex_resources.iter_mut());
-			if let Some(resource) = sub_resource.wildcard_resource.as_deref_mut() {
-				sub_resources.push(resource);
+			subresources.extend(subresource.static_resources.iter_mut());
+			subresources.extend(subresource.regex_resources.iter_mut());
+			if let Some(resource) = subresource.wildcard_resource.as_deref_mut() {
+				subresources.push(resource);
 			}
 		}
 	}
@@ -1157,47 +1166,134 @@ mod test {
 	}
 
 	#[test]
-	fn add_sub_resource() {
-		let mut parent = Resource::new("/abc0/*abc00");
-		println!("parent before: {:?}", parent);
+	fn add_subresource() {
+		let mut parent = Resource::new("/abc0_0/*abc1_0");
 
 		let cases = [
-			("/abc0/*abc00/$abc000:@(\\d+)/", "/$abc000:@(\\d+)/"),
-			("/abc0/*abc00/abc001", "/abc001"),
+			("/abc0_0/*abc1_0/$abc2_0:@(p0)/", "/$abc2_0:@(p0)/"),
 			(
-				"/abc0/*abc00/abc001/*abc0000/$abc00000:@(pattern0)/",
-				"/abc001/*abc0000/$abc00000:@(pattern0)",
+				"/abc0_0/*abc1_0/$abc2_0:@(p0)/abc3_0",
+				"/$abc2_0:@(p0)/abc3_0",
 			),
 			(
-				"/abc0/*abc00/abc001/*abc0000/$abc00001:@(pattern1)",
-				"/abc001/*abc0000/$abc00001:@(pattern1)/",
+				"/abc0_0/*abc1_0/$abc2_0:@(p0)/$abc3_1:@cn0(p0)",
+				"/$abc2_0:@(p0)/$abc3_1:@cn0(p0)",
 			),
-			("/abc0/*abc00/abc001/*abc0000", "/abc001/*abc0000"),
+			(
+				"/abc0_0/*abc1_0/$abc2_0:@(p0)/$abc3_1:@cn0(p0)/*abc4_0",
+				"/$abc2_0:@(p0)/$abc3_1:@cn0(p0)/*abc4_0",
+			),
+			(
+				"/abc0_0/*abc1_0/$abc2_0:@(p0)/$abc3_1:@cn0(p0)/abc4_1",
+				"/$abc2_0:@(p0)/$abc3_1:@cn0(p0)/abc4_1",
+			),
+			(
+				"/abc0_0/*abc1_0/$abc2_0:@(p0)/$abc3_1:@cn0(p0)/abc4_2",
+				"/$abc2_0:@(p0)/$abc3_1:@cn0(p0)/abc4_2",
+			),
+			("/abc0_0/*abc1_0/abc2_1", "/abc2_1"),
+			(
+				"/abc0_0/*abc1_0/abc2_1/*abc3_0/$abc4_0:@(p0)/",
+				"/abc2_1/*abc3_0/$abc4_0:@(p0)",
+			),
+			(
+				"/abc0_0/*abc1_0/abc2_1/*abc3_0/$abc4_1:@(p1)",
+				"/abc2_1/*abc3_0/$abc4_1:@(p1)/",
+			),
+			("/abc0_0/*abc1_0/abc2_1/*abc3_0", "/abc2_1/*abc3_0"),
 		];
 
 		for case in cases {
-			println!("path: {}\n\troute: {}", case.0, case.1);
-
 			let resource = Resource::new(case.0);
-			println!("resource before: {:?}", resource);
 
-			parent.add_sub_resource(resource);
+			parent.add_subresource(resource);
 
 			let (resource, _) =
 				parent.by_patterns_leaf_resource_mut(string_to_patterns(case.1).into_iter());
 			resource.check_path_segments_are_the_same(&mut string_to_patterns(case.0).into_iter());
-			println!("resource after: {:?}", resource);
 		}
 
-		let mut resource = Resource::new("/abc0/*abc00/abc001/*abc0000");
-		resource.by_patterns_new_sub_resource_mut(std::iter::once(Pattern::parse("abc00002")));
-		resource.set_handler(Method::GET, DummyHandler::<DefaultResponseFuture>::new());
-		println!("new resource: {:?}", resource);
+		{
+			// Existing resources in the tree.
 
-		parent.add_sub_resource(resource);
-		let (resource, _) =
-			parent.by_patterns_leaf_resource_mut(string_to_patterns("/abc001/*abc0000").into_iter());
-		println!("returned resource: {:?}", resource);
+			let (resource2_0, _) = parent.leaf_resource_mut(RouteSegments::new("/$abc2_0:@(p0)"));
+			resource2_0.set_handler(Method::POST, DummyHandler::<DefaultResponseFuture>::new());
+			resource2_0.set_subresource_handler(
+				"/$abc3_1:@cn0(p0)/*abc4_0",
+				Method::GET,
+				DummyHandler::<DefaultResponseFuture>::new(),
+			);
+
+			let (resource4_2, _) =
+				resource2_0.leaf_resource_mut(RouteSegments::new("/$abc3_1:@cn0(p0)/abc4_2"));
+			resource4_2.new_subresource_mut(RouteSegments::new("/abc5_0"));
+		}
+
+		{
+			// New resources.
+
+			let mut resource2_0 = Resource::new("/$abc2_0:@(p0)");
+
+			let mut resource3_1 = Resource::new("/$abc3_1:@cn0(p0)");
+			resource3_1.set_handler(Method::GET, DummyHandler::<DefaultResponseFuture>::new());
+			resource3_1.set_handler(Method::POST, DummyHandler::<DefaultResponseFuture>::new());
+			resource3_1.set_subresource_handler(
+				"/abc4_1",
+				Method::POST,
+				DummyHandler::<DefaultResponseFuture>::new(),
+			);
+			resource3_1.new_subresource_mut(RouteSegments::new("/$abc4_3:@(p0)"));
+			resource3_1.new_subresource_mut(RouteSegments::new("/abc4_4"));
+
+			resource2_0.add_subresource(resource3_1);
+
+			// Resources with handlers must replace existing resources with the same pattern.
+			// Other resources must be kept as is. New subtree must be a union of the existing two subtrees.
+			parent.add_subresource(resource2_0);
+
+			let (resource2_0, _) = parent.leaf_resource(RouteSegments::new("/$abc2_0:@(p0)"));
+			assert_eq!(resource2_0.static_resources.len(), 1);
+			assert_eq!(resource2_0.regex_resources.len(), 1);
+			assert_eq!(resource2_0.method_handlers.count(), 1);
+
+			let (resource3_1, _) =
+				parent.leaf_resource(RouteSegments::new("/$abc2_0:@(p0)/$abc3_1:@cn0(p0)"));
+			assert_eq!(resource3_1.static_resources.len(), 3);
+			assert_eq!(resource3_1.regex_resources.len(), 1);
+			assert!(resource3_1.wildcard_resource.is_some());
+			assert_eq!(resource3_1.method_handlers.count(), 2);
+
+			let (resource4_0, _) = resource3_1.leaf_resource(RouteSegments::new("/*abc4_0"));
+			assert_eq!(resource4_0.method_handlers.count(), 1);
+
+			let (resource4_2, _) = resource3_1.leaf_resource(RouteSegments::new("/abc4_2"));
+			assert_eq!(resource4_2.static_resources.len(), 1);
+
+			let (resource5_0, _) = resource4_2.leaf_resource(RouteSegments::new("/abc5_0"));
+			resource5_0.check_path_segments_are_the_same(
+				&mut string_to_patterns("/abc0_0/*abc1_0/$abc2_0:@(p0)/$abc3_1:@cn0(p0)/abc4_2/abc5_0")
+					.into_iter(),
+			);
+
+			let (resource4_1, _) = resource3_1.leaf_resource(RouteSegments::new("/abc4_1"));
+			assert_eq!(resource4_1.method_handlers.count(), 1);
+		}
+
+		{
+			let pattern3_0 = "/abc0_0/*abc1_0/abc2_1/*abc3_0";
+			let route3_0 = "/abc2_1/*abc3_0";
+
+			let mut resource3_0 = Resource::new(pattern3_0);
+			resource3_0.by_patterns_new_subresource_mut(std::iter::once(Pattern::parse("abc4_2")));
+			resource3_0.set_handler(Method::GET, DummyHandler::<DefaultResponseFuture>::new());
+
+			parent.add_subresource(resource3_0);
+			let (resource3_0, _) = parent.leaf_resource_mut(RouteSegments::new(route3_0));
+			resource3_0.check_path_segments_are_the_same(&mut string_to_patterns(pattern3_0).into_iter());
+			assert_eq!(resource3_0.static_resources.len(), 1);
+			assert_eq!(resource3_0.regex_resources.len(), 2);
+			assert_eq!(resource3_0.method_handlers.count(), 1);
+		}
 	}
 
 	#[test]
@@ -1255,5 +1351,25 @@ mod test {
 		let mut segment_patterns = vec![Pattern::parse("news"), Pattern::parse("*area")].into_iter();
 
 		resource.check_path_segments_are_the_same(&mut segment_patterns);
+	}
+
+	#[test]
+	#[should_panic(expected = "the same name")]
+	fn check_names_are_unique_in_the_path1() {
+		let mut parent = Resource::new("/abc0/$abc1:@(p)/*abc2");
+		let mut faulty_resource = Resource::new("/$abc1:@cn(p)");
+
+		parent.add_subresource(faulty_resource);
+	}
+
+	#[test]
+	#[should_panic(expected = "the same name")]
+	fn check_names_are_unique_in_the_path2() {
+		let mut parent = Resource::new("/abc0/$abc1:@(p)/*abc2/abc3");
+		let mut abc4 = Resource::new("/abc4");
+		let faulty_abc2 = Resource::new("/*abc2");
+		abc4.add_subresource(faulty_abc2);
+
+		parent.add_subresource(abc4);
 	}
 }
