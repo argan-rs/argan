@@ -502,7 +502,7 @@ impl Resource {
 			let prefix_route_segments = RouteSegments::new(route);
 			for (prefix_route_segment, _) in prefix_route_segments {
 				let Some(prefix_path_segment_pattern) = new_resource_prefix_path_patterns.next() else {
-					panic!("prefix path patterns must be the same with the path patterns of the parent")
+					panic!("there are fewer path segments in the resource's own prefix path than the path it's being added")
 				};
 
 				let prefix_route_segment_pattern = Pattern::parse(prefix_route_segment);
@@ -527,13 +527,12 @@ impl Resource {
 				}
 
 				if prefix_route_segment_pattern.compare(&prefix_path_segment_pattern) != Similarity::Same {
-					panic!("prefix path patterns must be the same with the path patterns of the parent")
+					panic!("prefix segments' patterns must be the same with the segment patterns of the parent resources")
 				}
 
 				prefix_route_patterns.push(prefix_route_segment_pattern);
 			}
 
-			// TODO: Create a new method to get subresource from patterns.
 			let mut subresource_to_be_parent =
 				self.by_patterns_subresource_mut(prefix_route_patterns.into_iter());
 			if new_resource_prefix_path_patterns.len() > 0 {
@@ -1371,5 +1370,162 @@ mod test {
 		abc4.add_subresource(faulty_abc2);
 
 		parent.add_subresource(abc4);
+	}
+
+	#[test]
+	fn add_subresource_under() {
+		let mut parent = Resource::new("/abc0_0/*abc1_0");
+
+		struct Case<'a> {
+			full_path: &'a str,
+			prefix_route_from_parent: &'a str,
+			resource_pattern: &'a str,
+			route_from_parent: &'a str,
+			resource_has_handler: bool,
+		}
+
+		let cases = [
+			Case {
+				full_path: "/abc0_0/*abc1_0/$abc2_0:@(p)/abc3_0",
+				prefix_route_from_parent: "/$abc2_0:@(p)",
+				resource_pattern: "abc3_0",
+				route_from_parent: "/$abc2_0:@(p)/abc3_0",
+				resource_has_handler: true,
+			},
+			Case {
+				full_path: "/abc0_0/*abc1_0/$abc2_0:@(p)/abc3_0/*abc4_0",
+				prefix_route_from_parent: "/$abc2_0:@(p)/",
+				resource_pattern: "*abc4_0",
+				route_from_parent: "/$abc2_0:@(p)/abc3_0/*abc4_0",
+				resource_has_handler: false,
+			},
+			Case {
+				full_path: "/abc0_0/*abc1_0/$abc2_0:@(p)/abc3_0/abc4_1",
+				prefix_route_from_parent: "",
+				resource_pattern: "abc4_1",
+				route_from_parent: "/$abc2_0:@(p)/abc3_0/abc4_1",
+				resource_has_handler: true,
+			},
+			Case {
+				full_path: "/abc0_0/*abc1_0/*abc2_1/abc3_0",
+				prefix_route_from_parent: "",
+				resource_pattern: "abc3_0",
+				route_from_parent: "/*abc2_1/abc3_0",
+				resource_has_handler: false,
+			},
+			Case {
+				full_path: "/abc0_0/*abc1_0/*abc2_1/abc3_0/$abc4_0:@cn(p)/",
+				prefix_route_from_parent: "/*abc2_1/abc3_0",
+				resource_pattern: "$abc4_0:@cn(p)",
+				route_from_parent: "/*abc2_1/abc3_0/$abc4_0:@cn(p)",
+				resource_has_handler: true,
+			},
+			Case {
+				full_path: "/abc0_0/*abc1_0/*abc2_1/abc3_0/$abc4_1:@cn(p)/",
+				prefix_route_from_parent: "/*abc2_1/abc3_0",
+				resource_pattern: "$abc4_1:@cn(p)",
+				route_from_parent: "/*abc2_1/abc3_0/$abc4_1:@cn(p)",
+				resource_has_handler: false,
+			},
+			Case {
+				full_path: "/abc0_0/*abc1_0/*abc2_1/abc3_0/$abc4_1:@cn(p)/abc5_0",
+				prefix_route_from_parent: "/*abc2_1/abc3_0/$abc4_1:@cn(p)",
+				resource_pattern: "abc5_0",
+				route_from_parent: "/*abc2_1/abc3_0/$abc4_1:@cn(p)/abc5_0",
+				resource_has_handler: false,
+			},
+			Case {
+				full_path: "/abc0_0/*abc1_0/*abc2_1/$abc3_1:@(p)",
+				prefix_route_from_parent: "/*abc2_1",
+				resource_pattern: "$abc3_1:@(p)",
+				route_from_parent: "/*abc2_1/$abc3_1:@(p)",
+				resource_has_handler: false,
+			},
+		];
+
+		for case in cases.iter() {
+			let new_resource = Resource::new(case.full_path);
+
+			parent.add_subresource_under(case.prefix_route_from_parent, new_resource);
+			let (mut resource, _) = parent.leaf_resource_mut(RouteSegments::new(case.route_from_parent));
+
+			assert_eq!(
+				resource
+					.pattern
+					.compare(&Pattern::parse(case.resource_pattern)),
+				Similarity::Same
+			);
+
+			if case.resource_has_handler {
+				resource.set_handler(Method::GET, DummyHandler::<DefaultResponseFuture>::new());
+			}
+
+			resource
+				.check_path_segments_are_the_same(&mut string_to_patterns(case.full_path).into_iter());
+		}
+
+		{
+			let mut resource3_0 = Resource::new("/abc3_0");
+			resource3_0.set_subresource_handler(
+				"/*abc4_0",
+				Method::POST,
+				DummyHandler::<DefaultResponseFuture>::new(),
+			);
+
+			let resource4_1 = Resource::new("/abc4_2");
+			resource3_0.add_subresource_under("", resource4_1);
+
+			parent.add_subresource_under(cases[0].prefix_route_from_parent, resource3_0);
+
+			let (resource3_0, _) = parent.leaf_resource(RouteSegments::new(cases[0].route_from_parent));
+			assert_eq!(resource3_0.static_resources.len(), 2);
+			assert_eq!(resource3_0.method_handlers.count(), 1);
+
+			let (resource4_0, _) = parent.leaf_resource(RouteSegments::new(cases[1].route_from_parent));
+			assert_eq!(resource4_0.method_handlers.count(), 1);
+
+			let (resource4_1, _) = parent.leaf_resource(RouteSegments::new(cases[2].route_from_parent));
+			assert_eq!(resource4_1.method_handlers.count(), 1);
+		}
+
+		{
+			let mut resource2_1 = Resource::new("/abc0_0/*abc1_0/*abc2_1");
+			resource2_1.set_handler(Method::GET, DummyHandler::<DefaultResponseFuture>::new());
+
+			let mut resource4_0 = Resource::new("/$abc4_0:@cn(p)");
+			resource4_0.set_subresource_handler(
+				"/*abc5_0",
+				Method::GET,
+				DummyHandler::<DefaultResponseFuture>::new(),
+			);
+			resource2_1.add_subresource_under("/abc3_0", resource4_0);
+
+			let mut resource4_1 = Resource::new("/$abc4_1:@cn(p)/");
+			resource4_1.set_handler(Method::PUT, DummyHandler::<DefaultResponseFuture>::new());
+			resource2_1.add_subresource_under("/abc3_0", resource4_1);
+
+			let mut resource5_0 = Resource::new("/abc0_0/*abc1_0/*abc2_1/abc3_0/*abc4_2/$abc5_0:@(p)");
+			resource2_1.add_subresource_under("/abc3_0", resource5_0);
+
+			parent.add_subresource_under("", resource2_1);
+
+			let (resource2_1, _) = parent.leaf_resource(RouteSegments::new("/*abc2_1"));
+			assert_eq!(resource2_1.static_resources.len(), 1);
+			assert_eq!(resource2_1.regex_resources.len(), 1);
+			assert_eq!(resource2_1.method_handlers.count(), 1);
+
+			let (resource4_0, _) =
+				resource2_1.leaf_resource(RouteSegments::new("/abc3_0/$abc4_0:@cn(p)"));
+			assert!(resource4_0.wildcard_resource.is_some());
+			assert_eq!(resource4_0.method_handlers.count(), 1);
+
+			let (resource4_1, _) =
+				resource2_1.leaf_resource(RouteSegments::new("/abc3_0/$abc4_1:@cn(p)"));
+			assert_eq!(resource4_1.static_resources.len(), 1);
+			assert_eq!(resource4_1.method_handlers.count(), 1);
+
+			let (resource4_2, _) = resource2_1.leaf_resource(RouteSegments::new("/abc3_0/*abc4_2"));
+			assert_eq!(resource4_2.regex_resources.len(), 1);
+		}
 	}
 }
