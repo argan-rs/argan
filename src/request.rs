@@ -11,6 +11,7 @@ use crate::{
 // --------------------------------------------------------------------------------
 
 pub type Request<B = IncomingBody> = hyper::Request<B>;
+pub type Head = Parts;
 
 // --------------------------------------------------
 
@@ -32,20 +33,20 @@ impl<B> FromRequest<B> for Request<B> {
 
 // -------------------------
 
-pub trait FromRequestParts: Sized {
+pub trait FromRequestHead: Sized {
 	type Error: IntoResponse;
 	type Future: Future<Output = Result<Self, Self::Error>>;
 
-	fn from_request_parts(parts: &Parts) -> Self::Future;
+	fn from_request_head(parts: &Head) -> Self::Future;
 }
 
-impl<T: FromRequestParts, B> FromRequest<B> for T {
+impl<T: FromRequestHead, B> FromRequest<B> for T {
 	type Error = T::Error;
 	type Future = T::Future;
 
-	fn from_request(req: Request<B>) -> Self::Future {
-		let (parts, _) = req.into_parts();
+	fn from_request(request: Request<B>) -> Self::Future {
+		let (head, _) = request.into_parts();
 
-		T::from_request_parts(&parts)
+		T::from_request_head(&head)
 	}
 }
