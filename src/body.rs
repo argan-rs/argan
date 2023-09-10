@@ -10,6 +10,7 @@ use pin_project::pin_project;
 
 // ----------
 
+pub(crate) use http_body_util::{BodyExt, Empty, Full};
 pub use hyper::body::{Body, Buf, Bytes, Frame, Incoming};
 
 use super::utils::BoxedError;
@@ -26,15 +27,8 @@ pub struct IncomingBody(#[pin] InnerBody);
 
 #[pin_project(project = InnerBodyProjection)]
 enum InnerBody {
-	Empty,
 	Incoming(#[pin] Incoming),
 	Boxed(#[pin] BoxedBody),
-}
-
-impl Default for IncomingBody {
-	fn default() -> Self {
-		Self(InnerBody::Empty)
-	}
 }
 
 impl IncomingBody {
@@ -49,11 +43,18 @@ impl IncomingBody {
 		B::Data: Debug,
 		B::Error: Into<BoxedError>,
 	{
-		if body.type_id() == TypeId::of::<IncomingBody>() {
-			let any_body = &mut body as &mut dyn Any;
+		let mut some_body = Some(body);
 
-			return std::mem::take(any_body.downcast_mut::<IncomingBody>().unwrap());
+		if let Some(some_incoming_body) =
+			<dyn Any>::downcast_mut::<Option<IncomingBody>>(&mut some_body)
+		{
+			return some_incoming_body
+				.take()
+				.expect("Option should have been created from a valid value in a local scope");
 		}
+
+		let body =
+			some_body.expect("Option should have been created from a valid value in a local scope");
 
 		Self(InnerBody::Boxed(BoxedBody::new(BodyAdapter::new(body))))
 	}
@@ -69,10 +70,7 @@ impl Body for IncomingBody {
 	) -> Poll<Option<Result<Frame<Self::Data>, Self::Error>>> {
 		let self_projection = self.project();
 		match self_projection.0.project() {
-			InnerBodyProjection::Empty => Poll::Ready(None),
-			InnerBodyProjection::Incoming(incoming) => {
-				incoming.poll_frame(cx).map_err(|error| error.into())
-			}
+			InnerBodyProjection::Incoming(incoming) => incoming.poll_frame(cx).map_err(Into::into),
 			InnerBodyProjection::Boxed(boxed) => boxed.poll_frame(cx),
 		}
 	}
@@ -91,7 +89,7 @@ impl<B> BodyAdapter<B> {
 
 impl<B> Body for BodyAdapter<B>
 where
-	B: Body + Send + 'static,
+	B: Body,
 	B::Data: Debug,
 	B::Error: Into<BoxedError>,
 {
@@ -125,6 +123,6 @@ where
 					Frame::trailers(header_map)
 				}
 			})
-			.map_err(|error| error.into())
+			.map_err(Into::into)
 	}
 }

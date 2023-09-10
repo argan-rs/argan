@@ -10,6 +10,7 @@ authors = ["Shohruh Adham <shohruh.adham@gmail.com>"]
 http = "0.2.9"
 http-body-util = "0.1.0-rc.3"
 hyper = { version = "1.0.0-rc.4", features = ["full"] }
+mime = "0.3.17"
 pin-project = "1.1.2"
 regex = "1.9.1"
 tower-layer = "0.3.2"

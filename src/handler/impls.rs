@@ -8,7 +8,7 @@ use std::{
 use pin_project::pin_project;
 
 use crate::{
-	request::{FromRequest, FromRequestParts, Request},
+	request::{FromRequest, Request},
 	response::{IntoResponse, Response},
 	utils::BoxedFuture,
 };
@@ -32,6 +32,8 @@ impl<Func, M> From<Func> for HandlerFn<Func, M> {
 		}
 	}
 }
+
+// --------------------------------------------------
 
 impl<Func> IntoHandler<()> for Func
 where
@@ -80,7 +82,7 @@ macro_rules! impl_handler_fn {
 		impl<Func, M, $($($ps,)*)? $($lp,)? Fut, O, B> Handler<B> for HandlerFn<Func, (M, $($($ps,)*)? $($lp)?)>
 		where
 			Func: Fn($($($ps,)*)? $($lp)?) -> Fut + Clone + 'static,
-			$($($ps: FromRequestParts,)*)?
+			$($($ps: FromRequestHead,)*)?
 			$($lp: FromRequest<B>,)?
 			Fut: Future<Output = O>,
 			O: IntoResponse,
@@ -93,30 +95,6 @@ macro_rules! impl_handler_fn {
 				let func_clone = self.func.clone();
 
 				HandlerFnFuture::new(func_clone, request)
-
-				// Box::pin(async move {
-				// 	$(
-				// 		let (head, body) = request.into_parts();
-
-				// 		$(
-				// 			let $ps = match $ps::from_request_parts(&head).await {
-				// 				Ok(value) => value,
-				// 				Err(error) => return error.into_response(),
-				// 			};
-				// 		)*
-
-				// 		let request = Request::<B>::from_parts(head, body);
-				// 	)?
-
-				// 	$(
-				// 		let $lp = match $lp::from_request(request).await {
-				// 			Ok(value) => value,
-				// 			Err(error) => return error.into_response(),
-				// 		};
-				// 	)?
-
-				// 	func_clone($($($ps,)*)? $($lp)?).await.into_response()
-				// })
 			}
 		}
 
@@ -124,7 +102,7 @@ macro_rules! impl_handler_fn {
 		impl<Func, M, $($($ps,)*)? $($lp,)? Fut, O, B> Future for HandlerFnFuture<Func, (M, $($($ps,)*)? $($lp)?), B>
 		where
 			Func: Fn($($($ps,)*)? $($lp)?) -> Fut + Clone + 'static,
-			$($($ps: FromRequestParts,)*)?
+			$($($ps: FromRequestHead,)*)?
 			$($lp: FromRequest<B>,)?
 			Fut: Future<Output = O>,
 			O: IntoResponse,
@@ -139,7 +117,7 @@ macro_rules! impl_handler_fn {
 					let (head, body) = self_projection.some_request.take().unwrap().into_parts();
 
 					$(
-						let $ps = match pin!($ps::from_request_parts(&head)).poll(cx) {
+						let $ps = match pin!($ps::from_request_head(&head)).poll(cx) {
 							Poll::Ready(result) => {
 								match result {
 									Ok(value) => value,
