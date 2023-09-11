@@ -901,7 +901,7 @@ impl Resource {
 	// 	let (subresource, route_segments) = self.leaf_resource(route_segments);
 	//
 	// 	if route_segments.has_remaining_segments() {
-	// 		return Err(format!("{} doesn't exist", route).into());
+	// 		return Err(format!("{} doesn't exist", route).into())
 	// 	}
 	//
 	// 	subresource.config()
@@ -1049,15 +1049,27 @@ impl Resource {
 			..
 		} = self;
 
-		let static_resources = static_resources
-			.into_iter()
-			.map(|resource| resource.into_service())
-			.collect::<Arc<[ResourceService]>>();
+		let static_resources = if static_resources.is_empty() {
+			None
+		} else {
+			Some(
+				static_resources
+					.into_iter()
+					.map(|resource| resource.into_service())
+					.collect::<Arc<[ResourceService]>>(),
+			)
+		};
 
-		let regex_resources = regex_resources
-			.into_iter()
-			.map(|resource| resource.into_service())
-			.collect::<Arc<[ResourceService]>>();
+		let regex_resources = if regex_resources.is_empty() {
+			None
+		} else {
+			Some(
+				regex_resources
+					.into_iter()
+					.map(|resource| resource.into_service())
+					.collect::<Arc<[ResourceService]>>(),
+			)
+		};
 
 		let wildcard_resource = wildcard_resource.map(|resource| Arc::new(resource.into_service()));
 
@@ -1070,7 +1082,11 @@ impl Resource {
 			request_passer,
 			request_handler,
 			method_handlers,
-			state: Arc::from(state),
+			state: if state.is_empty() {
+				None
+			} else {
+				Some(Arc::from(state))
+			},
 			is_subtree_handler,
 		}
 	}

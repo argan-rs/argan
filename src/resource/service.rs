@@ -24,8 +24,8 @@ use super::futures::{
 pub struct ResourceService {
 	pub(super) pattern: Pattern,
 
-	pub(super) static_resources: Arc<[ResourceService]>,
-	pub(super) regex_resources: Arc<[ResourceService]>,
+	pub(super) static_resources: Option<Arc<[ResourceService]>>,
+	pub(super) regex_resources: Option<Arc<[ResourceService]>>,
 	pub(super) wildcard_resource: Option<Arc<ResourceService>>,
 
 	pub(super) request_receiver: Option<ArcHandler>,
@@ -34,7 +34,7 @@ pub struct ResourceService {
 
 	pub(super) method_handlers: MethodHandlers,
 
-	pub(super) state: Arc<[Box<dyn Any + Send + Sync>]>,
+	pub(super) state: Option<Arc<[Box<dyn Any + Send + Sync>]>>,
 
 	// TODO: configs, state, redirect, parent
 	pub(super) is_subtree_handler: bool,
