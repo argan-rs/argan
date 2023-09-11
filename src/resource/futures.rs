@@ -113,32 +113,36 @@ impl Future for RequestPasserFuture {
 	fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
 		let self_projection = self.project();
 
-		// ATTENTION: We may need to put request back before returning Poll::Pending.
 		let mut request = self_projection.0.take().unwrap();
-
 		let mut routing_state = request.extensions_mut().remove::<RoutingState>().unwrap();
-		let current_resource = routing_state.current_resource.take().unwrap(); // ???
+		let current_resource = routing_state.current_resource.take().unwrap();
 
 		let (some_next_resource, next_segment_index) = 'some_next_resource: {
-			// request_passer wouldn't be called if there wasn't any segment left. So, we can unwrap safely.
 			let (next_segment, next_segment_index) = routing_state
 				.path_traversal
 				.next_segment(request.uri().path())
 				.unwrap();
 
-			if let Some(next_resource) = current_resource
-				.static_resources
-				.iter()
-				.find(|resource| resource.pattern.is_match(next_segment))
-			{
+			if let Some(next_resource) =
+				current_resource
+					.static_resources
+					.as_ref()
+					.and_then(|resources| {
+						resources
+							.iter()
+							.find(|resource| resource.pattern.is_match(next_segment))
+					}) {
 				break 'some_next_resource (Some(next_resource), next_segment_index);
 			}
 
 			if let Some(next_resource) = current_resource
 				.regex_resources
-				.iter()
-				.find(|resource| resource.pattern.is_match(next_segment))
-			{
+				.as_ref()
+				.and_then(|resources| {
+					resources
+						.iter()
+						.find(|resource| resource.pattern.is_match(next_segment))
+				}) {
 				break 'some_next_resource (Some(next_resource), next_segment_index);
 			}
 

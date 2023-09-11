@@ -8,7 +8,7 @@ use std::{
 use pin_project::pin_project;
 
 use crate::{
-	request::{FromRequest, Request},
+	request::{FromRequest, FromRequestHead, Request},
 	response::{IntoResponse, Response},
 	utils::BoxedFuture,
 };
@@ -114,10 +114,10 @@ macro_rules! impl_handler_fn {
 				let self_projection = self.project();
 
 				$(
-					let (head, body) = self_projection.some_request.take().unwrap().into_parts();
+					let (mut head, body) = self_projection.some_request.take().unwrap().into_parts();
 
 					$(
-						let $ps = match pin!($ps::from_request_head(&head)).poll(cx) {
+						let $ps = match pin!($ps::from_request_head(&mut head)).poll(cx) {
 							Poll::Ready(result) => {
 								match result {
 									Ok(value) => value,
