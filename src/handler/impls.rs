@@ -35,19 +35,19 @@ impl<Func, M> From<Func> for HandlerFn<Func, M> {
 
 // --------------------------------------------------
 
-impl<Func> IntoHandler<()> for Func
+impl<Func> IntoHandler<Request> for Func
 where
 	Func: Fn(Request) -> BoxedFuture<Response>,
-	HandlerFn<Func, ()>: Handler,
+	HandlerFn<Func, Request>: Handler,
 {
-	type Handler = HandlerFn<Func, ()>;
+	type Handler = HandlerFn<Func, Request>;
 
 	fn into_handler(self) -> Self::Handler {
 		HandlerFn::from(self)
 	}
 }
 
-impl<Func> Handler for HandlerFn<Func, ()>
+impl<Func> Handler for HandlerFn<Func, Request>
 where
 	Func: Fn(Request) -> BoxedFuture<Response>,
 {
@@ -64,14 +64,14 @@ where
 macro_rules! impl_handler_fn {
 	($(($($ps:ident),*),)? $($lp:ident)?) => {
 		#[allow(non_snake_case)]
-		impl<Func, M, $($($ps,)*)? $($lp,)? Fut, O, B> IntoHandler<(M, $($($ps,)*)? $($lp)?), B> for Func
+		impl<Func, $($($ps,)*)? $($lp,)? Fut, O, B> IntoHandler<(Private, $($($ps,)*)? $($lp)?), B> for Func
 		where
 			Func: Fn($($($ps,)*)? $($lp)?) -> Fut,
 			Fut: Future<Output = O>,
 			O: IntoResponse,
-			HandlerFn<Func, (M, $($($ps,)*)? $($lp)?)>: Handler<B>,
+			HandlerFn<Func, (Private, $($($ps,)*)? $($lp)?)>: Handler<B>,
 		{
-			type Handler = HandlerFn<Func, (M, $($($ps,)*)? $($lp)?)>;
+			type Handler = HandlerFn<Func, (Private, $($($ps,)*)? $($lp)?)>;
 
 			fn into_handler(self) -> Self::Handler {
 				HandlerFn::from(self)
@@ -79,7 +79,7 @@ macro_rules! impl_handler_fn {
 		}
 
 		#[allow(non_snake_case)]
-		impl<Func, M, $($($ps,)*)? $($lp,)? Fut, O, B> Handler<B> for HandlerFn<Func, (M, $($($ps,)*)? $($lp)?)>
+		impl<Func, $($($ps,)*)? $($lp,)? Fut, O, B> Handler<B> for HandlerFn<Func, (Private, $($($ps,)*)? $($lp)?)>
 		where
 			Func: Fn($($($ps,)*)? $($lp)?) -> Fut + Clone + 'static,
 			$($($ps: FromRequestHead,)*)?
@@ -89,7 +89,7 @@ macro_rules! impl_handler_fn {
 			B: 'static,
 		{
 			type Response = Response;
-			type Future = HandlerFnFuture<Func, (M, $($($ps,)*)? $($lp)?), B>;
+			type Future = HandlerFnFuture<Func, (Private, $($($ps,)*)? $($lp)?), B>;
 
 			fn handle(&self, request: Request<B>) -> Self::Future {
 				let func_clone = self.func.clone();
@@ -99,7 +99,7 @@ macro_rules! impl_handler_fn {
 		}
 
 		#[allow(non_snake_case)]
-		impl<Func, M, $($($ps,)*)? $($lp,)? Fut, O, B> Future for HandlerFnFuture<Func, (M, $($($ps,)*)? $($lp)?), B>
+		impl<Func, $($($ps,)*)? $($lp,)? Fut, O, B> Future for HandlerFnFuture<Func, (Private, $($($ps,)*)? $($lp)?), B>
 		where
 			Func: Fn($($($ps,)*)? $($lp)?) -> Fut + Clone + 'static,
 			$($($ps: FromRequestHead,)*)?

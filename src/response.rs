@@ -1,14 +1,17 @@
-use std::{any::Any, borrow::Cow, convert::Infallible};
+use std::{
+	any::{Any, TypeId},
+	borrow::Cow,
+	convert::Infallible,
+};
 
-use http::{request::Parts, Extensions};
-use hyper::{
-	header::{self, HeaderValue},
-	HeaderMap,
+use http::{
+	header,
+	response::{self, Parts},
+	Extensions, HeaderMap, HeaderName, HeaderValue, StatusCode,
 };
 
 use crate::{
-	body::{Body, BoxedBody, Bytes, Empty, Full},
-	routing::StatusCode,
+	body::{Body, BodyExt, BoxedBody, Bytes, Empty, Full},
 	utils::BoxedError,
 };
 
