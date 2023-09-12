@@ -2,6 +2,7 @@ use crate::{request::Request, resource::ResourceService};
 
 pub use hyper::Method;
 pub use hyper::StatusCode;
+pub use hyper::Uri;
 
 // --------------------------------------------------------------------------------
 // --------------------------------------------------------------------------------

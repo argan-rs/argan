@@ -1,7 +1,7 @@
-use std::{any::Any, convert::Infallible, sync::Arc};
+use std::{any::Any, convert::Infallible, fmt::Debug, sync::Arc};
 
 use crate::{
-	body::{Incoming, IncomingBody},
+	body::{Body, IncomingBody},
 	handler::{
 		request_handlers::{misdirected_request_handler, MethodHandlers},
 		ArcHandler, Handler, Service,
@@ -10,7 +10,7 @@ use crate::{
 	request::Request,
 	response::Response,
 	routing::{RouteTraversal, RoutingState},
-	utils::BoxedFuture,
+	utils::{BoxedError, BoxedFuture},
 };
 
 use super::futures::{
@@ -54,13 +54,18 @@ impl ResourceService {
 
 // --------------------------------------------------
 
-impl Service<Request<Incoming>> for ResourceService {
+impl<B> Service<Request<B>> for ResourceService
+where
+	B: Body + Send + Sync + 'static,
+	B::Data: Debug,
+	B::Error: Into<BoxedError>,
+{
 	type Response = Response;
 	type Error = Infallible;
 	type Future = ResourceFuture;
 
 	#[inline]
-	fn call(&self, request: Request<Incoming>) -> Self::Future {
+	fn call(&self, request: Request<B>) -> Self::Future {
 		let (head, body) = request.into_parts();
 		let incoming_body = IncomingBody::new(body);
 		let mut request = Request::<IncomingBody>::from_parts(head, incoming_body);
@@ -106,7 +111,77 @@ pub(super) fn request_passer(mut request: Request) -> RequestPasserFuture {
 
 pub(super) fn request_handler(mut request: Request) -> BoxedFuture<Response> {
 	let routing_state = request.extensions_mut().get_mut::<RoutingState>().unwrap();
-	let current_resource = routing_state.current_resource.take().unwrap(); // ???
+	let current_resource = routing_state.current_resource.take().unwrap();
 
 	current_resource.method_handlers.handle(request)
+}
+
+#[cfg(test)]
+mod test {
+	use std::str::FromStr;
+
+	use crate::{
+		body::{Bytes, Empty},
+		resource::Resource,
+		routing::{Method, StatusCode, Uri},
+	};
+
+	use super::*;
+
+	// --------------------------------------------------
+
+	#[tokio::test]
+	async fn resource_service() {
+		let mut resource = Resource::new("/abc0_0");
+		resource.set_handler(Method::GET, hello_world);
+
+		resource.set_subresource_handler("/*abc1_0", Method::PUT, hello_world);
+		resource.set_subresource_handler("/*abc1_0/$abc2_0:@(abc2_0)", Method::POST, hello_world);
+		resource.set_subresource_handler(
+			"/*abc1_0/$abc2_1:@cn(abc2_1)-cba/*abc3_0",
+			Method::GET,
+			hello_world,
+		);
+
+		resource.set_subresource_handler("/$abc1_1:@cn(abc1_1)-cba", Method::GET, hello_world);
+		resource.set_subresource_handler("/$abc1_1:@cn(abc1_1)-cba/abc2_0", Method::GET, hello_world);
+
+		let service = resource.into_service();
+
+		let request = new_request("GET", "/abc0_0");
+		let response = service.call(request).await.unwrap();
+		assert_eq!(response.status(), StatusCode::OK);
+
+		let request = new_request("PUT", "/abc0_0/abc1_0");
+		let response = service.call(request).await.unwrap();
+		assert_eq!(response.status(), StatusCode::OK);
+
+		let request = new_request("POST", "/abc0_0/*abc1_0/abc2_0");
+		let response = service.call(request).await.unwrap();
+		assert_eq!(response.status(), StatusCode::OK);
+
+		let request = new_request("GET", "/abc0_0/abc1_1-cba");
+		let response = service.call(request).await.unwrap();
+		assert_eq!(response.status(), StatusCode::OK);
+
+		let request = new_request("GET", "/abc0_0/abc1_1-cba/abc2_0");
+		let response = service.call(request).await.unwrap();
+		assert_eq!(response.status(), StatusCode::OK);
+
+		let request = new_request("GET", "/abc0_0/abc1_0-wildcard/abc2_1-cba/wildcard-abc3_0");
+		let response = service.call(request).await.unwrap();
+		assert_eq!(response.status(), StatusCode::OK);
+	}
+
+	fn new_request(method: &str, uri: &str) -> Request<Empty<Bytes>> {
+		let mut request = Request::new(Empty::<Bytes>::new());
+		*request.method_mut() = Method::from_str(method).unwrap();
+		*request.uri_mut() = Uri::from_str(uri).unwrap();
+
+		request
+	}
+
+	async fn hello_world() -> &'static str {
+		"Hello, World!"
+	}
 }

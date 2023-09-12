@@ -804,7 +804,7 @@ impl Resource {
 			Some(request_receiver) => request_receiver,
 			None => {
 				let request_receiver = <fn(Request) -> RequestReceiverFuture as IntoHandler<(
-					(),
+					Private,
 					Request,
 				)>>::into_handler(request_receiver);
 
@@ -826,10 +826,10 @@ impl Resource {
 		let boxed_request_passer = match self.request_passer.take() {
 			Some(request_passer) => request_passer,
 			None => {
-				let request_passer =
-					<fn(Request) -> RequestPasserFuture as IntoHandler<((), Request)>>::into_handler(
-						request_passer,
-					);
+				let request_passer = <fn(Request) -> RequestPasserFuture as IntoHandler<(
+					Private,
+					Request,
+				)>>::into_handler(request_passer);
 
 				ResponseFutureBoxer::wrap(request_passer.into_handler()).into_arc_handler()
 			}
@@ -850,7 +850,9 @@ impl Resource {
 			Some(request_handler) => request_handler,
 			None => {
 				let request_handler =
-					<fn(Request) -> BoxedFuture<Response> as IntoHandler<()>>::into_handler(request_handler);
+					<fn(Request) -> BoxedFuture<Response> as IntoHandler<Request>>::into_handler(
+						request_handler,
+					);
 
 				request_handler.into_arc_handler()
 			}
@@ -1149,6 +1151,8 @@ mod test {
 	};
 
 	use super::*;
+
+	// --------------------------------------------------------------------------------
 
 	#[test]
 	fn new() {

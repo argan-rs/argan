@@ -14,3 +14,7 @@ mime = "0.3.17"
 pin-project = "1.1.2"
 regex = "1.9.1"
 tower-layer = "0.3.2"
+
+[dev-dependencies]
+tokio = { version = "1.28.1", features = ["rt-multi-thread", "macros", "test-util", "parking_lot"] }
+
