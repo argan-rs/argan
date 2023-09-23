@@ -1,8 +1,13 @@
 use std::{fmt::Display, iter::Peekable, str::Chars, sync::Arc};
 
-use regex::{CaptureNames, Captures, Regex};
+use regex::Regex;
 
 use crate::routing::RouteSegments;
+
+// --------------------------------------------------
+
+mod param;
+pub(crate) use param::*;
 
 // --------------------------------------------------------------------------------
 // --------------------------------------------------------------------------------
@@ -174,11 +179,11 @@ impl Pattern {
 		false
 	}
 
-	pub fn is_match<'p, 's: 'p>(&'s self, text: &'p str) -> Outcome<'p> {
+	pub fn is_match<'p, 's: 'p>(&'s self, text: &'p str) -> MatchOutcome<'p> {
 		match self {
 			Pattern::Static(pattern) => {
 				if pattern.as_ref() == text {
-					return Outcome::StaticMatch;
+					return MatchOutcome::Static;
 				}
 			}
 			Pattern::Regex(name, some_regex) => {
@@ -186,7 +191,7 @@ impl Pattern {
 					if let Some(captures) = regex.captures(text) {
 						let mut capture_names = regex.capture_names();
 
-						return Outcome::DynamicMatch(Params::Regex(capture_names, captures));
+						return MatchOutcome::Dynamic(Params::Regex(name.as_ref(), capture_names, captures));
 					}
 				} else {
 					panic!("regex pattern has only a name")
@@ -194,14 +199,14 @@ impl Pattern {
 			}
 			Pattern::Wildcard(name) => {
 				if text.is_empty() {
-					return Outcome::None;
+					return MatchOutcome::None;
 				} else {
-					return Outcome::DynamicMatch(Params::Wildcard(name.as_ref(), Some(text)));
+					return MatchOutcome::Dynamic(Params::Wildcard(name.as_ref(), Some(text)));
 				}
 			}
 		}
 
-		Outcome::None
+		MatchOutcome::None
 	}
 
 	pub fn compare(&self, other: &Self) -> Similarity {
@@ -461,64 +466,10 @@ pub(crate) enum Similarity {
 // --------------------------------------------------
 
 #[derive(Debug)]
-pub(crate) enum Outcome<'p> {
+pub(crate) enum MatchOutcome<'p> {
 	None,
-	StaticMatch,
-	DynamicMatch(Params<'p>),
-}
-
-#[derive(Debug)]
-pub(crate) enum Params<'p> {
-	Regex(CaptureNames<'p>, Captures<'p>),
-	Wildcard(&'p str, Option<&'p str>),
-}
-
-impl<'p> Iterator for Params<'p> {
-	type Item = Param<'p>;
-
-	fn next(&mut self) -> Option<Self::Item> {
-		match self {
-			Self::Regex(ref mut capture_names, captures) => {
-				for some_name in capture_names.by_ref() {
-					let Some(name) = some_name else { continue };
-
-					let some_value = captures.name(name);
-
-					return Some(Param::new(name, some_value.map(|value| value.as_str())));
-				}
-
-				None
-			}
-			Self::Wildcard(name, some_value) => {
-				let Some(value) = some_value.take() else {
-					return None;
-				};
-
-				Some(Param::new(name, Some(value)))
-			}
-		}
-	}
-}
-
-pub(crate) struct Param<'p> {
-	name: &'p str,
-	some_value: Option<&'p str>,
-}
-
-impl<'p> Param<'p> {
-	#[inline]
-	fn new(name: &'p str, some_value: Option<&'p str>) -> Self {
-		Self { name, some_value }
-	}
-
-	#[inline]
-	pub(crate) fn name(&self) -> &'p str {
-		self.name
-	}
-
-	pub(crate) fn value(&self) -> Option<&'p str> {
-		self.some_value
-	}
+	Static,
+	Dynamic(Params<'p>),
 }
 
 // --------------------------------------------------------------------------------
@@ -877,8 +828,8 @@ mod test {
 				let outcome = pattern.is_match(text);
 
 				match outcome {
-					Outcome::StaticMatch => assert!(expected_outcome.is_none()),
-					Outcome::DynamicMatch(Params::Regex(capture_names, captures)) => {
+					MatchOutcome::Static => assert!(expected_outcome.is_none()),
+					MatchOutcome::Dynamic(Params::Regex(_, capture_names, captures)) => {
 						let expected_captures = expected_outcome.unwrap();
 
 						for (expected_capture_name, expected_capture_value) in expected_captures {
@@ -886,7 +837,7 @@ mod test {
 							assert_eq!(match_value.as_str(), *expected_capture_value);
 						}
 					}
-					Outcome::DynamicMatch(Params::Wildcard(name, capture_value)) => {
+					MatchOutcome::Dynamic(Params::Wildcard(name, capture_value)) => {
 						let expected_captures = expected_outcome.unwrap();
 
 						for (expected_capture_name, expected_capture_value) in expected_captures {
@@ -900,7 +851,7 @@ mod test {
 			for text in case.nonmatching {
 				let outcome = pattern.is_match(text);
 				match outcome {
-					Outcome::None => continue,
+					MatchOutcome::None => continue,
 					_ => panic!("{:?}", outcome),
 				}
 			}
@@ -968,7 +919,7 @@ mod test {
 
 				if let Some(expected_outcome) = some_expected_outcome {
 					let mut params = match outcome {
-						Outcome::DynamicMatch(params) => params,
+						MatchOutcome::Dynamic(params) => params,
 						_ => panic!(),
 					};
 
@@ -978,7 +929,7 @@ mod test {
 
 						assert_eq!(param.value().or(Some("")), Some(*expected_value))
 					}
-				} else if let Outcome::StaticMatch = outcome {
+				} else if let MatchOutcome::Static = outcome {
 				} else {
 					panic!("outcome is not a static match")
 				}
