@@ -13,6 +13,7 @@ hyper = { version = "1.0.0-rc.4", features = ["full"] }
 mime = "0.3.17"
 pin-project = "1.1.2"
 regex = "1.9.1"
+serde = { version = "1.0.188", features = ["derive"] }
 tower-layer = "0.3.2"
 
 [dev-dependencies]
