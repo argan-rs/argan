@@ -1,6 +1,7 @@
 #![allow(dead_code)]
 
 mod body;
+mod data;
 mod handler;
 mod middleware;
 mod pattern;

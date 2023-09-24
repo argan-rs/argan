@@ -1,13 +1,6 @@
 use std::{fmt::Display, iter::Peekable, str::Chars, sync::Arc};
 
-use regex::Regex;
-
-use crate::routing::RouteSegments;
-
-// --------------------------------------------------
-
-mod param;
-pub(crate) use param::*;
+use regex::{CaptureNames, Captures, Regex};
 
 // --------------------------------------------------------------------------------
 // --------------------------------------------------------------------------------
@@ -180,28 +173,26 @@ impl Pattern {
 	}
 
 	pub fn is_match<'p, 's: 'p>(&'s self, text: &'p str) -> MatchOutcome<'p> {
-		match self {
-			Pattern::Static(pattern) => {
-				if pattern.as_ref() == text {
-					return MatchOutcome::Static;
-				}
-			}
-			Pattern::Regex(name, some_regex) => {
-				if let Some(regex) = some_regex {
-					if let Some(captures) = regex.captures(text) {
-						let mut capture_names = regex.capture_names();
-
-						return MatchOutcome::Dynamic(Params::Regex(name.as_ref(), capture_names, captures));
+		if !text.is_empty() {
+			match self {
+				Pattern::Static(pattern) => {
+					if pattern.as_ref() == text {
+						return MatchOutcome::Static;
 					}
-				} else {
-					panic!("regex pattern has only a name")
 				}
-			}
-			Pattern::Wildcard(name) => {
-				if text.is_empty() {
-					return MatchOutcome::None;
-				} else {
-					return MatchOutcome::Dynamic(Params::Wildcard(name.as_ref(), Some(text)));
+				Pattern::Regex(name, some_regex) => {
+					if let Some(regex) = some_regex {
+						if let Some(captures) = regex.captures(text) {
+							let mut capture_names = regex.capture_names();
+
+							return MatchOutcome::Dynamic(Params::Regex(name.as_ref(), capture_names, captures));
+						}
+					} else {
+						panic!("regex pattern has only a name")
+					}
+				}
+				Pattern::Wildcard(name) => {
+					return MatchOutcome::Dynamic(Params::Wildcard(name.as_ref(), Some(text)))
 				}
 			}
 		}
@@ -472,27 +463,92 @@ pub(crate) enum MatchOutcome<'p> {
 	Dynamic(Params<'p>),
 }
 
-// --------------------------------------------------------------------------------
+// -------------------------
 
-pub(crate) fn patterns_to_string(patterns: &[Pattern]) -> String {
-	let mut string = String::new();
-	for pattern in patterns {
-		string.push('/');
-		string.push_str(&pattern.to_string());
-	}
-
-	string
+#[derive(Debug)]
+pub(crate) enum Params<'p> {
+	Regex(&'p str, CaptureNames<'p>, Captures<'p>),
+	Wildcard(&'p str, Option<&'p str>),
 }
 
-pub(crate) fn string_to_patterns(patterns: &str) -> Vec<Pattern> {
-	let route_segments = RouteSegments::new(patterns);
-	let mut patterns = Vec::new();
-	for (segment, _) in route_segments {
-		let pattern = Pattern::parse(segment);
-		patterns.push(pattern);
+impl<'p> Params<'p> {
+	pub(crate) fn name(&self) -> &'p str {
+		match self {
+			Self::Regex(name, _, _) => name,
+			Self::Wildcard(name, _) => name,
+		}
 	}
 
-	patterns
+	fn value(&self, name: &str) -> Option<&'p str> {
+		match self {
+			Self::Regex(_, _, captures) => captures.name(name).map(|match_value| match_value.as_str()),
+			Self::Wildcard(wildcard_name, value) => {
+				if name == *wildcard_name {
+					*value
+				} else {
+					None
+				}
+			}
+		}
+	}
+}
+
+impl<'p> Iterator for Params<'p> {
+	type Item = Param<'p>;
+
+	fn next(&mut self) -> Option<Self::Item> {
+		match self {
+			Self::Regex(_, ref mut capture_names, captures) => {
+				for some_name in capture_names.by_ref() {
+					let Some(name) = some_name else { continue };
+
+					let some_value = captures.name(name);
+
+					return Some(Param::new(name, some_value.map(|value| value.as_str())));
+				}
+
+				None
+			}
+			Self::Wildcard(name, some_value) => {
+				let Some(value) = some_value.take() else {
+					return None;
+				};
+
+				Some(Param::new(name, Some(value)))
+			}
+		}
+	}
+}
+
+// -------------------------
+
+#[derive(Debug)]
+pub(crate) struct Param<'p> {
+	name: &'p str,
+	some_value: Option<&'p str>,
+}
+
+// impl Display for Param<'_> {
+// 	fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+// 		write!(f, "{{name: {}, some_value: {:?}}}", self.name, self.some_value)
+// 	}
+// }
+
+impl<'p> Param<'p> {
+	#[inline]
+	fn new(name: &'p str, some_value: Option<&'p str>) -> Self {
+		Self { name, some_value }
+	}
+
+	#[inline]
+	pub(crate) fn name(&self) -> &'p str {
+		self.name
+	}
+
+	#[inline]
+	pub(crate) fn value(&self) -> Option<&'p str> {
+		self.some_value
+	}
 }
 
 // --------------------------------------------------------------------------------
