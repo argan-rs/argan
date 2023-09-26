@@ -1,11 +1,11 @@
 use serde::{
-	de::{DeserializeSeed, MapAccess, SeqAccess, Visitor},
+	de::{DeserializeSeed, EnumAccess, MapAccess, SeqAccess, VariantAccess, Visitor},
 	Deserializer,
 };
 
 use crate::pattern::{Param, Params};
 
-use super::{FromStr, E};
+use super::{from_param::FromParam, FromStr, E};
 
 // --------------------------------------------------------------------------------
 // --------------------------------------------------------------------------------
@@ -52,7 +52,7 @@ macro_rules! declare_deserialize_for_simple_types {
 			fn $deserialize<V: Visitor<'de>>(self, visitor: V) -> Result<V::Value, Self::Error> {
 				let some_value = self.next().and_then(|param| param.value());
 
-				FromStr(some_value).$deserialize(visitor)
+				FromStr::new(some_value).$deserialize(visitor)
 			}
 		)*
 	};
@@ -102,7 +102,7 @@ impl<'de> Deserializer<'de> for &mut FromPathParams<'de> {
 	}
 
 	fn deserialize_seq<V: Visitor<'de>>(self, visitor: V) -> Result<V::Value, Self::Error> {
-		visitor.visit_seq(self)
+		visitor.visit_seq(FromPathParamsSeqAccess::new(self))
 	}
 
 	fn deserialize_tuple<V: Visitor<'de>>(
@@ -110,7 +110,7 @@ impl<'de> Deserializer<'de> for &mut FromPathParams<'de> {
 		_len: usize,
 		visitor: V,
 	) -> Result<V::Value, Self::Error> {
-		visitor.visit_seq(self)
+		visitor.visit_seq(FromPathParamsSeqAccess::new(self))
 	}
 
 	fn deserialize_tuple_struct<V: Visitor<'de>>(
@@ -119,11 +119,11 @@ impl<'de> Deserializer<'de> for &mut FromPathParams<'de> {
 		_len: usize,
 		visitor: V,
 	) -> Result<V::Value, Self::Error> {
-		visitor.visit_seq(self)
+		visitor.visit_seq(FromPathParamsSeqAccess::new(self))
 	}
 
 	fn deserialize_map<V: Visitor<'de>>(self, visitor: V) -> Result<V::Value, Self::Error> {
-		todo!()
+		visitor.visit_map(FromPathParamsMapAccess::new(self))
 	}
 
 	fn deserialize_struct<V: Visitor<'de>>(
@@ -132,7 +132,7 @@ impl<'de> Deserializer<'de> for &mut FromPathParams<'de> {
 		fields: &'static [&'static str],
 		visitor: V,
 	) -> Result<V::Value, Self::Error> {
-		todo!()
+		visitor.visit_map(FromPathParamsMapAccess::new(self))
 	}
 
 	fn deserialize_enum<V: Visitor<'de>>(
@@ -145,36 +145,116 @@ impl<'de> Deserializer<'de> for &mut FromPathParams<'de> {
 	}
 }
 
-impl<'de> SeqAccess<'de> for FromPathParams<'de> {
+// -------------------------
+
+struct FromPathParamsSeqAccess<'p, 'de>(&'p mut FromPathParams<'de>);
+
+impl<'p, 'de> FromPathParamsSeqAccess<'p, 'de> {
+	#[inline]
+	fn new(from_path_params: &'p mut FromPathParams<'de>) -> Self {
+		Self(from_path_params)
+	}
+}
+
+impl<'de> SeqAccess<'de> for FromPathParamsSeqAccess<'_, 'de> {
 	type Error = E;
 
 	fn next_element_seed<T: DeserializeSeed<'de>>(
 		&mut self,
 		seed: T,
 	) -> Result<Option<T::Value>, Self::Error> {
-		// seed.deserialize(deserializer)
+		let Some(param) = self.0.next() else {
+			return Ok(None);
+		};
 
-		todo!()
+		seed.deserialize(FromParam::new(&param)).map(Some)
 	}
 }
 
-impl<'de> MapAccess<'de> for FromPathParams<'de> {
+// -------------------------
+
+struct FromPathParamsMapAccess<'p, 'de>(&'p mut FromPathParams<'de>, Option<&'de str>);
+
+impl<'p, 'de> FromPathParamsMapAccess<'p, 'de> {
+	#[inline]
+	fn new(from_path_params: &'p mut FromPathParams<'de>) -> Self {
+		Self(from_path_params, None)
+	}
+}
+
+impl<'de> MapAccess<'de> for FromPathParamsMapAccess<'_, 'de> {
 	type Error = E;
 
 	fn next_key_seed<K: DeserializeSeed<'de>>(
 		&mut self,
 		seed: K,
 	) -> Result<Option<K::Value>, Self::Error> {
-		// seed.deserialize(deserializer)
+		let Some(param) = self.0.next() else {
+			return Ok(None);
+		};
 
-		todo!()
+		self.1 = param.value();
+
+		seed.deserialize(FromStr::new(Some(param.name()))).map(Some)
 	}
 
 	fn next_value_seed<V: DeserializeSeed<'de>>(&mut self, seed: V) -> Result<V::Value, Self::Error> {
-		// seed.deserialize(deserializer)
-
-		todo!()
+		seed.deserialize(FromStr::new(self.1.take()))
 	}
 }
 
+// -------------------------
+
+struct FromPathParamsEnumAccess<'p, 'de>(&'p mut FromPathParams<'de>);
+
+impl<'p, 'de> FromPathParamsEnumAccess<'p, 'de> {
+	#[inline]
+	fn new(from_path_params: &'p mut FromPathParams<'de>) -> Self {
+		Self(from_path_params)
+	}
+}
+
+impl<'de> EnumAccess<'de> for FromPathParamsEnumAccess<'_, 'de> {
+	type Error = E;
+	type Variant = Self;
+
+	fn variant_seed<V: DeserializeSeed<'de>>(
+		self,
+		seed: V,
+	) -> Result<(V::Value, Self::Variant), Self::Error> {
+		let value = seed.deserialize(self.0.by_ref())?;
+
+		Ok((value, self))
+	}
+}
+
+impl<'de> VariantAccess<'de> for FromPathParamsEnumAccess<'_, 'de> {
+	type Error = E;
+
+	fn unit_variant(self) -> Result<(), Self::Error> {
+		Ok(())
+	}
+
+	fn newtype_variant_seed<T: DeserializeSeed<'de>>(self, seed: T) -> Result<T::Value, Self::Error> {
+		seed.deserialize(self.0)
+	}
+
+	fn tuple_variant<V: Visitor<'de>>(
+		self,
+		_len: usize,
+		visitor: V,
+	) -> Result<V::Value, Self::Error> {
+		self.0.deserialize_seq(visitor)
+	}
+
+	fn struct_variant<V: Visitor<'de>>(
+		self,
+		fields: &'static [&'static str],
+		visitor: V,
+	) -> Result<V::Value, Self::Error> {
+		self.0.deserialize_map(visitor)
+	}
+}
+
+// --------------------------------------------------------------------------------
 // --------------------------------------------------------------------------------
