@@ -38,6 +38,13 @@ impl serde::de::Error for E {
 #[derive(Clone)]
 pub(super) struct FromStr<'de>(Option<&'de str>);
 
+impl<'de> FromStr<'de> {
+	#[inline]
+	pub(crate) fn new(some_str: Option<&'de str>) -> Self {
+		Self(some_str)
+	}
+}
+
 macro_rules! declare_deserialize_for_parsable {
 	($deserialize:ident, $visit:ident, $type:ty) => {
 		fn $deserialize<V: Visitor<'de>>(self, visitor: V) -> Result<V::Value, Self::Error> {

@@ -536,7 +536,7 @@ pub(crate) struct Param<'p> {
 
 impl<'p> Param<'p> {
 	#[inline]
-	fn new(name: &'p str, some_value: Option<&'p str>) -> Self {
+	pub(crate) fn new(name: &'p str, some_value: Option<&'p str>) -> Self {
 		Self { name, some_value }
 	}
 
