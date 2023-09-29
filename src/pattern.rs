@@ -185,7 +185,11 @@ impl Pattern {
 						if let Some(captures) = regex.captures(text) {
 							let mut capture_names = regex.capture_names();
 
-							return MatchOutcome::Dynamic(Params::Regex(name.as_ref(), capture_names, captures));
+							return MatchOutcome::Dynamic(Params::Regex(
+								name.as_ref(),
+								capture_names.peekable(),
+								captures,
+							));
 						}
 					} else {
 						panic!("regex pattern has only a name")
@@ -467,7 +471,7 @@ pub(crate) enum MatchOutcome<'p> {
 
 #[derive(Debug)]
 pub(crate) enum Params<'p> {
-	Regex(&'p str, CaptureNames<'p>, Captures<'p>),
+	Regex(&'p str, Peekable<CaptureNames<'p>>, Captures<'p>),
 	Wildcard(&'p str, Option<&'p str>),
 }
 
@@ -479,15 +483,36 @@ impl<'p> Params<'p> {
 		}
 	}
 
-	fn value(&self, name: &str) -> Option<&'p str> {
+	// fn value(&self, name: &str) -> Option<&'p str> {
+	// 	match self {
+	// 		Self::Regex(_, _, captures) => captures.name(name).map(|match_value| match_value.as_str()),
+	// 		Self::Wildcard(wildcard_name, value) => if name == *wildcard_name { *value } else { None },
+	// 	}
+	// }
+
+	pub(crate) fn current(&mut self) -> Option<Param<'p>> {
 		match self {
-			Self::Regex(_, _, captures) => captures.name(name).map(|match_value| match_value.as_str()),
-			Self::Wildcard(wildcard_name, value) => {
-				if name == *wildcard_name {
-					*value
-				} else {
-					None
+			Self::Regex(_, ref mut capture_names, captures) => {
+				while let Some(some_name) = capture_names.peek() {
+					let Some(name) = some_name else {
+						capture_names.next(); // Advancing the iterator.
+
+						continue;
+					};
+
+					let some_value = captures.name(name);
+
+					return Some(Param::new(name, some_value.map(|value| value.as_str())));
 				}
+
+				None
+			}
+			Self::Wildcard(name, some_value) => {
+				if some_value.is_some() {
+					return Some(Param::new(name, *some_value));
+				}
+
+				None
 			}
 		}
 	}
@@ -510,11 +535,11 @@ impl<'p> Iterator for Params<'p> {
 				None
 			}
 			Self::Wildcard(name, some_value) => {
-				let Some(value) = some_value.take() else {
-					return None;
-				};
+				if some_value.is_some() {
+					return Some(Param::new(name, some_value.take()));
+				}
 
-				Some(Param::new(name, Some(value)))
+				None
 			}
 		}
 	}
