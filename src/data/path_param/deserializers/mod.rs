@@ -9,6 +9,7 @@ use serde::{
 
 mod from_param;
 mod from_path_params;
+mod from_segment_params;
 
 // --------------------------------------------------------------------------------
 // --------------------------------------------------------------------------------
@@ -35,12 +36,26 @@ impl serde::de::Error for E {
 
 // --------------------------------------------------
 
+#[repr(u8)]
+#[derive(Debug, Default, Clone, Copy, PartialEq)]
+enum Kind {
+	#[default]
+	Unknown,
+	Single,
+	Sequence,
+	Tuple,
+	Map,
+	Struct,
+}
+
+// --------------------------------------------------
+
 #[derive(Clone)]
 pub(super) struct FromStr<'de>(Option<&'de str>);
 
 impl<'de> FromStr<'de> {
 	#[inline]
-	pub(crate) fn new(some_str: Option<&'de str>) -> Self {
+	pub(super) fn new(some_str: Option<&'de str>) -> Self {
 		Self(some_str)
 	}
 }
@@ -48,6 +63,7 @@ impl<'de> FromStr<'de> {
 macro_rules! declare_deserialize_for_parsable {
 	($deserialize:ident, $visit:ident, $type:ty) => {
 		fn $deserialize<V: Visitor<'de>>(self, visitor: V) -> Result<V::Value, Self::Error> {
+			println!("from str: {}", stringify!($deserialize));
 			let value = self.0.ok_or(E)?;
 
 			match value.parse() {
@@ -62,6 +78,7 @@ impl<'de> Deserializer<'de> for FromStr<'de> {
 	type Error = E;
 
 	fn deserialize_any<V: Visitor<'de>>(self, visitor: V) -> Result<V::Value, Self::Error> {
+		println!("from str: deserialize_any");
 		Err(E)
 	}
 
@@ -78,6 +95,7 @@ impl<'de> Deserializer<'de> for FromStr<'de> {
 	declare_deserialize_for_parsable!(deserialize_f64, visit_f64, f64);
 
 	fn deserialize_char<V: Visitor<'de>>(self, visitor: V) -> Result<V::Value, Self::Error> {
+		println!("from str: deserialize_char");
 		let value = self.0.ok_or(E)?;
 		let mut chars = value.chars();
 		let value = chars.next().ok_or(E)?;
@@ -90,30 +108,35 @@ impl<'de> Deserializer<'de> for FromStr<'de> {
 	}
 
 	fn deserialize_str<V: Visitor<'de>>(self, visitor: V) -> Result<V::Value, Self::Error> {
+		println!("from str: deserialize_str");
 		let value = self.0.ok_or(E)?;
 
 		visitor.visit_borrowed_str(value)
 	}
 
 	fn deserialize_string<V: Visitor<'de>>(self, visitor: V) -> Result<V::Value, Self::Error> {
+		println!("from str: deserialize_string");
 		let value = self.0.ok_or(E)?;
 
 		visitor.visit_string(value.to_owned())
 	}
 
 	fn deserialize_bytes<V: Visitor<'de>>(self, visitor: V) -> Result<V::Value, Self::Error> {
+		println!("from str: deserialize_bytes");
 		let value = self.0.ok_or(E)?;
 
 		visitor.visit_borrowed_bytes(value.as_bytes())
 	}
 
 	fn deserialize_byte_buf<V: Visitor<'de>>(self, visitor: V) -> Result<V::Value, Self::Error> {
+		println!("from str: deserialize_byte_buf");
 		let value = self.0.ok_or(E)?;
 
 		visitor.visit_byte_buf(value.as_bytes().to_owned())
 	}
 
 	fn deserialize_option<V: Visitor<'de>>(self, visitor: V) -> Result<V::Value, Self::Error> {
+		println!("from str: deserialize_option");
 		if self.0.is_some() {
 			visitor.visit_some(self)
 		} else {
@@ -122,6 +145,7 @@ impl<'de> Deserializer<'de> for FromStr<'de> {
 	}
 
 	fn deserialize_unit<V: Visitor<'de>>(self, visitor: V) -> Result<V::Value, Self::Error> {
+		println!("from str: deserialize_unit");
 		visitor.visit_unit()
 	}
 
@@ -130,6 +154,7 @@ impl<'de> Deserializer<'de> for FromStr<'de> {
 		_name: &'static str,
 		visitor: V,
 	) -> Result<V::Value, Self::Error> {
+		println!("from str: deserialize_unit_struct");
 		visitor.visit_unit()
 	}
 
@@ -138,23 +163,27 @@ impl<'de> Deserializer<'de> for FromStr<'de> {
 		_name: &'static str,
 		visitor: V,
 	) -> Result<V::Value, Self::Error> {
+		println!("from str: deserialize_newtype_struct");
 		visitor.visit_newtype_struct(self)
 	}
 
 	fn deserialize_enum<V: Visitor<'de>>(
 		self,
 		_name: &'static str,
-		variants: &'static [&'static str],
+		_variants: &'static [&'static str],
 		visitor: V,
 	) -> Result<V::Value, Self::Error> {
+		println!("from str: deserialize_enum");
 		visitor.visit_enum(self)
 	}
 
 	fn deserialize_identifier<V: Visitor<'de>>(self, visitor: V) -> Result<V::Value, Self::Error> {
+		println!("from str: deserialize_identifier");
 		self.deserialize_str(visitor)
 	}
 
 	fn deserialize_ignored_any<V: Visitor<'de>>(self, visitor: V) -> Result<V::Value, Self::Error> {
+		println!("from str: deserialize_ignored_any");
 		visitor.visit_unit()
 	}
 
@@ -169,6 +198,7 @@ impl<'de> EnumAccess<'de> for FromStr<'de> {
 		mut self,
 		seed: V,
 	) -> Result<(V::Value, Self::Variant), Self::Error> {
+		println!("from str: variant_seed");
 		seed.deserialize(self.clone()).map(|value| (value, self))
 	}
 }
@@ -177,10 +207,12 @@ impl<'de> VariantAccess<'de> for FromStr<'de> {
 	type Error = E;
 
 	fn unit_variant(self) -> Result<(), Self::Error> {
+		println!("from str: unit_variant");
 		Ok(())
 	}
 
 	fn newtype_variant_seed<T: DeserializeSeed<'de>>(self, seed: T) -> Result<T::Value, Self::Error> {
+		println!("from str: newtype_variant_seed");
 		seed.deserialize(self)
 	}
 
@@ -189,6 +221,7 @@ impl<'de> VariantAccess<'de> for FromStr<'de> {
 		_len: usize,
 		visitor: V,
 	) -> Result<V::Value, Self::Error> {
+		println!("from str: tuple_variant");
 		Err(E)
 	}
 
@@ -197,6 +230,7 @@ impl<'de> VariantAccess<'de> for FromStr<'de> {
 		fields: &'static [&'static str],
 		visitor: V,
 	) -> Result<V::Value, Self::Error> {
+		println!("from str: struct_variant");
 		Err(E)
 	}
 }
