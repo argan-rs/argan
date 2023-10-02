@@ -11,7 +11,7 @@ use super::{FromStr, E};
 // --------------------------------------------------------------------------------
 
 #[derive(Debug)]
-pub(super) struct FromParam<'de> {
+pub(crate) struct FromParam<'de> {
 	some_name: Option<&'de str>,
 	some_option_value: Option<Option<&'de str>>, // To support optional values we need double Option.
 }
@@ -35,7 +35,10 @@ impl<'de> FromParam<'de> {
 macro_rules! declare_deserialize_for_simple_types {
 	($($deserialize:ident)*) => {
 		$(
-			fn $deserialize<V: Visitor<'de>>(mut self, visitor: V) -> Result<V::Value, Self::Error> {
+			fn $deserialize<V>(mut self, visitor: V) -> Result<V::Value, Self::Error>
+			where
+				V: Visitor<'de>,
+			{
 				println!("from param: {}", stringify!($deserialize));
 				let some_value = self.some_option_value.take().ok_or(E)?;
 
@@ -72,29 +75,34 @@ impl<'de> Deserializer<'de> for &mut FromParam<'de> {
 		deserialize_identifier
 	);
 
-	fn deserialize_unit_struct<V: Visitor<'de>>(
+	fn deserialize_unit_struct<V>(
 		self,
 		_name: &'static str,
 		visitor: V,
-	) -> Result<V::Value, Self::Error> {
+	) -> Result<V::Value, Self::Error>
+	where
+		V: Visitor<'de>,
+	{
 		println!("from param: deserialize_unit_struct");
 		visitor.visit_unit()
 	}
 
-	fn deserialize_newtype_struct<V: Visitor<'de>>(
+	fn deserialize_newtype_struct<V>(
 		self,
 		_name: &'static str,
 		visitor: V,
-	) -> Result<V::Value, Self::Error> {
+	) -> Result<V::Value, Self::Error>
+	where
+		V: Visitor<'de>,
+	{
 		println!("from param: deserialize_newtype_struct");
 		visitor.visit_newtype_struct(self)
 	}
 
-	fn deserialize_tuple<V: Visitor<'de>>(
-		self,
-		len: usize,
-		visitor: V,
-	) -> Result<V::Value, Self::Error> {
+	fn deserialize_tuple<V>(self, len: usize, visitor: V) -> Result<V::Value, Self::Error>
+	where
+		V: Visitor<'de>,
+	{
 		println!("from param: deserialize_tuple");
 		if len < 3 {
 			return visitor.visit_seq(self);
@@ -103,12 +111,15 @@ impl<'de> Deserializer<'de> for &mut FromParam<'de> {
 		Err(E)
 	}
 
-	fn deserialize_enum<V: Visitor<'de>>(
+	fn deserialize_enum<V>(
 		self,
 		_name: &'static str,
 		_variants: &'static [&'static str],
 		visitor: V,
-	) -> Result<V::Value, Self::Error> {
+	) -> Result<V::Value, Self::Error>
+	where
+		V: Visitor<'de>,
+	{
 		println!("from param: deserialize_enum");
 		visitor.visit_enum(self)
 	}
@@ -119,10 +130,10 @@ impl<'de> Deserializer<'de> for &mut FromParam<'de> {
 impl<'de> SeqAccess<'de> for FromParam<'de> {
 	type Error = E;
 
-	fn next_element_seed<T: DeserializeSeed<'de>>(
-		&mut self,
-		seed: T,
-	) -> Result<Option<T::Value>, Self::Error> {
+	fn next_element_seed<T>(&mut self, seed: T) -> Result<Option<T::Value>, Self::Error>
+	where
+		T: DeserializeSeed<'de>,
+	{
 		println!("from param: next_element_seed");
 		if self.some_name.is_some() {
 			return seed.deserialize(FromStr(self.some_name.take())).map(Some);
@@ -139,10 +150,10 @@ impl<'de> SeqAccess<'de> for FromParam<'de> {
 impl<'de> MapAccess<'de> for FromParam<'de> {
 	type Error = E;
 
-	fn next_key_seed<K: DeserializeSeed<'de>>(
-		&mut self,
-		seed: K,
-	) -> Result<Option<K::Value>, Self::Error> {
+	fn next_key_seed<K>(&mut self, seed: K) -> Result<Option<K::Value>, Self::Error>
+	where
+		K: DeserializeSeed<'de>,
+	{
 		println!("from param: next_key_seed");
 		if self.some_name.is_some() {
 			return seed.deserialize(FromStr(self.some_name.take())).map(Some);
@@ -151,7 +162,10 @@ impl<'de> MapAccess<'de> for FromParam<'de> {
 		Ok(None)
 	}
 
-	fn next_value_seed<V: DeserializeSeed<'de>>(&mut self, seed: V) -> Result<V::Value, Self::Error> {
+	fn next_value_seed<V>(&mut self, seed: V) -> Result<V::Value, Self::Error>
+	where
+		V: DeserializeSeed<'de>,
+	{
 		println!("from param: next_value_seed");
 		if let Some(some_value) = self.some_option_value.take() {
 			return seed.deserialize(FromStr(some_value));
@@ -165,10 +179,10 @@ impl<'de> EnumAccess<'de> for &mut FromParam<'de> {
 	type Error = E;
 	type Variant = FromStr<'de>;
 
-	fn variant_seed<V: DeserializeSeed<'de>>(
-		self,
-		seed: V,
-	) -> Result<(V::Value, Self::Variant), Self::Error> {
+	fn variant_seed<V>(self, seed: V) -> Result<(V::Value, Self::Variant), Self::Error>
+	where
+		V: DeserializeSeed<'de>,
+	{
 		let some_value = self.some_option_value.ok_or(E)?;
 		let mut deserializer = FromStr(some_value);
 
