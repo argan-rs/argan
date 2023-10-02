@@ -1,4 +1,4 @@
-use crate::{request::Request, resource::ResourceService};
+use crate::{pattern::Params, request::Request, resource::ResourceService};
 
 pub use hyper::Method;
 pub use hyper::StatusCode;
@@ -7,20 +7,22 @@ pub use hyper::Uri;
 // --------------------------------------------------------------------------------
 // --------------------------------------------------------------------------------
 
-pub(crate) struct RoutingState {
+pub(crate) struct RoutingState<'r> {
 	pub(crate) path_traversal: RouteTraversal,
+	pub(crate) path_params: Vec<Params<'r>>,
 	pub(crate) current_resource: Option<ResourceService>,
 
 	pub(crate) subtree_handler_exists: bool,
 }
 
-impl RoutingState {
+impl<'r> RoutingState<'r> {
 	pub(crate) fn new(
 		path_traversal: RouteTraversal,
 		resource_service: ResourceService,
-	) -> RoutingState {
+	) -> RoutingState<'r> {
 		Self {
 			path_traversal,
+			path_params: Vec::new(),
 			current_resource: Some(resource_service),
 			subtree_handler_exists: false,
 		}
