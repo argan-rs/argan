@@ -7,13 +7,9 @@ use serde::{de::DeserializeOwned, Deserializer};
 
 // -------------------------
 
-mod deserializers;
-
-use deserializers::FromPath;
-
 use crate::{
 	request::{FromRequestHead, Head},
-	routing::RoutingState,
+	routing::RoutingState, pattern::FromPath,
 };
 
 // --------------------------------------------------------------------------------
