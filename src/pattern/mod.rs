@@ -2,6 +2,12 @@ use std::{fmt::Display, iter::Peekable, str::Chars, sync::Arc};
 
 use regex::{CaptureNames, Captures, Regex};
 
+// --------------------------------------------------
+
+mod deserializers;
+
+pub(crate) use deserializers::FromPath;
+
 // --------------------------------------------------------------------------------
 // --------------------------------------------------------------------------------
 

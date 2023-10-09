@@ -11,7 +11,7 @@ mod from_param;
 mod from_path;
 mod from_segment;
 
-pub(super) use from_path::FromPath;
+pub(crate) use from_path::FromPath;
 
 // --------------------------------------------------------------------------------
 // --------------------------------------------------------------------------------
