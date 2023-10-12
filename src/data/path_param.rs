@@ -8,8 +8,9 @@ use serde::{de::DeserializeOwned, Deserializer};
 // -------------------------
 
 use crate::{
+	pattern::FromPath,
 	request::{FromRequestHead, Head},
-	routing::RoutingState, pattern::FromPath,
+	routing::RoutingState,
 };
 
 // --------------------------------------------------------------------------------
