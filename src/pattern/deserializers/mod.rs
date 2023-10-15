@@ -7,7 +7,6 @@ use serde::{
 
 // -------------------------
 
-mod from_param;
 mod from_params;
 mod from_params_list;
 
@@ -53,7 +52,7 @@ enum DataType {
 // --------------------------------------------------
 
 #[derive(Clone)]
-pub(crate) struct FromStr<'de>(Option<&'de str>);
+struct FromStr<'de>(Option<&'de str>);
 
 impl<'de> FromStr<'de> {
 	#[inline]

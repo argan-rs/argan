@@ -349,10 +349,10 @@ impl ParamsList {
 		self.0.push(params)
 	}
 
-	// #[inline]
-	// pub(crate) fn deserializer(&mut self) -> FromPath<'_, '_> {
-	// 	FromPath::new(&mut self.0)
-	// }
+	#[inline]
+	pub(crate) fn deserializer(&mut self) -> FromParamsList<'_> {
+		FromParamsList::new(&mut self.0)
+	}
 }
 
 // --------------------------------------------------
@@ -377,10 +377,6 @@ impl Params {
 	fn with_wildcard_value(name: Arc<str>, value: Arc<str>) -> Self {
 		Self::Wildcard(name, value)
 	}
-
-	// fn deserializer(&mut self) -> FromSegment<'_> {
-	// 	FromSegment::new(self)
-	// }
 }
 
 // --------------------------------------------------
