@@ -6,7 +6,7 @@ use regex::{CaptureLocations, CaptureNames, Regex};
 
 mod deserializers;
 
-pub(crate) use deserializers::FromPath;
+pub(crate) use deserializers::FromParamsList;
 
 // --------------------------------------------------------------------------------
 // --------------------------------------------------------------------------------

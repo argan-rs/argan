@@ -8,10 +8,10 @@ use serde::{
 // -------------------------
 
 mod from_param;
-mod from_path;
-mod from_segment;
+mod from_params;
+mod from_params_list;
 
-pub(crate) use from_path::FromPath;
+pub(crate) use from_params_list::FromParamsList;
 
 // --------------------------------------------------------------------------------
 // --------------------------------------------------------------------------------
@@ -40,7 +40,7 @@ impl serde::de::Error for E {
 
 #[repr(u8)]
 #[derive(Debug, Default, Clone, Copy, PartialEq)]
-enum Kind {
+enum DataType {
 	#[default]
 	Unknown,
 	Single,
@@ -62,7 +62,6 @@ impl<'de> FromStr<'de> {
 	}
 }
 
-#[macro_use]
 macro_rules! declare_deserialize_for_parsable {
 	($deserialize:ident, $visit:ident, $type:ty) => {
 		fn $deserialize<V>(self, visitor: V) -> Result<V::Value, Self::Error>

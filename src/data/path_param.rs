@@ -8,7 +8,7 @@ use serde::{de::DeserializeOwned, Deserializer};
 // -------------------------
 
 use crate::{
-	pattern::FromPath,
+	pattern::FromParamsList,
 	request::{FromRequestHead, Head},
 	routing::RoutingState,
 };
@@ -38,7 +38,7 @@ where
 
 	fn from_request_head(head: &mut Head) -> Self::Future {
 		let mut routing_state = head.extensions.get_mut::<RoutingState>().unwrap();
-		let mut from_path = FromPath::new(&mut routing_state.path_params);
+		let mut from_path = FromParamsList::new(&mut routing_state.path_params);
 
 		let value = T::deserialize(&mut from_path).unwrap();
 
