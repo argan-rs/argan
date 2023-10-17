@@ -1,6 +1,6 @@
 use std::{any::Any, borrow::Cow, convert::Infallible};
 
-use hyper::http::{header, response::Parts, Extensions, HeaderMap, HeaderValue, StatusCode};
+use http::{header, response::Parts, Extensions, HeaderMap, HeaderValue, StatusCode};
 
 use crate::{
 	body::{Body, BodyExt, BoxedBody, Bytes, Empty, Full},
@@ -10,7 +10,7 @@ use crate::{
 // --------------------------------------------------------------------------------
 // --------------------------------------------------------------------------------
 
-pub type Response<B = BoxedBody> = hyper::http::response::Response<B>;
+pub type Response<B = BoxedBody> = http::response::Response<B>;
 pub type Head = Parts;
 
 // --------------------------------------------------------------------------------

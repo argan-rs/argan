@@ -1,12 +1,14 @@
 use std::{any::Any, convert::Infallible, fmt::Debug, sync::Arc};
 
+use percent_encoding::percent_decode_str;
+
 use crate::{
 	body::{Body, IncomingBody},
 	handler::{
 		request_handlers::{misdirected_request_handler, MethodHandlers},
 		ArcHandler, Handler, Service,
 	},
-	pattern::Pattern,
+	pattern::{ParamsList, Pattern},
 	request::Request,
 	response::Response,
 	routing::{RouteTraversal, RoutingState},
@@ -72,19 +74,43 @@ where
 
 		let route = request.uri().path();
 		let mut route_traversal = RouteTraversal::for_route(route);
+		let mut path_params = ParamsList::new();
 
 		let matched = if route == "/" {
-			self.pattern.is_match(route)
+			if let Some(result) = self.pattern.is_static_match(route) {
+				result
+			} else {
+				false
+			}
 		} else {
 			let (next_segment, _) = route_traversal.next_segment(request.uri().path()).unwrap();
 
-			self.pattern.is_match(next_segment)
+			if let Some(result) = self.pattern.is_static_match(next_segment) {
+				result
+			} else {
+				let decoded_segment =
+					Arc::<str>::from(percent_decode_str(next_segment).decode_utf8().unwrap());
+
+				if let Some(result) = self
+					.pattern
+					.is_regex_match(decoded_segment.clone(), &mut path_params)
+				{
+					result
+				} else {
+					self
+						.pattern
+						.is_wildcard_match(decoded_segment, &mut path_params)
+						.unwrap()
+				}
+			}
 		};
 
 		let routing_state = RoutingState::new(route_traversal, self.clone());
 		request.extensions_mut().insert(routing_state);
 
-		if matched {
+		if
+		/*matched*/
+		true {
 			match self.request_receiver.as_ref() {
 				Some(request_receiver) => {
 					ResourceInternalFuture::from(request_receiver.handle(request)).into()
@@ -120,10 +146,11 @@ pub(super) fn request_handler(mut request: Request) -> BoxedFuture<Response> {
 mod test {
 	use std::str::FromStr;
 
+	use http::{Method, StatusCode, Uri};
+
 	use crate::{
 		body::{Bytes, Empty},
 		resource::Resource,
-		routing::{Method, StatusCode, Uri},
 	};
 
 	use super::*;
@@ -146,27 +173,41 @@ mod test {
 		resource.set_subresource_handler("/$abc1_1:@cn(abc1_1)-cba", Method::GET, hello_world);
 		resource.set_subresource_handler("/$abc1_1:@cn(abc1_1)-cba/abc2_0", Method::GET, hello_world);
 
+		dbg!();
+
 		let service = resource.into_service();
+
+		dbg!();
 
 		let request = new_request("GET", "/abc0_0");
 		let response = service.call(request).await.unwrap();
 		assert_eq!(response.status(), StatusCode::OK);
 
+		dbg!();
+
 		let request = new_request("PUT", "/abc0_0/abc1_0");
 		let response = service.call(request).await.unwrap();
 		assert_eq!(response.status(), StatusCode::OK);
+
+		dbg!();
 
 		let request = new_request("POST", "/abc0_0/*abc1_0/abc2_0");
 		let response = service.call(request).await.unwrap();
 		assert_eq!(response.status(), StatusCode::OK);
 
+		dbg!();
+
 		let request = new_request("GET", "/abc0_0/abc1_1-cba");
 		let response = service.call(request).await.unwrap();
 		assert_eq!(response.status(), StatusCode::OK);
 
+		dbg!();
+
 		let request = new_request("GET", "/abc0_0/abc1_1-cba/abc2_0");
 		let response = service.call(request).await.unwrap();
 		assert_eq!(response.status(), StatusCode::OK);
+
+		dbg!();
 
 		let request = new_request("GET", "/abc0_0/abc1_0-wildcard/abc2_1-cba/wildcard-abc3_0");
 		let response = service.call(request).await.unwrap();

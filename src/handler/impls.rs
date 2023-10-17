@@ -10,7 +10,7 @@ use pin_project::pin_project;
 use crate::{
 	request::{FromRequest, FromRequestHead, Request},
 	response::{IntoResponse, Response},
-	utils::BoxedFuture,
+	utils::{mark::Private, BoxedFuture},
 };
 
 use super::{Handler, IntoHandler};
@@ -182,7 +182,7 @@ impl_handler_fn!(
 pub struct HandlerFnFuture<Func, M, B> {
 	func: Func,
 	some_request: Option<Request<B>>,
-	_mark: PhantomData<fn(M)>,
+	_mark: PhantomData<fn() -> M>,
 }
 
 impl<Func, M, B> HandlerFnFuture<Func, M, B> {

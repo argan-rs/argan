@@ -4,6 +4,8 @@ use std::{
 	sync::Arc,
 };
 
+use http::Method;
+
 use crate::{
 	body::IncomingBody,
 	handler::{
@@ -11,11 +13,11 @@ use crate::{
 		IntoArcHandler, IntoHandler,
 	},
 	middleware::{IntoResponseAdapter, Layer, ResponseFutureBoxer},
-	pattern::{patterns_to_string, Pattern, Similarity},
+	pattern::{Pattern, Similarity},
 	request::Request,
 	response::{IntoResponse, Response},
-	routing::{Method, RouteSegments},
-	utils::{BoxedError, BoxedFuture},
+	routing::RouteSegments,
+	utils::{mark::Private, patterns_to_route, BoxedError, BoxedFuture},
 };
 
 // --------------------------------------------------
@@ -247,14 +249,14 @@ impl Resource {
 
 			if let Pattern::Regex(prefix_path_segment_name, None) = &prefix_path_segment_pattern {
 				if let Pattern::Regex(self_path_segment_name, _) = self_path_segment_pattern {
-					if self_path_segment_name == prefix_path_segment_name {
+					if self_path_segment_name.pattern_name() == prefix_path_segment_name.pattern_name() {
 						continue;
 					}
 				}
 
 				panic!(
 					"no prefix path segment resource '${}' exists",
-					prefix_path_segment_name
+					prefix_path_segment_name.pattern_name(),
 				)
 			}
 
@@ -304,7 +306,7 @@ impl Resource {
 							resource.pattern.compare(pattern) == Similarity::Same
 						} else {
 							// Unwrap safety: Regex resources must have a name.
-							resource.name().unwrap() == name.as_ref()
+							resource.name().unwrap() == name.pattern_name()
 						}
 					});
 
@@ -602,7 +604,7 @@ impl Resource {
 							resource.pattern.compare(&pattern) == Similarity::Same
 						} else {
 							// Unwrap safety: Regex resources must have a name.
-							resource.name().unwrap() == name.as_ref()
+							resource.name().unwrap() == name.pattern_name()
 						}
 					});
 
@@ -663,7 +665,7 @@ impl Resource {
 							resource.pattern.compare(&pattern) == Similarity::Same
 						} else {
 							// Unwrap safety: Regex resources must have a name.
-							resource.name().unwrap() == name.as_ref()
+							resource.name().unwrap() == name.pattern_name()
 						}
 					});
 
@@ -1099,7 +1101,7 @@ impl Display for Resource {
 		write!(
 			f,
 			"{}/{}",
-			patterns_to_string(&self.prefix_path_patterns),
+			patterns_to_route(&self.prefix_path_patterns),
 			&self.pattern
 		)
 	}
@@ -1123,7 +1125,7 @@ impl Debug for Resource {
 				is_subtree_handler: {},
 			}}",
 			&self.pattern,
-			patterns_to_string(&self.prefix_path_patterns),
+			patterns_to_route(&self.prefix_path_patterns),
 			self.static_resources.len(),
 			self.regex_resources.len(),
 			self.wildcard_resource.is_some(),
@@ -1147,7 +1149,7 @@ impl Debug for Resource {
 mod test {
 	use crate::{
 		handler::{futures::DefaultResponseFuture, DummyHandler},
-		pattern::string_to_patterns,
+		utils::route_to_patterns,
 	};
 
 	use super::*;
@@ -1228,8 +1230,8 @@ mod test {
 			parent.add_subresource(resource);
 
 			let (resource, _) =
-				parent.by_patterns_leaf_resource_mut(string_to_patterns(case.1).into_iter());
-			resource.check_path_segments_are_the_same(&mut string_to_patterns(case.0).into_iter());
+				parent.by_patterns_leaf_resource_mut(route_to_patterns(case.1).into_iter());
+			resource.check_path_segments_are_the_same(&mut route_to_patterns(case.0).into_iter());
 		}
 
 		{
@@ -1290,7 +1292,7 @@ mod test {
 
 			let (resource5_0, _) = resource4_2.leaf_resource(RouteSegments::new("/abc5_0"));
 			resource5_0.check_path_segments_are_the_same(
-				&mut string_to_patterns("/abc0_0/*abc1_0/$abc2_0:@(p0)/$abc3_1:@cn0(p0)/abc4_2/abc5_0")
+				&mut route_to_patterns("/abc0_0/*abc1_0/$abc2_0:@(p0)/$abc3_1:@cn0(p0)/abc4_2/abc5_0")
 					.into_iter(),
 			);
 
@@ -1308,7 +1310,7 @@ mod test {
 
 			parent.add_subresource(resource3_0);
 			let (resource3_0, _) = parent.leaf_resource_mut(RouteSegments::new(route3_0));
-			resource3_0.check_path_segments_are_the_same(&mut string_to_patterns(pattern3_0).into_iter());
+			resource3_0.check_path_segments_are_the_same(&mut route_to_patterns(pattern3_0).into_iter());
 			assert_eq!(resource3_0.static_resources.len(), 1);
 			assert_eq!(resource3_0.regex_resources.len(), 2);
 			assert_eq!(resource3_0.method_handlers.count(), 1);
@@ -1480,8 +1482,7 @@ mod test {
 				resource.set_handler(Method::GET, DummyHandler::<DefaultResponseFuture>::new());
 			}
 
-			resource
-				.check_path_segments_are_the_same(&mut string_to_patterns(case.full_path).into_iter());
+			resource.check_path_segments_are_the_same(&mut route_to_patterns(case.full_path).into_iter());
 		}
 
 		{
