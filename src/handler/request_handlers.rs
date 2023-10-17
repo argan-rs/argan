@@ -3,14 +3,14 @@ use std::{
 	future::{ready, Ready},
 };
 
-use hyper::header::{HeaderName, HeaderValue};
+use http::{HeaderName, HeaderValue, Method, StatusCode};
 
 use crate::{
 	body::IncomingBody,
 	middleware::Layer,
 	request::Request,
 	response::{IntoResponse, Response},
-	routing::{Method, StatusCode, UnusedRequest},
+	routing::UnusedRequest,
 	utils::BoxedFuture,
 };
 

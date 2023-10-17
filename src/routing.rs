@@ -1,28 +1,28 @@
-use crate::{pattern::Params, request::Request, resource::ResourceService};
+use std::{borrow::Cow, str::Utf8Error};
 
-pub use hyper::Method;
-pub use hyper::StatusCode;
-pub use hyper::Uri;
+use percent_encoding::percent_decode_str;
+
+use crate::{pattern::ParamsList, request::Request, resource::ResourceService};
 
 // --------------------------------------------------------------------------------
 // --------------------------------------------------------------------------------
 
-pub(crate) struct RoutingState<'r> {
+pub(crate) struct RoutingState {
 	pub(crate) path_traversal: RouteTraversal,
-	pub(crate) path_params: Vec<Params<'r>>,
+	pub(crate) path_params: ParamsList,
 	pub(crate) current_resource: Option<ResourceService>,
 
 	pub(crate) subtree_handler_exists: bool,
 }
 
-impl<'r> RoutingState<'r> {
+impl RoutingState {
 	pub(crate) fn new(
 		path_traversal: RouteTraversal,
 		resource_service: ResourceService,
-	) -> RoutingState<'r> {
+	) -> RoutingState {
 		Self {
 			path_traversal,
-			path_params: Vec::new(),
+			path_params: ParamsList::new(),
 			current_resource: Some(resource_service),
 			subtree_handler_exists: false,
 		}
@@ -67,7 +67,6 @@ impl RouteTraversal {
 	// 	route != "/" && route.as_bytes().last().unwrap() == &b'/'
 	// }
 
-	#[inline]
 	pub(crate) fn next_segment<'req>(&mut self, route: &'req str) -> Option<(&'req str, usize)> {
 		if self.0 < route.len() {
 			let next_segment_start_index = self.0;
@@ -86,6 +85,15 @@ impl RouteTraversal {
 		}
 
 		None
+	}
+
+	pub(crate) fn next_segment_decoded<'req>(
+		&mut self,
+		route: &'req str,
+	) -> Option<(Result<Cow<'req, str>, Utf8Error>, usize)> {
+		self
+			.next_segment(route)
+			.map(|(segment, index)| (percent_decode_str(segment).decode_utf8(), index))
 	}
 }
 

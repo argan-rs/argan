@@ -2,9 +2,12 @@ use std::{
 	convert::Infallible,
 	future::{Future, Ready},
 	pin::{pin, Pin},
+	sync::Arc,
 	task::{Context, Poll},
 };
 
+use http::StatusCode;
+use percent_encoding::percent_decode_str;
 use pin_project::pin_project;
 
 use crate::{
@@ -13,7 +16,7 @@ use crate::{
 	},
 	request::Request,
 	response::Response,
-	routing::{RoutingState, StatusCode, UnusedRequest},
+	routing::{RoutingState, UnusedRequest},
 	utils::BoxedFuture,
 };
 
@@ -116,6 +119,7 @@ impl Future for RequestPasserFuture {
 		let mut request = self_projection.0.take().unwrap();
 		let mut routing_state = request.extensions_mut().remove::<RoutingState>().unwrap();
 		let current_resource = routing_state.current_resource.take().unwrap();
+		let mut path_params = std::mem::take(&mut routing_state.path_params);
 
 		let (some_next_resource, next_segment_index) = 'some_next_resource: {
 			let (next_segment, next_segment_index) = routing_state
@@ -128,23 +132,41 @@ impl Future for RequestPasserFuture {
 					.static_resources
 					.as_ref()
 					.and_then(|resources| {
-						resources
-							.iter()
-							.find(|resource| resource.pattern.is_match(next_segment))
+						resources.iter().find(
+							// Static patterns keep percent encoded text. We may match them without
+							// decoding the segment.
+							|resource| resource.pattern.is_static_match(&next_segment).unwrap(),
+						)
 					}) {
 				break 'some_next_resource (Some(next_resource), next_segment_index);
 			}
+
+			let decoded_segment =
+				Arc::<str>::from(percent_decode_str(next_segment).decode_utf8().unwrap());
 
 			if let Some(next_resource) = current_resource
 				.regex_resources
 				.as_ref()
 				.and_then(|resources| {
-					resources
-						.iter()
-						.find(|resource| resource.pattern.is_match(next_segment))
+					resources.iter().find(|resource| {
+						resource
+							.pattern
+							.is_regex_match(decoded_segment.clone(), &mut path_params)
+							.unwrap()
+					})
 				}) {
 				break 'some_next_resource (Some(next_resource), next_segment_index);
 			}
+
+			current_resource
+				.wildcard_resource
+				.as_ref()
+				.is_some_and(|resource| {
+					resource
+						.pattern
+						.is_wildcard_match(decoded_segment, &mut path_params)
+						.unwrap()
+				});
 
 			(
 				current_resource.wildcard_resource.as_deref(),
@@ -153,6 +175,7 @@ impl Future for RequestPasserFuture {
 		};
 
 		if let Some(next_resource) = some_next_resource {
+			routing_state.path_params = path_params;
 			routing_state
 				.current_resource
 				.replace(next_resource.clone());

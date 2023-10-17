@@ -3,7 +3,7 @@ use std::{
 	future::{ready, Future, Ready},
 };
 
-use hyper::{http::request::Parts, HeaderMap, Method, Uri, Version};
+use http::{request::Parts, HeaderMap, Method, Uri, Version};
 
 use crate::{
 	body::IncomingBody,
@@ -13,7 +13,7 @@ use crate::{
 // --------------------------------------------------------------------------------
 // --------------------------------------------------------------------------------
 
-pub type Request<B = IncomingBody> = hyper::Request<B>;
+pub type Request<B = IncomingBody> = http::Request<B>;
 pub type Head = Parts;
 
 // --------------------------------------------------------------------------------
