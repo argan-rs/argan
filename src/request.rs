@@ -7,7 +7,8 @@ use std::{
 	task::Poll,
 };
 
-use http::{request::Parts, HeaderMap, Method, Uri, Version};
+use cookie::{Cookie, CookieJar};
+use http::{header::COOKIE, request::Parts, HeaderMap, Method, Uri, Version};
 use pin_project::pin_project;
 use serde::{de::DeserializeOwned, Deserializer};
 
@@ -247,3 +248,30 @@ where
 }
 
 // --------------------------------------------------
+// Cookies
+
+pub struct Cookies(CookieJar);
+
+impl FromRequestHead for Cookies {
+	type Error = Infallible;
+	type Future = Ready<Result<Self, Self::Error>>;
+
+	fn from_request_head(head: &mut Head) -> Self::Future {
+		let cookie_jar = head
+			.headers
+			.get_all(COOKIE)
+			.iter()
+			.filter_map(|value| value.to_str().ok())
+			.flat_map(Cookie::split_parse)
+			.fold(CookieJar::new(), |mut jar, result| {
+				match result {
+					Ok(cookie) => jar.add_original(cookie.into_owned()),
+					Err(_) => todo!(),
+				}
+
+				jar
+			});
+
+		ready(Ok(Cookies(cookie_jar)))
+	}
+}
