@@ -8,13 +8,13 @@ use std::{
 };
 
 use cookie::{Cookie, CookieJar};
-use http::{header::COOKIE, request::Parts, HeaderMap, Method, Uri, Version};
+use http::{header::{COOKIE, SET_COOKIE}, request::Parts, HeaderMap, Method, Uri, Version, HeaderValue};
 use pin_project::pin_project;
-use serde::{de::DeserializeOwned, Deserializer};
+use serde::{de::DeserializeOwned, Deserializer, Serialize};
 
 use crate::{
 	body::{Body, BodyExt, IncomingBody},
-	response::{IntoResponse, Response},
+	response::{IntoResponse, Response, IntoResponseHead},
 	routing::RoutingState,
 };
 
@@ -247,6 +247,15 @@ where
 	}
 }
 
+impl<'de, T> IntoResponse for Json<T>
+where
+	T: Serialize,
+{
+	fn into_response(self) -> Response {
+		serde_json::to_string(&self.0).unwrap().into_response()
+	}
+}
+
 // --------------------------------------------------
 // Cookies
 
@@ -262,7 +271,7 @@ impl FromRequestHead for Cookies {
 			.get_all(COOKIE)
 			.iter()
 			.filter_map(|value| value.to_str().ok())
-			.flat_map(Cookie::split_parse)
+			.flat_map(Cookie::split_parse_encoded)
 			.fold(CookieJar::new(), |mut jar, result| {
 				match result {
 					Ok(cookie) => jar.add_original(cookie.into_owned()),
@@ -273,5 +282,23 @@ impl FromRequestHead for Cookies {
 			});
 
 		ready(Ok(Cookies(cookie_jar)))
+	}
+}
+
+impl IntoResponseHead for Cookies {
+	type Error = Infallible;
+
+	fn into_response_head(
+		self,
+		mut head: crate::response::Head,
+	) -> Result<crate::response::Head, Self::Error> {
+		for cookie in self.0.delta() {
+			match HeaderValue::try_from(cookie.encoded().to_string()) {
+				Ok(header_value) => head.headers.append(SET_COOKIE, header_value),
+				Err(_) => todo!(),
+			};
+		}
+
+		Ok(head)
 	}
 }
