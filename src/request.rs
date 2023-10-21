@@ -1,20 +1,14 @@
 use std::{
 	convert::Infallible,
-	fmt::Debug,
 	future::{ready, Future, Ready},
-	marker::PhantomData,
-	pin::pin,
-	task::Poll,
 };
 
-use cookie::{Cookie, CookieJar};
-use http::{header::{COOKIE, SET_COOKIE}, request::Parts, HeaderMap, Method, Uri, Version, HeaderValue};
-use pin_project::pin_project;
-use serde::{de::DeserializeOwned, Deserializer, Serialize};
+use http::{request::Parts, Method, Uri};
+use serde::{de::DeserializeOwned, Deserializer};
 
 use crate::{
-	body::{Body, BodyExt, IncomingBody},
-	response::{IntoResponse, Response, IntoResponseHead},
+	body::IncomingBody,
+	response::{IntoResponse, Response},
 	routing::RoutingState,
 };
 
@@ -25,12 +19,32 @@ pub type Request<B = IncomingBody> = http::Request<B>;
 pub type Head = Parts;
 
 // --------------------------------------------------------------------------------
+// FromRequestHead trait
 
 pub trait FromRequestHead: Sized {
 	type Error: IntoResponse;
 	type Future: Future<Output = Result<Self, Self::Error>>;
 
 	fn from_request_head(head: &mut Head) -> Self::Future;
+}
+
+// --------------------------------------------------
+// FromRequest<B> trait
+
+pub trait FromRequest<B>: Sized {
+	type Error: IntoResponse;
+	type Future: Future<Output = Result<Self, Self::Error>>;
+
+	fn from_request(request: Request<B>) -> Self::Future;
+}
+
+impl<B> FromRequest<B> for Request<B> {
+	type Error = Response;
+	type Future = Ready<Result<Self, Self::Error>>;
+
+	fn from_request(request: Request<B>) -> Self::Future {
+		ready(Ok(request))
+	}
 }
 
 impl<T: FromRequestHead, B> FromRequest<B> for T {
@@ -45,6 +59,7 @@ impl<T: FromRequestHead, B> FromRequest<B> for T {
 }
 
 // --------------------------------------------------
+// Method & Uri
 
 impl FromRequestHead for Method {
 	type Error = Infallible;
@@ -61,43 +76,6 @@ impl FromRequestHead for Uri {
 
 	fn from_request_head(head: &mut Head) -> Self::Future {
 		ready(Ok(head.uri.clone()))
-	}
-}
-
-impl FromRequestHead for Version {
-	type Error = Infallible;
-	type Future = Ready<Result<Self, Self::Error>>;
-
-	fn from_request_head(head: &mut Head) -> Self::Future {
-		ready(Ok(head.version))
-	}
-}
-
-impl FromRequestHead for HeaderMap {
-	type Error = Infallible;
-	type Future = Ready<Result<Self, Self::Error>>;
-
-	fn from_request_head(head: &mut Head) -> Self::Future {
-		ready(Ok(head.headers.clone()))
-	}
-}
-
-// --------------------------------------------------
-// Request<B>
-
-pub trait FromRequest<B>: Sized {
-	type Error: IntoResponse;
-	type Future: Future<Output = Result<Self, Self::Error>>;
-
-	fn from_request(request: Request<B>) -> Self::Future;
-}
-
-impl<B> FromRequest<B> for Request<B> {
-	type Error = Response;
-	type Future = Ready<Result<Self, Self::Error>>;
-
-	fn from_request(request: Request<B>) -> Self::Future {
-		ready(Ok(request))
 	}
 }
 
@@ -156,149 +134,3 @@ where
 }
 
 // --------------------------------------------------
-// Form
-
-pub struct Form<T>(pub T);
-
-impl<'de, B, T> FromRequest<B> for Form<T>
-where
-	B: Body + 'static,
-	B::Error: Debug,
-	T: DeserializeOwned,
-{
-	type Error = Infallible;
-	type Future = FormFuture<B, T>;
-
-	fn from_request(request: Request<B>) -> Self::Future {
-		FormFuture(request, PhantomData)
-	}
-}
-
-#[pin_project]
-pub struct FormFuture<B, T>(#[pin] Request<B>, PhantomData<T>);
-
-impl<B, T> Future for FormFuture<B, T>
-where
-	B: Body + 'static,
-	B::Error: Debug,
-	T: DeserializeOwned,
-{
-	type Output = Result<Form<T>, Infallible>;
-
-	fn poll(
-		self: std::pin::Pin<&mut Self>,
-		cx: &mut std::task::Context<'_>,
-	) -> std::task::Poll<Self::Output> {
-		let self_projection = self.project();
-		if let Poll::Ready(result) = pin!(self_projection.0.collect()).poll(cx) {
-			let body = result.unwrap().to_bytes();
-			let value = serde_urlencoded::from_bytes::<T>(&body).unwrap();
-
-			return Poll::Ready(Ok(Form(value)));
-		}
-
-		Poll::Pending
-	}
-}
-
-// --------------------------------------------------
-// Json
-
-pub struct Json<T>(pub T);
-
-impl<'de, B, T> FromRequest<B> for Json<T>
-where
-	B: Body + 'static,
-	B::Error: Debug,
-	T: DeserializeOwned,
-{
-	type Error = Infallible;
-	type Future = JsonFuture<B, T>;
-
-	fn from_request(request: Request<B>) -> Self::Future {
-		JsonFuture(request, PhantomData)
-	}
-}
-
-#[pin_project]
-pub struct JsonFuture<B, T>(#[pin] Request<B>, PhantomData<T>);
-
-impl<B, T> Future for JsonFuture<B, T>
-where
-	B: Body + 'static,
-	B::Error: Debug,
-	T: DeserializeOwned,
-{
-	type Output = Result<Json<T>, Infallible>;
-
-	fn poll(
-		self: std::pin::Pin<&mut Self>,
-		cx: &mut std::task::Context<'_>,
-	) -> std::task::Poll<Self::Output> {
-		let self_projection = self.project();
-		if let Poll::Ready(result) = pin!(self_projection.0.collect()).poll(cx) {
-			let body = result.unwrap().to_bytes();
-			let value = serde_json::from_slice::<T>(&body).unwrap();
-
-			return Poll::Ready(Ok(Json(value)));
-		}
-
-		Poll::Pending
-	}
-}
-
-impl<'de, T> IntoResponse for Json<T>
-where
-	T: Serialize,
-{
-	fn into_response(self) -> Response {
-		serde_json::to_string(&self.0).unwrap().into_response()
-	}
-}
-
-// --------------------------------------------------
-// Cookies
-
-pub struct Cookies(CookieJar);
-
-impl FromRequestHead for Cookies {
-	type Error = Infallible;
-	type Future = Ready<Result<Self, Self::Error>>;
-
-	fn from_request_head(head: &mut Head) -> Self::Future {
-		let cookie_jar = head
-			.headers
-			.get_all(COOKIE)
-			.iter()
-			.filter_map(|value| value.to_str().ok())
-			.flat_map(Cookie::split_parse_encoded)
-			.fold(CookieJar::new(), |mut jar, result| {
-				match result {
-					Ok(cookie) => jar.add_original(cookie.into_owned()),
-					Err(_) => todo!(),
-				}
-
-				jar
-			});
-
-		ready(Ok(Cookies(cookie_jar)))
-	}
-}
-
-impl IntoResponseHead for Cookies {
-	type Error = Infallible;
-
-	fn into_response_head(
-		self,
-		mut head: crate::response::Head,
-	) -> Result<crate::response::Head, Self::Error> {
-		for cookie in self.0.delta() {
-			match HeaderValue::try_from(cookie.encoded().to_string()) {
-				Ok(header_value) => head.headers.append(SET_COOKIE, header_value),
-				Err(_) => todo!(),
-			};
-		}
-
-		Ok(head)
-	}
-}

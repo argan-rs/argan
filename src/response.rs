@@ -1,9 +1,9 @@
-use std::{any::Any, borrow::Cow, convert::Infallible};
+use std::{any::Any, convert::Infallible};
 
-use http::{header, response::Parts, Extensions, HeaderMap, HeaderValue, StatusCode};
+use http::{response::Parts, StatusCode};
 
 use crate::{
-	body::{Body, BodyExt, BoxedBody, Bytes, Empty, Full},
+	body::{Body, BodyExt, BoxedBody, Bytes},
 	utils::BoxedError,
 };
 
@@ -14,6 +14,7 @@ pub type Response<B = BoxedBody> = http::response::Response<B>;
 pub type Head = Parts;
 
 // --------------------------------------------------------------------------------
+// IntoResponseHead trait
 
 pub trait IntoResponseHead {
 	type Error: IntoResponse;
@@ -21,29 +22,8 @@ pub trait IntoResponseHead {
 	fn into_response_head(self, head: Head) -> Result<Head, Self::Error>;
 }
 
-impl IntoResponseHead for HeaderMap<HeaderValue> {
-	type Error = Infallible;
-
-	#[inline]
-	fn into_response_head(self, mut head: Head) -> Result<Head, Self::Error> {
-		head.headers.extend(self);
-
-		Ok(head)
-	}
-}
-
-impl IntoResponseHead for Extensions {
-	type Error = Infallible;
-
-	#[inline]
-	fn into_response_head(self, mut head: Head) -> Result<Head, Self::Error> {
-		head.extensions.extend(self);
-
-		Ok(head)
-	}
-}
-
 // --------------------------------------------------
+// IntoResponse trait
 
 pub trait IntoResponse {
 	fn into_response(self) -> Response;
@@ -86,7 +66,22 @@ impl<T: IntoResponseHead> IntoResponse for T {
 	}
 }
 
-// -------------------------
+// --------------------------------------------------
+// StatusCode
+
+impl IntoResponseHead for StatusCode {
+	type Error = Infallible;
+
+	#[inline]
+	fn into_response_head(self, mut head: Head) -> Result<Head, Self::Error> {
+		head.status = self;
+
+		Ok(head)
+	}
+}
+
+// --------------------------------------------------
+// Infallible Error
 
 impl IntoResponse for Infallible {
 	#[inline]
@@ -94,6 +89,9 @@ impl IntoResponse for Infallible {
 		Response::default()
 	}
 }
+
+// --------------------------------------------------
+// Option<T>
 
 impl<T: IntoResponse> IntoResponse for Option<T> {
 	#[inline]
@@ -110,6 +108,9 @@ impl<T: IntoResponse> IntoResponse for Option<T> {
 	}
 }
 
+// --------------------------------------------------
+// Result<T, E>
+
 impl<T, E> IntoResponse for Result<T, E>
 where
 	T: IntoResponse,
@@ -124,104 +125,4 @@ where
 	}
 }
 
-// -------------------------
-
-impl IntoResponse for Head {
-	#[inline]
-	fn into_response(self) -> Response {
-		Response::from_parts(self, BoxedBody::new(Empty::new().map_err(Into::into)))
-	}
-}
-
-impl IntoResponse for StatusCode {
-	#[inline]
-	fn into_response(self) -> Response {
-		let mut response = Response::default();
-		*response.status_mut() = self;
-
-		response
-	}
-}
-
-// -------------------------
-
-impl IntoResponse for &'static str {
-	#[inline]
-	fn into_response(self) -> Response {
-		Cow::<'_, str>::Borrowed(self).into_response()
-	}
-}
-
-impl IntoResponse for String {
-	#[inline]
-	fn into_response(self) -> Response {
-		Cow::<'_, str>::Owned(self).into_response()
-	}
-}
-
-impl IntoResponse for Cow<'static, str> {
-	#[inline]
-	fn into_response(self) -> Response {
-		let mut response = Full::from(self).into_response();
-		response.headers_mut().insert(
-			header::CONTENT_TYPE,
-			HeaderValue::from_static(mime::TEXT_PLAIN_UTF_8.as_ref()),
-		);
-
-		response
-	}
-}
-
-impl IntoResponse for &'static [u8] {
-	#[inline]
-	fn into_response(self) -> Response {
-		Cow::<'_, [u8]>::Borrowed(self).into_response()
-	}
-}
-
-impl IntoResponse for Vec<u8> {
-	#[inline]
-	fn into_response(self) -> Response {
-		Cow::<'_, [u8]>::Owned(self).into_response()
-	}
-}
-
-impl IntoResponse for Cow<'static, [u8]> {
-	#[inline]
-	fn into_response(self) -> Response {
-		let mut response = Full::from(self).into_response();
-		response.headers_mut().insert(
-			header::CONTENT_TYPE,
-			HeaderValue::from_static(mime::APPLICATION_OCTET_STREAM.as_ref()),
-		);
-
-		response
-	}
-}
-
-impl IntoResponse for Bytes {
-	#[inline]
-	fn into_response(self) -> Response {
-		let mut response = Full::from(self).into_response();
-		response.headers_mut().insert(
-			header::CONTENT_TYPE,
-			HeaderValue::from_static(mime::APPLICATION_OCTET_STREAM.as_ref()),
-		);
-
-		response
-	}
-}
-
-impl IntoResponse for Empty<Bytes> {
-	#[inline]
-	fn into_response(self) -> Response {
-		Response::new(self.map_err(Into::into).boxed())
-	}
-}
-
-impl IntoResponse for Full<Bytes> {
-	#[inline]
-	fn into_response(self) -> Response {
-		Response::new(self.map_err(Into::into).boxed())
-	}
-}
+// --------------------------------------------------
