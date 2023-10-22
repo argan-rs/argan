@@ -1,4 +1,4 @@
-use std::{fmt::Display, iter::Peekable, str::Chars, sync::Arc};
+use std::{fmt::Display, iter::Peekable, slice, str::Chars, sync::Arc};
 
 use regex::{CaptureLocations, CaptureNames, Regex};
 
@@ -197,12 +197,16 @@ impl Pattern {
 		None
 	}
 
-	pub(crate) fn is_regex_match(&self, text: Arc<str>, params: &mut ParamsList) -> Option<bool> {
+	pub(crate) fn is_regex_match(
+		&self,
+		text: Arc<str>,
+		params_list: &mut ParamsList,
+	) -> Option<bool> {
 		if !text.is_empty() {
 			if let Self::Regex(names, Some(regex)) = self {
 				let mut capture_locations = regex.capture_locations();
 				if regex.captures_read(&mut capture_locations, &text).is_some() {
-					params.push(Params::with_regex_captures(
+					params_list.push(Params::with_regex_captures(
 						names.clone(),
 						capture_locations,
 						text,
@@ -218,10 +222,14 @@ impl Pattern {
 		Some(false)
 	}
 
-	pub(crate) fn is_wildcard_match(&self, text: Arc<str>, params: &mut ParamsList) -> Option<bool> {
+	pub(crate) fn is_wildcard_match(
+		&self,
+		text: Arc<str>,
+		params_list: &mut ParamsList,
+	) -> Option<bool> {
 		if !text.is_empty() {
 			if let Self::Wildcard(name) = self {
-				params.push(Params::with_wildcard_value(name.clone(), text));
+				params_list.push(Params::with_wildcard_value(name.clone(), text));
 
 				return Some(true);
 			} else {
@@ -350,6 +358,11 @@ impl ParamsList {
 	}
 
 	#[inline]
+	fn iter(&self) -> slice::Iter<'_, Params> {
+		self.0.iter()
+	}
+
+	#[inline]
 	pub(crate) fn deserializer(&mut self) -> FromParamsList<'_> {
 		FromParamsList::new(&mut self.0)
 	}
@@ -376,6 +389,41 @@ impl Params {
 	#[inline]
 	fn with_wildcard_value(name: Arc<str>, value: Arc<str>) -> Self {
 		Self::Wildcard(name, value)
+	}
+}
+
+impl ToString for Params {
+	fn to_string(&self) -> String {
+		let mut string = String::new();
+
+		match self {
+			Self::Regex(regex_names, capture_locations, values) => {
+				string.push_str(&format!("pattern ${}: [", regex_names.pattern_name()));
+
+				let mut first = true;
+				for (name, index) in regex_names.as_ref().iter().skip(1) {
+					let (start, end) = capture_locations
+						.get(*index)
+						.expect("capture name index in RegexNames must point to a valid capture location");
+
+					let value = &values[start..end];
+
+					if first {
+						string.push_str(&format!("{}:{}", name, value));
+						first = false
+					} else {
+						string.push_str(&format!(", {}:{}", name, value));
+					}
+				}
+
+				string.push(']');
+			}
+			Self::Wildcard(name, value) => {
+				string.push_str(&format!("pattern *{}: [{}]", name, value));
+			}
+		}
+
+		string
 	}
 }
 
@@ -582,417 +630,481 @@ pub(crate) enum Similarity {
 // --------------------------------------------------------------------------------
 // --------------------------------------------------------------------------------
 
-// #[cfg(test)]
-// mod test {
-// 	use std::process::Output;
-//
-// 	use mime::Name;
-//
-// 	use super::*;
-//
-// 	// --------------------------------------------------
-// 	// --------------------------------------------------
-//
-// 	#[test]
-// 	fn split_at_delimiter() {
-// 		let mut pattern = "escaped@capture(regex)".chars().peekable();
-//
-// 		let (escaped, some_delimiter) = super::split_at_delimiter(
-// 			&mut pattern,
-// 			|ch| ch == '@' || ch == '(' || ch == ')',
-// 		);
-//
-// 		assert_eq!(escaped, "escaped");
-// 		assert_eq!(some_delimiter, Some('@'));
-//
-// 		let (capture, some_delimiter) = super::split_at_delimiter(
-// 			&mut pattern,
-// 			|ch| ch == '@' || ch == '(' || ch == ')',
-// 		);
-//
-// 		assert_eq!(capture, "capture");
-// 		assert_eq!(some_delimiter, Some('('));
-//
-// 		let (regex, some_delimiter) = super::split_at_delimiter(
-// 			&mut pattern,
-// 			|ch| ch == '@' || ch == '(' || ch == ')',
-// 		);
-//
-// 		assert_eq!(regex, "regex");
-// 		assert_eq!(some_delimiter, Some(')'));
-// 	}
-//
-// 	#[test]
-// 	fn split_off_subpattern() {
-// 		let subpattern1 = r"(\d{4})-(\d{2})-(\d{2})";
-// 		let subpattern2 = r"(.+)$";
-// 		let subpattern3 = r"[^0-9)]+";
-// 		let subpattern4 = r"[^])]";
-// 		let subpattern5 = r"[^a])]";
-// 		let pattern = format!(
-// 			"({}):({}):({}):({}):({})",
-// 			subpattern1,
-// 			subpattern2,
-// 			subpattern3,
-// 			subpattern4,
-// 			subpattern5,
-// 		);
-//
-// 		let mut pattern = pattern.chars().peekable();
-// 		pattern.next(); // We must remove the opening parenthesis.
-//
-// 		let subpattern = super::split_off_subpattern(&mut pattern);
-// 		assert_eq!(subpattern, Some(subpattern1.to_owned()));
-// 		println!("subpattern 1: {}", subpattern.unwrap());
-//
-// 		assert_eq!(pattern.next(), Some(':'));
-// 		assert_eq!(pattern.next(), Some('('));
-//
-// 		let subpattern = super::split_off_subpattern(&mut pattern);
-// 		assert_eq!(subpattern, Some(subpattern2.to_owned()));
-// 		println!("subpattern 2: {}", subpattern.unwrap());
-//
-// 		assert_eq!(pattern.next(), Some(':'));
-// 		assert_eq!(pattern.next(), Some('('));
-//
-// 		let subpattern = super::split_off_subpattern(&mut pattern);
-// 		assert_eq!(subpattern, Some(subpattern3.to_owned()));
-// 		println!("subpattern 3: {}", subpattern.unwrap());
-//
-// 		assert_eq!(pattern.next(), Some(':'));
-// 		assert_eq!(pattern.next(), Some('('));
-//
-// 		let subpattern = super::split_off_subpattern(&mut pattern);
-// 		assert_eq!(subpattern, Some(subpattern4.to_owned()));
-// 		println!("subpattern 4: {}", subpattern.unwrap());
-//
-// 		assert_eq!(pattern.next(), Some(':'));
-// 		assert_eq!(pattern.next(), Some('('));
-//
-// 		let subpattern = super::split_off_subpattern(&mut pattern);
-// 		assert_ne!(subpattern, Some(subpattern5.to_owned()));
-// 		println!("subpattern 5: {}", subpattern.unwrap());
-//
-// 		assert_eq!(pattern.next(), Some(']'));
-// 	}
-//
-// 	#[test]
-// 	fn split() {
-// 		let cases = [
-// 			(
-// 				"static@capture_name(pattern)-@(pattern)",
-// 				vec![
-// 					Segment::Static("static".to_owned()),
-// 					Segment::Capturing {
-// 						some_name: Some("capture_name".to_owned()),
-// 						subpattern: "pattern".to_owned()
-// 					},
-// 					Segment::Static("-".to_owned()),
-// 					Segment::Capturing { some_name: None, subpattern: "pattern".to_owned() },
-// 				],
-// 			),
-// 			(
-// 				"static@(pattern)static",
-// 				vec![
-// 					Segment::Static("static".to_owned()),
-// 					Segment::Capturing { some_name: None, subpattern: "pattern".to_owned() },
-// 					Segment::Static("static".to_owned()),
-// 				]
-// 			),
-// 			(
-// 				"@capture_name(pattern)@capture_name(pattern)",
-// 				vec![
-// 					Segment::Capturing {
-// 						some_name: Some("capture_name".to_owned()),
-// 						subpattern: "pattern".to_owned()
-// 					},
-// 					Segment::Capturing {
-// 						some_name: Some("capture_name".to_owned()),
-// 						subpattern: "pattern".to_owned()
-// 					},
-// 				]
-// 			),
-// 			(
-// 				"@capture_name(pattern)-static",
-// 				vec![
-// 					Segment::Capturing {
-// 						some_name: Some("capture_name".to_owned()),
-// 						subpattern: "pattern".to_owned()
-// 					},
-// 					Segment::Static("-static".to_owned()),
-// 				]
-// 			)
-// 		];
-//
-// 		for case in cases {
-// 			let segments = super::split(case.0.chars().peekable());
-// 			assert_eq!(segments, case.1);
-// 		}
-// 	}
-//
-// 	#[test]
-// 	#[should_panic(expected = "incomplete pattern")]
-// 	fn split_incomplete_pattern() {
-// 		let pattern = "static@capture_name";
-// 		println!("pattern: {}", pattern);
-// 		super::split(pattern.chars().peekable());
-// 	}
-//
-// 	#[test]
-// 	#[should_panic(expected = "no closing parenthesis")]
-// 	fn split_no_closing_parenthesis() {
-// 		let pattern = "static@(pattern";
-// 		println!("pattern: {}", pattern);
-// 		super::split(pattern.chars().peekable());
-// 	}
-//
-// 	#[test]
-// 	#[should_panic(expected = "empty regex subpattern")]
-// 	fn split_empty_regex_subpattern() {
-// 		let pattern = "@capture_name()@capture_name(pattern)";
-// 		println!("pattern: {}", pattern);
-// 		super::split(pattern.chars().peekable());
-// 	}
-//
-// 	#[test]
-// 	#[should_panic(expected = "cannot have a named capture group")]
-// 	fn split_regex_subpattern_with_named_capture_group1() {
-// 		let pattern = "@capture_name((?P<name>abc))@capture_name(pattern)";
-// 		println!("pattern: {}", pattern);
-// 		super::split(pattern.chars().peekable());
-// 	}
-//
-// 	#[test]
-// 	#[should_panic(expected = "cannot have a named capture group")]
-// 	fn split_regex_subpattern_with_named_capture_group2() {
-// 		let pattern = "@capture_name((?<name>abc))@capture_name(pattern)";
-// 		println!("pattern: {}", pattern);
-// 		super::split(pattern.chars().peekable());
-// 	}
-//
-// 	#[test]
-// 	fn parse() {
-// 		let some_regex = Option::<&Regex>::None;
-// 		let some_ref_regex = some_regex.as_ref();
-// 		let cases = [
-// 			("", Pattern::Static(Arc::from(""))),
-// 			("static", Pattern::Static(Arc::from("static"))),
-// 			("@capture_name(pattern)", Pattern::Static(Arc::from("@capture_name(pattern)"))),
-// 			(r"\$name:@(pattern)", Pattern::Static(Arc::from("$name:@(pattern)"))),
-// 			(r"\\$name:@(pattern)", Pattern::Static(Arc::from(r"\$name:@(pattern)"))),
-// 			(r"\*wildcard", Pattern::Static(Arc::from("*wildcard"))),
-// 			(r"\\*wildcard", Pattern::Static(Arc::from(r"\*wildcard"))),
-// 			(
-// 				"$name:@capture_name(pattern)",
-// 				Pattern::Regex(
-// 					Arc::from("name"),
-// 					Some(Regex::new(r"\A(?P<capture_name>pattern)\z").unwrap()),
-// 				),
-// 			),
-// 			(
-// 				"$name:@(pattern)",
-// 				Pattern::Regex(
-// 					Arc::from("name"),
-// 					Some(Regex::new(r"\A(?P<name>pattern)\z").unwrap()),
-// 				),
-// 			),
-// 			(
-// 				"$name",
-// 				Pattern::Regex(Arc::from("name"), None),
-// 			),
-// 			(
-// 				"$@capture_name(pattern)",
-// 				Pattern::Regex(Arc::from("@capture_name(pattern)"), None),
-// 			),
-// 			(
-// 				"$name:static@capture_name(pattern).static[pattern]",
-// 				Pattern::Regex(
-// 					Arc::from("name"),
-// 					Some(Regex::new(r"\Astatic(?P<capture_name>pattern)\.static\[pattern\]\z").unwrap()),
-// 				),
-// 			),
-// 			(
-// 				r"$name:\@capture_name(pattern)@(pattern)\@",
-// 				Pattern::Regex(
-// 					Arc::from("name"),
-// 					Some(Regex::new(r"\A@capture_name\(pattern\)(?P<name>pattern)@\z").unwrap()),
-// 				),
-// 			),
-// 			("*wildcard", Pattern::Wildcard(Arc::from("wildcard"))),
-// 		];
-//
-// 		for case in cases {
-// 			let pattern = Pattern::parse(case.0);
-// 			println!("case: {}\n\tpattern:  {}\n\texpected: {}", case.0, pattern, &case.1);
-//
-// 			assert!(pattern.compare(&case.1) == Similarity::Same);
-// 		}
-// 	}
-//
-// 	#[test]
-// 	#[should_panic(expected = "empty regex pattern name")]
-// 	fn parse_empty_regex_pattern_name() {
-// 		Pattern::parse("$:@capture_name(pattern)");
-// 	}
-//
-// 	#[test]
-// 	#[should_panic(expected = "incomplete regex pattern")]
-// 	fn parse_incomplete_regex_pattern() {
-// 		Pattern::parse("$name:");
-// 	}
-//
-// 	#[test]
-// 	#[should_panic(expected = "must have at least one capturing or non-capturing segment")]
-// 	fn parse_regex_subpattern() {
-// 		Pattern::parse("$name:static");
-// 	}
-//
-// 	#[test]
-// 	#[should_panic(expected = "multiple capturing segments cannot omit a capture name")]
-// 	fn parse_without_capture_name1() {
-// 		Pattern::parse("$name:static@capture_name(pattern)@(pattern)");
-// 	}
-//
-// 	#[test]
-// 	#[should_panic(expected = "without a capture name cannot have multiple capturing segments")]
-// 	fn parse_without_capture_name2() {
-// 		Pattern::parse("$name:static@(pattern)@capture_name(pattern)");
-// 	}
-//
-// 	#[test]
-// 	#[allow(clippy::type_complexity)]
-// 	fn is_match() {
-// 		struct Case<'a> {
-// 			pattern: &'a str,
-// 			nonmatching: &'a [&'a str],
-// 			matching: &'a [(&'a str, Option<&'a [(&'a str, &'a str)]>)],
-// 		}
-//
-// 		let cases = [
-// 			Case { pattern: "login", matching: &[("login", None)], nonmatching: &["logout"] },
-// 			Case {
-// 				pattern: r"$id:@prefix(A|B|C)@number(\d{5})",
-// 				matching: &[
-// 					("A12345", Some(&[("prefix", "A"), ("number", "12345")])),
-// 					("B54321", Some(&[("prefix", "B"), ("number", "54321")])),
-// 					("C11111", Some(&[("prefix", "C"), ("number", "11111")])),
-// 				],
-// 				nonmatching: &["D12345", "0ABCDEF", "AA12345", "B123456", "C1234", "AB1234"],
-// 			},
-// 			Case {
-// 				pattern: r"$car:@brand(.+) (@model(.+))",
-// 				matching: &[
-// 					("Audi (e-tron GT)", Some(&[("brand", "Audi"), ("model", "e-tron GT")])),
-// 					("Volvo (XC40 Recharge)", Some(&[("brand", "Volvo"), ("model", "XC40 Recharge")])),
-// 				],
-// 				nonmatching: &["Audi(Q8)", "Volvo C40", "Audi [A4]"],
-// 			},
-// 			Case {
-// 				pattern: "*card",
-// 				matching: &[
-// 					("king of clubs", Some(&[("card", "king of clubs")])),
-// 					("queen of hearts", Some(&[("card", "queen of hearts")])),
-// 				],
-// 				nonmatching: &[],
-// 			},
-// 		];
-//
-// 		for case in cases {
-// 			let pattern = Pattern::parse(case.pattern);
-// 			println!("pattern: {}", pattern);
-//
-// 			for (text, expected_outcome) in case.matching {
-// 				let outcome = pattern.is_match(text);
-//
-// 				match outcome {
-// 					MatchOutcome::Static => assert!(expected_outcome.is_none()),
-// 					MatchOutcome::Dynamic(Params::Regex(_, capture_names, captures)) => {
-// 						let expected_captures = expected_outcome.unwrap();
-//
-// 						for (expected_capture_name, expected_capture_value) in expected_captures {
-// 							let match_value = captures.name(expected_capture_name).unwrap();
-// 							assert_eq!(match_value.as_str(), *expected_capture_value);
-// 						}
-// 					},
-// 					MatchOutcome::Dynamic(Params::Wildcard(name, capture_value)) => {
-// 						let expected_captures = expected_outcome.unwrap();
-//
-//
-// 						for (expected_capture_name, expected_capture_value) in expected_captures {
-// 							assert_eq!(capture_value.unwrap(), *expected_capture_value);
-// 						}
-// 					},
-// 					_ => panic!("Outcome::None"),
-// 				}
-// 			}
-//
-// 			for text in case.nonmatching {
-// 				let outcome = pattern.is_match(text);
-// 				match outcome {
-// 					MatchOutcome::None => continue,
-// 					_ => panic!("{:?}", outcome),
-// 				}
-// 			}
-// 		}
-// 	}
-//
-// 	#[test]
-// 	#[allow(clippy::type_complexity)]
-// 	fn params_next() {
-// 		struct Case<'a> {
-// 			pattern: &'a str,
-// 			matching: &'a [(&'a str, Option<&'a [(&'a str, &'a str)]>)],
-// 		}
-//
-// 		let cases = [
-// 			Case { pattern: "login", matching: &[("login", None)] },
-// 			Case {
-// 				pattern: r"$id:@prefix(A|B|C)@number(\d{5})@suffix([A-Z]?)",
-// 				matching: &[
-// 					("A12345Z", Some(&[("prefix", "A"), ("number", "12345"), ("suffix", "Z")])),
-// 					("B54321", Some(&[("prefix", "B"), ("number", "54321"), ("suffix", "")])),
-// 					("C11111", Some(&[("prefix", "C"), ("number", "11111"), ("suffix", "")])),
-// 				],
-// 			},
-// 			Case {
-// 				pattern: r"$car:@brand(.+) (@model(.+))",
-// 				matching: &[
-// 					("Audi (e-tron GT)", Some(&[("brand", "Audi"), ("model", "e-tron GT")])),
-// 					("Volvo (XC40 Recharge)", Some(&[("brand", "Volvo"), ("model", "XC40 Recharge")])),
-// 				],
-// 			},
-// 			Case {
-// 				pattern: "*card",
-// 				matching: &[
-// 					("king of clubs", Some(&[("card", "king of clubs")])),
-// 					("queen of hearts", Some(&[("card", "queen of hearts")])),
-// 				],
-// 			},
-// 		];
-//
-// 		for case in cases {
-// 			let pattern = Pattern::parse(case.pattern);
-// 			println!("pattern: {}", pattern);
-//
-// 			for (text, some_expected_outcome) in case.matching {
-// 				let outcome = pattern.is_match(text);
-//
-// 				if let Some(expected_outcome) = some_expected_outcome {
-// 					let mut params = match outcome {
-// 						MatchOutcome::Dynamic(params) => params,
-// 						_ => panic!()
-// 					};
-//
-// 					for (expected_name, expected_value) in *expected_outcome {
-// 						let param = params.next().unwrap();
-// 						assert_eq!(param.name(), *expected_name);
-//
-// 						assert_eq!(param.value().or(Some("")), Some(*expected_value))
-// 					}
-// 				} else if let MatchOutcome::Static = outcome {} else {
-// 					panic!("outcome is not a static match")
-// 				}
-// 			}
-// 		}
-// 	}
-// }
+#[cfg(test)]
+mod test {
+	use super::*;
+
+	// --------------------------------------------------
+	// --------------------------------------------------
+
+	#[test]
+	fn split_at_delimiter() {
+		let mut pattern = "escaped@capture(regex)".chars().peekable();
+
+		let (escaped, some_delimiter) =
+			super::split_at_delimiter(&mut pattern, |ch| ch == '@' || ch == '(' || ch == ')');
+
+		assert_eq!(escaped, "escaped");
+		assert_eq!(some_delimiter, Some('@'));
+
+		let (capture, some_delimiter) =
+			super::split_at_delimiter(&mut pattern, |ch| ch == '@' || ch == '(' || ch == ')');
+
+		assert_eq!(capture, "capture");
+		assert_eq!(some_delimiter, Some('('));
+
+		let (regex, some_delimiter) =
+			super::split_at_delimiter(&mut pattern, |ch| ch == '@' || ch == '(' || ch == ')');
+
+		assert_eq!(regex, "regex");
+		assert_eq!(some_delimiter, Some(')'));
+	}
+
+	#[test]
+	fn split_off_subpattern() {
+		let subpattern1 = r"(\d{4})-(\d{2})-(\d{2})";
+		let subpattern2 = r"(.+)$";
+		let subpattern3 = r"[^0-9)]+";
+		let subpattern4 = r"[^])]";
+		let subpattern5 = r"[^a])]";
+		let pattern = format!(
+			"({}):({}):({}):({}):({})",
+			subpattern1, subpattern2, subpattern3, subpattern4, subpattern5,
+		);
+
+		let mut pattern = pattern.chars().peekable();
+		pattern.next(); // We must remove the opening parenthesis.
+
+		let subpattern = super::split_off_subpattern(&mut pattern);
+		assert_eq!(subpattern, Some(subpattern1.to_owned()));
+		println!("subpattern 1: {}", subpattern.unwrap());
+
+		assert_eq!(pattern.next(), Some(':'));
+		assert_eq!(pattern.next(), Some('('));
+
+		let subpattern = super::split_off_subpattern(&mut pattern);
+		assert_eq!(subpattern, Some(subpattern2.to_owned()));
+		println!("subpattern 2: {}", subpattern.unwrap());
+
+		assert_eq!(pattern.next(), Some(':'));
+		assert_eq!(pattern.next(), Some('('));
+
+		let subpattern = super::split_off_subpattern(&mut pattern);
+		assert_eq!(subpattern, Some(subpattern3.to_owned()));
+		println!("subpattern 3: {}", subpattern.unwrap());
+
+		assert_eq!(pattern.next(), Some(':'));
+		assert_eq!(pattern.next(), Some('('));
+
+		let subpattern = super::split_off_subpattern(&mut pattern);
+		assert_eq!(subpattern, Some(subpattern4.to_owned()));
+		println!("subpattern 4: {}", subpattern.unwrap());
+
+		assert_eq!(pattern.next(), Some(':'));
+		assert_eq!(pattern.next(), Some('('));
+
+		let subpattern = super::split_off_subpattern(&mut pattern);
+		assert_ne!(subpattern, Some(subpattern5.to_owned()));
+		println!("subpattern 5: {}", subpattern.unwrap());
+
+		assert_eq!(pattern.next(), Some(']'));
+	}
+
+	#[test]
+	fn split() {
+		let cases = [
+			(
+				"static@capture_name(pattern)-@(pattern)",
+				vec![
+					Segment::Static("static".to_owned()),
+					Segment::Capturing {
+						some_name: Some("capture_name".to_owned()),
+						subpattern: "pattern".to_owned(),
+					},
+					Segment::Static("-".to_owned()),
+					Segment::Capturing {
+						some_name: None,
+						subpattern: "pattern".to_owned(),
+					},
+				],
+			),
+			(
+				"static@(pattern)static",
+				vec![
+					Segment::Static("static".to_owned()),
+					Segment::Capturing {
+						some_name: None,
+						subpattern: "pattern".to_owned(),
+					},
+					Segment::Static("static".to_owned()),
+				],
+			),
+			(
+				"@capture_name(pattern)@capture_name(pattern)",
+				vec![
+					Segment::Capturing {
+						some_name: Some("capture_name".to_owned()),
+						subpattern: "pattern".to_owned(),
+					},
+					Segment::Capturing {
+						some_name: Some("capture_name".to_owned()),
+						subpattern: "pattern".to_owned(),
+					},
+				],
+			),
+			(
+				"@capture_name(pattern)-static",
+				vec![
+					Segment::Capturing {
+						some_name: Some("capture_name".to_owned()),
+						subpattern: "pattern".to_owned(),
+					},
+					Segment::Static("-static".to_owned()),
+				],
+			),
+		];
+
+		for case in cases {
+			let segments = super::split(case.0.chars().peekable());
+			assert_eq!(segments, case.1);
+		}
+	}
+
+	#[test]
+	#[should_panic(expected = "incomplete pattern")]
+	fn split_incomplete_pattern() {
+		let pattern = "static@capture_name";
+		println!("pattern: {}", pattern);
+		super::split(pattern.chars().peekable());
+	}
+
+	#[test]
+	#[should_panic(expected = "no closing parenthesis")]
+	fn split_no_closing_parenthesis() {
+		let pattern = "static@(pattern";
+		println!("pattern: {}", pattern);
+		super::split(pattern.chars().peekable());
+	}
+
+	#[test]
+	#[should_panic(expected = "empty regex subpattern")]
+	fn split_empty_regex_subpattern() {
+		let pattern = "@capture_name()@capture_name(pattern)";
+		println!("pattern: {}", pattern);
+		super::split(pattern.chars().peekable());
+	}
+
+	#[test]
+	#[should_panic(expected = "cannot have a named capture group")]
+	fn split_regex_subpattern_with_named_capture_group1() {
+		let pattern = "@capture_name((?P<name>abc))@capture_name(pattern)";
+		println!("pattern: {}", pattern);
+		super::split(pattern.chars().peekable());
+	}
+
+	#[test]
+	#[should_panic(expected = "cannot have a named capture group")]
+	fn split_regex_subpattern_with_named_capture_group2() {
+		let pattern = "@capture_name((?<name>abc))@capture_name(pattern)";
+		println!("pattern: {}", pattern);
+		super::split(pattern.chars().peekable());
+	}
+
+	#[test]
+	fn parse() {
+		let some_regex = Option::<&Regex>::None;
+		let some_ref_regex = some_regex.as_ref();
+		let cases = [
+			("", Pattern::Static(Arc::from(""))),
+			("static", Pattern::Static(Arc::from("static"))),
+			(
+				"@capture_name(pattern)",
+				Pattern::Static(Arc::from("@capture_name(pattern)")),
+			),
+			(
+				r"\$name:@(pattern)",
+				Pattern::Static(Arc::from("$name:@(pattern)")),
+			),
+			(
+				r"\\$name:@(pattern)",
+				Pattern::Static(Arc::from(r"\$name:@(pattern)")),
+			),
+			(r"\*wildcard", Pattern::Static(Arc::from("*wildcard"))),
+			(r"\\*wildcard", Pattern::Static(Arc::from(r"\*wildcard"))),
+			(
+				"$name:@capture_name(pattern)",
+				Pattern::Regex(
+					RegexNames::new(
+						"name".to_owned(),
+						Some(
+							Regex::new(r"\A(?P<capture_name>pattern)\z")
+								.unwrap()
+								.capture_names(),
+						),
+					),
+					Some(Regex::new(r"\A(?P<capture_name>pattern)\z").unwrap()),
+				),
+			),
+			(
+				"$name:@(pattern)",
+				Pattern::Regex(
+					RegexNames::new(
+						"name".to_owned(),
+						Some(
+							Regex::new(r"\A(?P<name>pattern)\z")
+								.unwrap()
+								.capture_names(),
+						),
+					),
+					Some(Regex::new(r"\A(?P<name>pattern)\z").unwrap()),
+				),
+			),
+			(
+				"$name",
+				Pattern::Regex(RegexNames::new("name".to_owned(), None), None),
+			),
+			(
+				"$@capture_name(pattern)",
+				Pattern::Regex(
+					RegexNames::new("@capture_name(pattern)".to_owned(), None),
+					None,
+				),
+			),
+			(
+				"$name:static@capture_name(pattern).static[pattern]",
+				Pattern::Regex(
+					RegexNames::new(
+						"name".to_owned(),
+						Some(
+							Regex::new(r"\Astatic(?P<capture_name>pattern)\.static\[pattern\]\z")
+								.unwrap()
+								.capture_names(),
+						),
+					),
+					Some(Regex::new(r"\Astatic(?P<capture_name>pattern)\.static\[pattern\]\z").unwrap()),
+				),
+			),
+			(
+				r"$name:\@capture_name(pattern)@(pattern)\@",
+				Pattern::Regex(
+					RegexNames::new(
+						"name".to_owned(),
+						Some(
+							Regex::new(r"\A@capture_name\(pattern\)(?P<name>pattern)@\z")
+								.unwrap()
+								.capture_names(),
+						),
+					),
+					Some(Regex::new(r"\A@capture_name\(pattern\)(?P<name>pattern)@\z").unwrap()),
+				),
+			),
+			("*wildcard", Pattern::Wildcard(Arc::from("wildcard"))),
+		];
+
+		for case in cases {
+			let pattern = Pattern::parse(case.0);
+			println!(
+				"case: {}\n\tpattern:  {}\n\texpected: {}",
+				case.0, pattern, &case.1
+			);
+
+			assert!(pattern.compare(&case.1) == Similarity::Same);
+		}
+	}
+
+	#[test]
+	#[should_panic(expected = "empty regex pattern name")]
+	fn parse_empty_regex_pattern_name() {
+		Pattern::parse("$:@capture_name(pattern)");
+	}
+
+	#[test]
+	#[should_panic(expected = "incomplete regex pattern")]
+	fn parse_incomplete_regex_pattern() {
+		Pattern::parse("$name:");
+	}
+
+	#[test]
+	#[should_panic(expected = "must have at least one capturing or non-capturing segment")]
+	fn parse_regex_subpattern() {
+		Pattern::parse("$name:static");
+	}
+
+	#[test]
+	#[should_panic(expected = "multiple capturing segments cannot omit a capture name")]
+	fn parse_without_capture_name1() {
+		Pattern::parse("$name:static@capture_name(pattern)@(pattern)");
+	}
+
+	#[test]
+	#[should_panic(expected = "without a capture name cannot have multiple capturing segments")]
+	fn parse_without_capture_name2() {
+		Pattern::parse("$name:static@(pattern)@capture_name(pattern)");
+	}
+
+	#[test]
+	#[allow(clippy::type_complexity)]
+	fn is_match() {
+		struct Case<'a> {
+			kind: Kind,
+			pattern: &'a str,
+			matching: &'a [(&'a str, Option<&'a str>)],
+			nonmatching: &'a [&'a str],
+		}
+
+		enum Kind {
+			Static,
+			Regex,
+			Wildcard,
+		}
+
+		let cases = [
+			Case {
+				kind: Kind::Static,
+				pattern: "login",
+				matching: &[("login", None)],
+				nonmatching: &["logout"],
+			},
+			Case {
+				kind: Kind::Regex,
+				pattern: r"$id:@prefix(A|B|C)@number(\d{5})",
+				matching: &[
+					("A12345", Some("pattern $id: [prefix:A, number:12345]")),
+					("B54321", Some("pattern $id: [prefix:B, number:54321]")),
+					("C11111", Some("pattern $id: [prefix:C, number:11111]")),
+				],
+				nonmatching: &["D12345", "0ABCDEF", "AA12345", "B123456", "C1234", "AB1234"],
+			},
+			Case {
+				kind: Kind::Regex,
+				pattern: r"$car:@brand(.+) (@model(.+))",
+				matching: &[
+					(
+						"Audi (e-tron GT)",
+						Some("pattern $car: [brand:Audi, model:e-tron GT]"),
+					),
+					(
+						"Volvo (XC40 Recharge)",
+						Some("pattern $car: [brand:Volvo, model:XC40 Recharge]"),
+					),
+				],
+				nonmatching: &["Audi(Q8)", "Volvo C40", "Audi [A4]"],
+			},
+			Case {
+				kind: Kind::Wildcard,
+				pattern: "*card",
+				matching: &[
+					("king of clubs", Some("pattern *card: [king of clubs]")),
+					("queen of hearts", Some("pattern *card: [queen of hearts]")),
+				],
+				nonmatching: &[],
+			},
+		];
+
+		for case in cases {
+			let pattern = Pattern::parse(case.pattern);
+			println!("pattern: {}", pattern);
+
+			for (text, expected_params) in case.matching {
+				let mut params_list = ParamsList::new();
+
+				match case.kind {
+					Kind::Static => assert!(pattern.is_static_match(text).unwrap()),
+					Kind::Regex => {
+						assert!(pattern
+							.is_regex_match(Arc::from(*text), &mut params_list)
+							.unwrap());
+
+						let params = params_list.iter().next().unwrap();
+						assert_eq!(params.to_string(), expected_params.unwrap())
+					}
+					Kind::Wildcard => {
+						assert!(pattern
+							.is_wildcard_match(Arc::from(*text), &mut params_list)
+							.unwrap());
+
+						let params = params_list.iter().next().unwrap();
+						assert_eq!(params.to_string(), expected_params.unwrap())
+					}
+				}
+			}
+
+			let mut params_list = ParamsList::new();
+			for text in case.nonmatching {
+				match case.kind {
+					Kind::Static => assert!(!pattern.is_static_match(*text).unwrap()),
+					Kind::Regex => {
+						assert!(!pattern
+							.is_regex_match(Arc::from(*text), &mut params_list)
+							.unwrap());
+					}
+					Kind::Wildcard => {
+						assert!(!pattern
+							.is_wildcard_match(Arc::from(*text), &mut params_list)
+							.unwrap());
+					}
+				}
+			}
+		}
+	}
+
+	// #[test]
+	// #[allow(clippy::type_complexity)]
+	// fn params_next() {
+	// 	struct Case<'a> {
+	// 		pattern: &'a str,
+	// 		matching: &'a [(&'a str, Option<&'a [(&'a str, &'a str)]>)],
+	// 	}
+	//
+	// 	let cases = [
+	// 		Case { pattern: "login", matching: &[("login", None)] },
+	// 		Case {
+	// 			pattern: r"$id:@prefix(A|B|C)@number(\d{5})@suffix([A-Z]?)",
+	// 			matching: &[
+	// 				("A12345Z", Some(&[("prefix", "A"), ("number", "12345"), ("suffix", "Z")])),
+	// 				("B54321", Some(&[("prefix", "B"), ("number", "54321"), ("suffix", "")])),
+	// 				("C11111", Some(&[("prefix", "C"), ("number", "11111"), ("suffix", "")])),
+	// 			],
+	// 		},
+	// 		Case {
+	// 			pattern: r"$car:@brand(.+) (@model(.+))",
+	// 			matching: &[
+	// 				("Audi (e-tron GT)", Some(&[("brand", "Audi"), ("model", "e-tron GT")])),
+	// 				("Volvo (XC40 Recharge)", Some(&[("brand", "Volvo"), ("model", "XC40 Recharge")])),
+	// 			],
+	// 		},
+	// 		Case {
+	// 			pattern: "*card",
+	// 			matching: &[
+	// 				("king of clubs", Some(&[("card", "king of clubs")])),
+	// 				("queen of hearts", Some(&[("card", "queen of hearts")])),
+	// 			],
+	// 		},
+	// 	];
+	//
+	// 	for case in cases {
+	// 		let pattern = Pattern::parse(case.pattern);
+	// 		println!("pattern: {}", pattern);
+	//
+	// 		for (text, some_expected_outcome) in case.matching {
+	// 			let outcome = pattern.is_match(text);
+	//
+	// 			if let Some(expected_outcome) = some_expected_outcome {
+	// 				let mut params = match outcome {
+	// 					MatchOutcome::Dynamic(params) => params,
+	// 					_ => panic!()
+	// 				};
+	//
+	// 				for (expected_name, expected_value) in *expected_outcome {
+	// 					let param = params.next().unwrap();
+	// 					assert_eq!(param.name(), *expected_name);
+	//
+	// 					assert_eq!(param.value().or(Some("")), Some(*expected_value))
+	// 				}
+	// 			} else if let MatchOutcome::Static = outcome {} else {
+	// 				panic!("outcome is not a static match")
+	// 			}
+	// 		}
+	// 	}
+	// }
+}
