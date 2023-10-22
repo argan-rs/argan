@@ -146,10 +146,14 @@ pub(super) fn request_handler(mut request: Request) -> BoxedFuture<Response> {
 mod test {
 	use std::str::FromStr;
 
-	use http::{Method, StatusCode, Uri};
+	use http::{header::CONTENT_TYPE, Method, StatusCode, Uri};
+	use http_body_util::BodyExt;
+	use serde::{Deserialize, Serialize};
 
 	use crate::{
 		body::{Bytes, Empty},
+		data::Json,
+		request::PathParam,
 		resource::Resource,
 	};
 
@@ -159,18 +163,69 @@ mod test {
 
 	#[tokio::test]
 	async fn resource_service() {
+		//		abc0_0 -> *abc1_0 -> $abc2_0:@(abc2_0)
+		//					 |					-> $abc2_1:@cn(abc2_1)-cba -> *abc3_0
+		//					 |
+		//					 -> $abc1_1:@cn(abc1_1)-cba -> abc2_0
+
 		let mut resource = Resource::new("/abc0_0");
 		resource.set_handler(Method::GET, hello_world);
 
-		resource.set_subresource_handler("/*abc1_0", Method::PUT, hello_world);
-		resource.set_subresource_handler("/*abc1_0/$abc2_0:@(abc2_0)", Method::POST, hello_world);
+		resource.set_subresource_handler(
+			"/*abc1_0",
+			Method::PUT,
+			|PathParam(wildcard): PathParam<String>| async move {
+				println!("got param: {}", wildcard);
+
+				wildcard
+			},
+		);
+
+		resource.set_subresource_handler(
+			"/*abc1_0/$abc2_0:@(abc2_0)",
+			Method::POST,
+			|PathParam(path_values): PathParam<PathValues1_0_2_0>| async move {
+				println!("got path values: {:?}", path_values);
+
+				Json(path_values)
+			},
+		);
+
+		#[derive(Debug, Serialize, Deserialize)]
+		struct PathValues1_0_2_0 {
+			abc1_0: String,
+			abc2_0: Option<String>,
+			abc3_0: Option<u64>,
+		}
+
 		resource.set_subresource_handler(
 			"/*abc1_0/$abc2_1:@cn(abc2_1)-cba/*abc3_0",
 			Method::GET,
-			hello_world,
+			|PathParam(path_values): PathParam<PathValues1_0_2_1_3_0>| async move {
+				println!("got path values: {:?}", path_values);
+
+				Json(path_values)
+			},
 		);
 
-		resource.set_subresource_handler("/$abc1_1:@cn(abc1_1)-cba", Method::GET, hello_world);
+		#[derive(Debug, Serialize, Deserialize)]
+		struct PathValues1_0_2_1_3_0 {
+			abc1_0: Option<String>,
+			abc2_1: String,
+			abc3_0: u64,
+		}
+
+		resource.set_subresource_handler(
+			"/$abc1_1:@cn(abc1_1)-cba",
+			Method::GET,
+			|PathParam(value): PathParam<String>| async move {
+				let vector = Vec::from(value);
+				println!("got path values: {:?}", vector);
+
+				vector
+			},
+		);
+
 		resource.set_subresource_handler("/$abc1_1:@cn(abc1_1)-cba/abc2_0", Method::GET, hello_world);
 
 		dbg!();
@@ -188,18 +243,72 @@ mod test {
 		let request = new_request("PUT", "/abc0_0/abc1_0");
 		let response = service.call(request).await.unwrap();
 		assert_eq!(response.status(), StatusCode::OK);
+		assert_eq!(
+			response
+				.headers()
+				.get(CONTENT_TYPE)
+				.unwrap()
+				.to_str()
+				.unwrap(),
+			mime::TEXT_PLAIN_UTF_8,
+		);
+
+		let body = response.into_body().collect().await.unwrap().to_bytes();
+		assert_eq!(body.as_ref(), "abc1_0".as_bytes());
 
 		dbg!();
 
-		let request = new_request("POST", "/abc0_0/*abc1_0/abc2_0");
+		let request = new_request("POST", "/abc0_0/abc1_0/abc2_0");
 		let response = service.call(request).await.unwrap();
 		assert_eq!(response.status(), StatusCode::OK);
+		assert_eq!(
+			response
+				.headers()
+				.get(CONTENT_TYPE)
+				.unwrap()
+				.to_str()
+				.unwrap(),
+			mime::APPLICATION_JSON,
+		);
+
+		let json_body = String::from_utf8(
+			response
+				.into_body()
+				.collect()
+				.await
+				.unwrap()
+				.to_bytes()
+				.to_vec(),
+		)
+		.unwrap();
+		assert_eq!(
+			json_body,
+			r#"{"abc1_0":"abc1_0","abc2_0":"abc2_0","abc3_0":null}"#
+		);
 
 		dbg!();
 
 		let request = new_request("GET", "/abc0_0/abc1_1-cba");
 		let response = service.call(request).await.unwrap();
 		assert_eq!(response.status(), StatusCode::OK);
+		assert_eq!(
+			response
+				.headers()
+				.get(CONTENT_TYPE)
+				.unwrap()
+				.to_str()
+				.unwrap(),
+			mime::APPLICATION_OCTET_STREAM,
+		);
+
+		let vector_body = response
+			.into_body()
+			.collect()
+			.await
+			.unwrap()
+			.to_bytes()
+			.to_vec();
+		assert_eq!(vector_body, b"abc1_1".to_vec());
 
 		dbg!();
 
@@ -209,9 +318,33 @@ mod test {
 
 		dbg!();
 
-		let request = new_request("GET", "/abc0_0/abc1_0-wildcard/abc2_1-cba/wildcard-abc3_0");
+		let request = new_request("GET", "/abc0_0/abc1_0-wildcard/abc2_1-cba/30");
 		let response = service.call(request).await.unwrap();
 		assert_eq!(response.status(), StatusCode::OK);
+		assert_eq!(
+			response
+				.headers()
+				.get(CONTENT_TYPE)
+				.unwrap()
+				.to_str()
+				.unwrap(),
+			mime::APPLICATION_JSON,
+		);
+
+		let json_body = String::from_utf8(
+			response
+				.into_body()
+				.collect()
+				.await
+				.unwrap()
+				.to_bytes()
+				.to_vec(),
+		)
+		.unwrap();
+		assert_eq!(
+			json_body,
+			r#"{"abc1_0":"abc1_0-wildcard","abc2_1":"abc2_1","abc3_0":30}"#
+		);
 	}
 
 	fn new_request(method: &str, uri: &str) -> Request<Empty<Bytes>> {
