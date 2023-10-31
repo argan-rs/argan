@@ -44,6 +44,14 @@ pub struct ResourceService {
 
 impl ResourceService {
 	#[inline]
+	fn is_root(&self) -> bool {
+		match self.pattern {
+			Pattern::Static(ref pattern) => pattern.as_ref() == "/",
+			_ => false,
+		}
+	}
+
+	#[inline]
 	pub(super) fn is_subtree_handler(&self) -> bool {
 		self.is_subtree_handler
 	}
@@ -82,7 +90,7 @@ where
 			} else {
 				false
 			}
-		} else {
+		} else if !self.is_root() {
 			let (next_segment, _) = route_traversal.next_segment(request.uri().path()).unwrap();
 
 			if let Some(result) = self.pattern.is_static_match(next_segment) {
@@ -103,14 +111,15 @@ where
 						.unwrap()
 				}
 			}
+		} else {
+			// Resource is a root and the request's path always starts with a root.
+			true
 		};
 
 		let routing_state = RoutingState::new(route_traversal, self.clone());
 		request.extensions_mut().insert(routing_state);
 
-		if
-		/*matched*/
-		true {
+		if matched {
 			match self.request_receiver.as_ref() {
 				Some(request_receiver) => {
 					ResourceInternalFuture::from(request_receiver.handle(request)).into()
@@ -155,6 +164,7 @@ mod test {
 		data::Json,
 		request::PathParam,
 		resource::Resource,
+		response::IntoResponse,
 	};
 
 	use super::*;
@@ -163,6 +173,23 @@ mod test {
 
 	#[tokio::test]
 	async fn resource_service() {
+		let mut root = Resource::new("/");
+		let handler = |_request: Request| async {};
+		root.set_subresource_handler("/abc", Method::GET, handler);
+		assert_eq!(root.subresource_mut("/abc").pattern(), "abc");
+		assert!(root.subresource_mut("/abc").can_handle_request());
+
+		let service = root.into_service();
+		let static_resource = service.static_resources.as_ref().unwrap();
+		assert_eq!(static_resource.len(), 1);
+		assert_eq!(static_resource[0].pattern.to_string(), "abc");
+
+		let request = Request::get("/abc").body(Empty::<Bytes>::new()).unwrap();
+		let response = service.call(request).await.unwrap();
+		assert_eq!(response.status(), StatusCode::OK);
+
+		// --------------------------------------------------
+		// --------------------------------------------------
 		//		abc0_0 -> *abc1_0 -> $abc2_0:@(abc2_0)
 		//					 |					-> $abc2_1:@cn(abc2_1)-cba -> *abc3_0
 		//					 |

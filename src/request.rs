@@ -3,7 +3,7 @@ use std::{
 	future::{ready, Future, Ready},
 };
 
-use http::{request::Parts, Method, Uri};
+use http::request::Parts;
 use serde::{de::DeserializeOwned, Deserializer};
 
 use crate::{
@@ -11,6 +11,10 @@ use crate::{
 	response::{IntoResponse, Response},
 	routing::RoutingState,
 };
+
+// ----------
+
+pub use http::{header, Method, Uri, Version};
 
 // --------------------------------------------------------------------------------
 // --------------------------------------------------------------------------------

@@ -1,12 +1,12 @@
 #![allow(dead_code)]
 
-mod body;
+pub mod body;
 mod data;
-mod handler;
+pub mod handler;
 mod middleware;
 mod pattern;
-mod request;
-mod resource;
-mod response;
+pub mod request;
+pub mod resource;
+pub mod response;
 mod routing;
 mod utils;

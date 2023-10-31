@@ -137,6 +137,10 @@ impl Resource {
 		self.pattern.name()
 	}
 
+	pub fn pattern(&self) -> String {
+		self.pattern.to_string()
+	}
+
 	#[inline]
 	pub fn is_subtree_handler(&self) -> bool {
 		self.is_subtree_handler
@@ -721,6 +725,7 @@ impl Resource {
 	fn path_has_the_same_name(&self, name: &str) -> bool {
 		if let Some(resource_name) = self.name() {
 			if resource_name == name {
+				panic!("resource name: {}, name: {}", resource_name, name);
 				return true;
 			}
 		}
@@ -968,7 +973,7 @@ impl Resource {
 	// -------------------------
 
 	pub fn set_subresources_state<S: Clone + Send + Sync + 'static>(&mut self, state: S) {
-		self.call_for_each_subresource(|subresource| {
+		self.for_each_subresource(|subresource| {
 			subresource.set_state(state.clone());
 		});
 	}
@@ -983,7 +988,7 @@ impl Resource {
 		L::Handler: Handler + Send + Sync + 'static,
 		<L::Handler as Handler>::Response: IntoResponse,
 	{
-		self.call_for_each_subresource(|subresource| subresource.wrap_request_receiver(layer.clone()))
+		self.for_each_subresource(|subresource| subresource.wrap_request_receiver(layer.clone()))
 	}
 
 	pub fn wrap_subresources_request_passers<L, LayeredB>(&mut self, layer: L)
@@ -992,7 +997,7 @@ impl Resource {
 		L::Handler: Handler + Send + Sync + 'static,
 		<L::Handler as Handler>::Response: IntoResponse,
 	{
-		self.call_for_each_subresource(|subresource| subresource.wrap_request_passer(layer.clone()))
+		self.for_each_subresource(|subresource| subresource.wrap_request_passer(layer.clone()))
 	}
 
 	pub fn wrap_subresources_request_handlers<L, LayeredB>(&mut self, layer: L)
@@ -1001,7 +1006,7 @@ impl Resource {
 		L::Handler: Handler + Send + Sync + 'static,
 		<L::Handler as Handler>::Response: IntoResponse,
 	{
-		self.call_for_each_subresource(|subresource| subresource.wrap_request_handler(layer.clone()))
+		self.for_each_subresource(|subresource| subresource.wrap_request_handler(layer.clone()))
 	}
 
 	pub fn wrap_subresources_method_handlers<L, LayeredB>(&mut self, method: Method, layer: L)
@@ -1010,12 +1015,12 @@ impl Resource {
 		L::Handler: Handler + Send + Sync + 'static,
 		<L::Handler as Handler>::Response: IntoResponse,
 	{
-		self.call_for_each_subresource(|subresource| {
+		self.for_each_subresource(|subresource| {
 			subresource.wrap_method_handler(method.clone(), layer.clone())
 		})
 	}
 
-	fn call_for_each_subresource(&mut self, func: impl Fn(&mut Resource)) {
+	pub fn for_each_subresource(&mut self, func: impl Fn(&mut Resource)) {
 		let mut subresources = Vec::new();
 		subresources.extend(self.static_resources.iter_mut());
 		subresources.extend(self.regex_resources.iter_mut());
@@ -1029,6 +1034,33 @@ impl Resource {
 			};
 
 			func(subresource);
+
+			subresources.extend(subresource.static_resources.iter_mut());
+			subresources.extend(subresource.regex_resources.iter_mut());
+			if let Some(resource) = subresource.wildcard_resource.as_deref_mut() {
+				subresources.push(resource);
+			}
+		}
+	}
+
+	pub fn for_each_subresource_with_param<T: Clone>(
+		&mut self,
+		v: T,
+		func: impl Fn(&mut Resource, T),
+	) {
+		let mut subresources = Vec::new();
+		subresources.extend(self.static_resources.iter_mut());
+		subresources.extend(self.regex_resources.iter_mut());
+		if let Some(resource) = self.wildcard_resource.as_deref_mut() {
+			subresources.push(resource);
+		}
+
+		for i in 0.. {
+			let Some(subresource) = subresources.pop() else {
+				break;
+			};
+
+			func(subresource, v.clone());
 
 			subresources.extend(subresource.static_resources.iter_mut());
 			subresources.extend(subresource.regex_resources.iter_mut());

@@ -8,12 +8,12 @@ use std::{
 use hyper::HeaderMap;
 use pin_project::pin_project;
 
+use super::utils::BoxedError;
+
 // ----------
 
-pub(crate) use http_body_util::{BodyExt, Empty, Full};
+pub use http_body_util::{BodyExt, Empty, Full};
 pub use hyper::body::{Body, Buf, Bytes, Frame, Incoming};
-
-use super::utils::BoxedError;
 
 // --------------------------------------------------------------------------------
 // --------------------------------------------------------------------------------

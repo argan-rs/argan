@@ -2,7 +2,7 @@ use tower_layer::Layer as TowerLayer;
 
 use crate::handler::HandlerService;
 
-// -------------------------
+// --------------------------------------------------
 
 mod internal;
 
