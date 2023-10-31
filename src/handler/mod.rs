@@ -1,7 +1,5 @@
 use std::{convert::Infallible, fmt::Debug, future::Future, marker::PhantomData, sync::Arc};
 
-pub use hyper::service::Service;
-
 use crate::{
 	body::Body,
 	body::IncomingBody,
@@ -10,6 +8,10 @@ use crate::{
 	response::{IntoResponse, Response},
 	utils::{BoxedError, BoxedFuture},
 };
+
+// ----------
+
+pub use hyper::service::Service;
 
 // --------------------------------------------------
 

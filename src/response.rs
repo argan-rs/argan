@@ -1,11 +1,15 @@
 use std::{any::Any, convert::Infallible};
 
-use http::{response::Parts, StatusCode};
+use http::response::Parts;
 
 use crate::{
 	body::{Body, BodyExt, BoxedBody, Bytes},
 	utils::BoxedError,
 };
+
+// ----------
+
+pub use http::StatusCode;
 
 // --------------------------------------------------------------------------------
 // --------------------------------------------------------------------------------
@@ -84,6 +88,16 @@ impl IntoResponseHead for StatusCode {
 // Infallible Error
 
 impl IntoResponse for Infallible {
+	#[inline]
+	fn into_response(self) -> Response {
+		Response::default()
+	}
+}
+
+// --------------------------------------------------
+// Unit ()
+
+impl IntoResponse for () {
 	#[inline]
 	fn into_response(self) -> Response {
 		Response::default()
