@@ -725,7 +725,7 @@ impl Resource {
 	fn path_has_the_same_name(&self, name: &str) -> bool {
 		if let Some(resource_name) = self.name() {
 			if resource_name == name {
-				panic!("resource name: {}, name: {}", resource_name, name);
+				// panic!("resource name: {}, name: {}", resource_name, name);
 				return true;
 			}
 		}
@@ -753,7 +753,7 @@ impl Resource {
 		if self
 			.states
 			.iter()
-			.any(|existing_state| (*existing_state).type_id() == state_type_id)
+			.any(|existing_state| (*(*existing_state)).type_id() == state_type_id)
 		{
 			return Err(BoxedError::from(format!(
 				"resource already has a state of type '{:?}'",

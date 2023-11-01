@@ -6,7 +6,7 @@ use std::{
 };
 
 use hyper::HeaderMap;
-use pin_project::pin_project;
+use pin_project_lite::pin_project;
 
 use super::utils::BoxedError;
 
@@ -22,18 +22,25 @@ pub type BoxedBody = http_body_util::combinators::BoxBody<Bytes, BoxedError>;
 
 // --------------------------------------------------
 
-#[pin_project]
-pub struct IncomingBody(#[pin] InnerBody);
+pin_project! {
+	pub struct IncomingBody {
+		#[pin] inner: InnerBody
+	}
+}
 
-#[pin_project(project = InnerBodyProjection)]
-enum InnerBody {
-	Incoming(#[pin] Incoming),
-	Boxed(#[pin] BoxedBody),
+pin_project! {
+	#[project = InnerBodyProjection]
+	enum InnerBody {
+		Incoming { #[pin] incoming: Incoming },
+		Boxed { #[pin] boxed: BoxedBody },
+	}
 }
 
 impl IncomingBody {
-	fn from_incoming(body: Incoming) -> Self {
-		Self(InnerBody::Incoming(body))
+	fn from_incoming(incoming: Incoming) -> Self {
+		Self {
+			inner: InnerBody::Incoming { incoming },
+		}
 	}
 
 	#[inline]
@@ -56,7 +63,11 @@ impl IncomingBody {
 		let body =
 			some_body.expect("Option should have been created from a valid value in a local scope");
 
-		Self(InnerBody::Boxed(BoxedBody::new(BodyAdapter::new(body))))
+		Self {
+			inner: InnerBody::Boxed {
+				boxed: BoxedBody::new(BodyAdapter::new(body)),
+			},
+		}
 	}
 }
 
@@ -69,21 +80,22 @@ impl Body for IncomingBody {
 		cx: &mut Context<'_>,
 	) -> Poll<Option<Result<Frame<Self::Data>, Self::Error>>> {
 		let self_projection = self.project();
-		match self_projection.0.project() {
-			InnerBodyProjection::Incoming(incoming) => incoming.poll_frame(cx).map_err(Into::into),
-			InnerBodyProjection::Boxed(boxed) => boxed.poll_frame(cx),
+		match self_projection.inner.project() {
+			InnerBodyProjection::Incoming { incoming } => incoming.poll_frame(cx).map_err(Into::into),
+			InnerBodyProjection::Boxed { boxed } => boxed.poll_frame(cx),
 		}
 	}
 }
 
 // -------------------------
 
-#[pin_project]
-struct BodyAdapter<B>(#[pin] B);
+pin_project! {
+	struct BodyAdapter<B> { #[pin] inner: B }
+}
 
 impl<B> BodyAdapter<B> {
-	fn new(body: B) -> Self {
-		Self(body)
+	fn new(inner: B) -> Self {
+		Self { inner }
 	}
 }
 
@@ -102,7 +114,7 @@ where
 	) -> Poll<Option<Result<Frame<Self::Data>, Self::Error>>> {
 		self
 			.project()
-			.0
+			.inner
 			.poll_frame(cx)
 			.map_ok(|frame| {
 				if frame.is_data() {

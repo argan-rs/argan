@@ -8,7 +8,7 @@ use std::{
 
 use http::StatusCode;
 use percent_encoding::percent_decode_str;
-use pin_project::pin_project;
+use pin_project_lite::pin_project;
 
 use crate::{
 	handler::{
@@ -25,12 +25,17 @@ use super::service::{request_passer, request_receiver};
 // --------------------------------------------------------------------------------
 // --------------------------------------------------------------------------------
 
-#[pin_project]
-pub(crate) struct RequestReceiverFuture(Option<Request>);
+pin_project! {
+	pub(crate) struct RequestReceiverFuture {
+		some_request: Option<Request>
+	}
+}
 
 impl From<Request> for RequestReceiverFuture {
 	fn from(request: Request) -> Self {
-		Self(Some(request))
+		Self {
+			some_request: Some(request),
+		}
 	}
 }
 
@@ -40,7 +45,7 @@ impl Future for RequestReceiverFuture {
 	fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
 		let self_projection = self.project();
 
-		let mut request = self_projection.0.take().unwrap();
+		let mut request = self_projection.some_request.take().unwrap();
 		let mut routing_state = request.extensions_mut().remove::<RoutingState>().unwrap();
 		let current_resource = routing_state.current_resource.clone().unwrap();
 
@@ -101,12 +106,17 @@ impl Future for RequestReceiverFuture {
 
 // --------------------------------------------------------------------------------
 
-#[pin_project]
-pub struct RequestPasserFuture(Option<Request>);
+pin_project! {
+	pub struct RequestPasserFuture {
+		some_request: Option<Request>
+	}
+}
 
 impl From<Request> for RequestPasserFuture {
 	fn from(request: Request) -> Self {
-		Self(Some(request))
+		Self {
+			some_request: Some(request),
+		}
 	}
 }
 
@@ -116,7 +126,7 @@ impl Future for RequestPasserFuture {
 	fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
 		let self_projection = self.project();
 
-		let mut request = self_projection.0.take().unwrap();
+		let mut request = self_projection.some_request.take().unwrap();
 		let mut routing_state = request.extensions_mut().remove::<RoutingState>().unwrap();
 		let current_resource = routing_state.current_resource.take().unwrap();
 		let mut path_params = std::mem::take(&mut routing_state.path_params);
@@ -135,7 +145,7 @@ impl Future for RequestPasserFuture {
 						resources.iter().find(
 							// Static patterns keep percent encoded text. We may match them without
 							// decoding the segment.
-							|resource| resource.pattern.is_static_match(&next_segment).unwrap(),
+							|resource| resource.pattern.is_static_match(next_segment).unwrap(),
 						)
 					}) {
 				break 'some_next_resource (Some(next_resource), next_segment_index);
@@ -221,12 +231,15 @@ impl Future for RequestPasserFuture {
 
 // --------------------------------------------------------------------------------
 
-#[pin_project]
-pub struct ResourceFuture(#[pin] ResourceInternalFuture);
+pin_project! {
+	pub struct ResourceFuture {
+		#[pin] inner: ResourceInnerFuture,
+	}
+}
 
-impl From<ResourceInternalFuture> for ResourceFuture {
-	fn from(internal: ResourceInternalFuture) -> Self {
-		Self(internal)
+impl From<ResourceInnerFuture> for ResourceFuture {
+	fn from(inner: ResourceInnerFuture) -> Self {
+		Self { inner }
 	}
 }
 
@@ -235,49 +248,59 @@ impl Future for ResourceFuture {
 
 	#[inline]
 	fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-		self.project().0.poll(cx)
+		self.project().inner.poll(cx)
 	}
 }
 
 // ----------
 
-#[pin_project(project = ResourceInternalFutureProjection)]
-pub(crate) enum ResourceInternalFuture {
-	Boxed(#[pin] ResponseToResultFuture<BoxedFuture<Response>>),
-	Unboxed(#[pin] ResponseToResultFuture<RequestReceiverFuture>),
-	Ready(#[pin] ResponseToResultFuture<Ready<Response>>),
+pin_project! {
+	#[project = ResourceInnerFutureProjection]
+	pub(crate) enum ResourceInnerFuture {
+		Boxed { #[pin] boxed: ResponseToResultFuture<BoxedFuture<Response>> },
+		Unboxed { #[pin] unboxed: ResponseToResultFuture<RequestReceiverFuture> },
+		Ready { #[pin] ready: ResponseToResultFuture<Ready<Response>> },
+	}
 }
 
-impl From<BoxedFuture<Response>> for ResourceInternalFuture {
+impl From<BoxedFuture<Response>> for ResourceInnerFuture {
 	#[inline]
 	fn from(boxed_future: BoxedFuture<Response>) -> Self {
-		Self::Boxed(ResponseToResultFuture::from(boxed_future))
+		Self::Boxed {
+			boxed: ResponseToResultFuture::from(boxed_future),
+		}
 	}
 }
 
-impl From<RequestReceiverFuture> for ResourceInternalFuture {
+impl From<RequestReceiverFuture> for ResourceInnerFuture {
 	#[inline]
 	fn from(request_receiver_future: RequestReceiverFuture) -> Self {
-		Self::Unboxed(ResponseToResultFuture::from(request_receiver_future))
+		Self::Unboxed {
+			unboxed: ResponseToResultFuture::from(request_receiver_future),
+		}
 	}
 }
 
-impl From<Ready<Response>> for ResourceInternalFuture {
+impl From<Ready<Response>> for ResourceInnerFuture {
 	#[inline]
 	fn from(ready_future: Ready<Response>) -> Self {
-		Self::Ready(ResponseToResultFuture::from(ready_future))
+		Self::Ready {
+			ready: ResponseToResultFuture::from(ready_future),
+		}
 	}
 }
 
-impl Future for ResourceInternalFuture {
+impl Future for ResourceInnerFuture {
 	type Output = Result<Response, Infallible>;
 
 	#[inline]
 	fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
 		match self.project() {
-			ResourceInternalFutureProjection::Boxed(boxed) => boxed.poll(cx),
-			ResourceInternalFutureProjection::Unboxed(unboxed) => unboxed.poll(cx),
-			ResourceInternalFutureProjection::Ready(ready) => ready.poll(cx),
+			ResourceInnerFutureProjection::Boxed { boxed } => boxed.poll(cx),
+			ResourceInnerFutureProjection::Unboxed { unboxed } => unboxed.poll(cx),
+			ResourceInnerFutureProjection::Ready { ready } => ready.poll(cx),
 		}
 	}
 }
+
+// --------------------------------------------------

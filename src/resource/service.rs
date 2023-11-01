@@ -16,7 +16,7 @@ use crate::{
 };
 
 use super::futures::{
-	RequestPasserFuture, RequestReceiverFuture, ResourceFuture, ResourceInternalFuture,
+	RequestPasserFuture, RequestReceiverFuture, ResourceFuture, ResourceInnerFuture,
 };
 
 // --------------------------------------------------------------------------------
@@ -122,12 +122,12 @@ where
 		if matched {
 			match self.request_receiver.as_ref() {
 				Some(request_receiver) => {
-					ResourceInternalFuture::from(request_receiver.handle(request)).into()
+					ResourceInnerFuture::from(request_receiver.handle(request)).into()
 				}
-				None => ResourceInternalFuture::from(request_receiver(request)).into(),
+				None => ResourceInnerFuture::from(request_receiver(request)).into(),
 			}
 		} else {
-			ResourceInternalFuture::from(misdirected_request_handler(request)).into()
+			ResourceInnerFuture::from(misdirected_request_handler(request)).into()
 		}
 	}
 }
@@ -146,7 +146,7 @@ pub(super) fn request_passer(mut request: Request) -> RequestPasserFuture {
 
 pub(super) fn request_handler(mut request: Request) -> BoxedFuture<Response> {
 	let routing_state = request.extensions_mut().get_mut::<RoutingState>().unwrap();
-	let current_resource = routing_state.current_resource.take().unwrap();
+	let current_resource = routing_state.current_resource.take().unwrap(); // ???
 
 	current_resource.method_handlers.handle(request)
 }
@@ -164,7 +164,6 @@ mod test {
 		data::Json,
 		request::PathParam,
 		resource::Resource,
-		response::IntoResponse,
 	};
 
 	use super::*;

@@ -72,7 +72,7 @@ impl<'de> FromParams<'de> {
 			Params::Wildcard(name, _) => {
 				self.state = State::ParamNameTaken;
 
-				return Some(name);
+				Some(name)
 			}
 		}
 	}
@@ -105,7 +105,7 @@ impl<'de> FromParams<'de> {
 			Params::Wildcard(_, text) => {
 				self.state = State::Finished;
 
-				Some(Some(&*text))
+				Some(Some(text))
 			}
 		}
 	}
