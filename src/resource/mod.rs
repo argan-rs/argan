@@ -744,7 +744,7 @@ impl Resource {
 	// -------------------------
 
 	// TODO: Remove BoxedErrors.
-	pub fn set_state<S: Clone + Send + Sync + 'static>(
+	pub fn add_state<S: Clone + Send + Sync + 'static>(
 		&mut self,
 		state: S,
 	) -> Result<(), BoxedError> {
@@ -881,9 +881,9 @@ impl Resource {
 
 	// -------------------------
 
-	pub fn set_subresource_state<S: Clone + Send + Sync + 'static>(&mut self, route: &str, state: S) {
+	pub fn add_subresource_state<S: Clone + Send + Sync + 'static>(&mut self, route: &str, state: S) {
 		let subresource = self.subresource_mut(route);
-		subresource.set_state(state);
+		subresource.add_state(state);
 	}
 
 	pub fn subresource_state<S: Clone + Send + Sync + 'static>(
@@ -972,9 +972,9 @@ impl Resource {
 
 	// -------------------------
 
-	pub fn set_subresources_state<S: Clone + Send + Sync + 'static>(&mut self, state: S) {
+	pub fn add_subresources_state<S: Clone + Send + Sync + 'static>(&mut self, state: S) {
 		self.for_each_subresource(|subresource| {
-			subresource.set_state(state.clone());
+			subresource.add_state(state.clone());
 		});
 	}
 
