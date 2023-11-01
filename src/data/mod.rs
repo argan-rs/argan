@@ -15,7 +15,7 @@ use http::{
 };
 use http_body_util::{BodyExt, Empty, Full};
 use hyper::body::{Body, Bytes};
-use pin_project::pin_project;
+use pin_project_lite::pin_project;
 use serde::{de::DeserializeOwned, Serialize};
 
 use crate::{
@@ -92,12 +92,19 @@ where
 	type Future = FormFuture<B, T>;
 
 	fn from_request(request: Request<B>) -> Self::Future {
-		FormFuture(request, PhantomData)
+		FormFuture {
+			request,
+			_mark: PhantomData,
+		}
 	}
 }
 
-#[pin_project]
-pub struct FormFuture<B, T>(#[pin] Request<B>, PhantomData<T>);
+pin_project! {
+	pub struct FormFuture<B, T> {
+		#[pin] request: Request<B>,
+		_mark: PhantomData<T>,
+	}
+}
 
 impl<B, T> Future for FormFuture<B, T>
 where
@@ -111,14 +118,14 @@ where
 		let self_projection = self.project();
 
 		let content_type = self_projection
-			.0
+			.request
 			.headers()
 			.get(CONTENT_TYPE)
 			.unwrap()
 			.to_str()
 			.unwrap();
 		if content_type == mime::APPLICATION_WWW_FORM_URLENCODED {
-			if let Poll::Ready(result) = pin!(self_projection.0.collect()).poll(cx) {
+			if let Poll::Ready(result) = pin!(self_projection.request.collect()).poll(cx) {
 				let body = result.unwrap().to_bytes();
 				let value = serde_urlencoded::from_bytes::<T>(&body).unwrap();
 
@@ -163,12 +170,19 @@ where
 	type Future = JsonFuture<B, T>;
 
 	fn from_request(request: Request<B>) -> Self::Future {
-		JsonFuture(request, PhantomData)
+		JsonFuture {
+			request,
+			_mark: PhantomData,
+		}
 	}
 }
 
-#[pin_project]
-pub struct JsonFuture<B, T>(#[pin] Request<B>, PhantomData<T>);
+pin_project! {
+	pub struct JsonFuture<B, T> {
+		#[pin] request: Request<B>,
+		_mark: PhantomData<T>,
+	}
+}
 
 impl<B, T> Future for JsonFuture<B, T>
 where
@@ -182,14 +196,14 @@ where
 		let self_projection = self.project();
 
 		let content_type = self_projection
-			.0
+			.request
 			.headers()
 			.get(CONTENT_TYPE)
 			.unwrap()
 			.to_str()
 			.unwrap();
 		if content_type == mime::APPLICATION_JSON {
-			if let Poll::Ready(result) = pin!(self_projection.0.collect()).poll(cx) {
+			if let Poll::Ready(result) = pin!(self_projection.request.collect()).poll(cx) {
 				let body = result.unwrap().to_bytes();
 				let value = serde_json::from_slice::<T>(&body).unwrap();
 
@@ -284,12 +298,13 @@ where
 	type Future = StringFuture<B>;
 
 	fn from_request(request: Request<B>) -> Self::Future {
-		StringFuture(request)
+		StringFuture { request }
 	}
 }
 
-#[pin_project]
-pub struct StringFuture<B>(#[pin] Request<B>);
+pin_project! {
+	pub struct StringFuture<B> { #[pin] request: Request<B> }
+}
 
 impl<B> Future for StringFuture<B>
 where
@@ -302,14 +317,14 @@ where
 		let self_projection = self.project();
 
 		let content_type = self_projection
-			.0
+			.request
 			.headers()
 			.get(CONTENT_TYPE)
 			.unwrap()
 			.to_str()
 			.unwrap();
 		if content_type == mime::TEXT_PLAIN_UTF_8 {
-			if let Poll::Ready(result) = pin!(self_projection.0.collect()).poll(cx) {
+			if let Poll::Ready(result) = pin!(self_projection.request.collect()).poll(cx) {
 				let body = result.unwrap().to_bytes();
 				let value = String::from_utf8(body.to_vec()).unwrap();
 
@@ -368,12 +383,13 @@ where
 	type Future = VecFuture<B>;
 
 	fn from_request(request: Request<B>) -> Self::Future {
-		VecFuture(request)
+		VecFuture { request }
 	}
 }
 
-#[pin_project]
-pub struct VecFuture<B>(#[pin] Request<B>);
+pin_project! {
+	pub struct VecFuture<B> { #[pin] request: Request<B> }
+}
 
 impl<B> Future for VecFuture<B>
 where
@@ -386,14 +402,14 @@ where
 		let mut self_projection = self.project();
 
 		let content_type = self_projection
-			.0
+			.request
 			.headers()
 			.get(CONTENT_TYPE)
 			.unwrap()
 			.to_str()
 			.unwrap();
 		if content_type == mime::APPLICATION_OCTET_STREAM {
-			if let Poll::Ready(result) = pin!(self_projection.0.collect()).poll(cx) {
+			if let Poll::Ready(result) = pin!(self_projection.request.collect()).poll(cx) {
 				let value = result.unwrap().to_bytes().to_vec();
 
 				return Poll::Ready(Ok(value));
@@ -441,12 +457,13 @@ where
 	type Future = BytesFuture<B>;
 
 	fn from_request(request: Request<B>) -> Self::Future {
-		BytesFuture(request)
+		BytesFuture { request }
 	}
 }
 
-#[pin_project]
-pub struct BytesFuture<B>(#[pin] Request<B>);
+pin_project! {
+	pub struct BytesFuture<B> { #[pin] request: Request<B> }
+}
 
 impl<B> Future for BytesFuture<B>
 where
@@ -459,14 +476,14 @@ where
 		let mut self_projection = self.project();
 
 		let content_type = self_projection
-			.0
+			.request
 			.headers()
 			.get(CONTENT_TYPE)
 			.unwrap()
 			.to_str()
 			.unwrap();
 		if content_type == mime::APPLICATION_OCTET_STREAM {
-			if let Poll::Ready(result) = pin!(self_projection.0.collect()).poll(cx) {
+			if let Poll::Ready(result) = pin!(self_projection.request.collect()).poll(cx) {
 				return Poll::Ready(Ok(result.unwrap().to_bytes()));
 			}
 

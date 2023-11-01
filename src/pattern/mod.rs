@@ -364,7 +364,7 @@ impl ParamsList {
 
 	#[inline]
 	pub(crate) fn deserializer(&mut self) -> FromParamsList<'_> {
-		FromParamsList::new(&mut self.0)
+		FromParamsList::new(&self.0)
 	}
 }
 

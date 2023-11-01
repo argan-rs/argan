@@ -5,19 +5,22 @@ use std::{
 	task::{Context, Poll},
 };
 
-use pin_project::pin_project;
+use pin_project_lite::pin_project;
 
 use crate::response::Response;
 
 // --------------------------------------------------------------------------------
 // --------------------------------------------------------------------------------
 
-#[pin_project]
-pub struct ResultToResponseFuture<F>(#[pin] F);
+pin_project! {
+	pub struct ResultToResponseFuture<F> {
+		#[pin] inner: F
+	}
+}
 
 impl<F> From<F> for ResultToResponseFuture<F> {
 	fn from(inner: F) -> Self {
-		Self(inner)
+		Self { inner }
 	}
 }
 
@@ -29,18 +32,21 @@ where
 
 	#[inline]
 	fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-		self.project().0.poll(cx).map(|output| output.unwrap())
+		self.project().inner.poll(cx).map(|output| output.unwrap())
 	}
 }
 
 // --------------------------------------------------------------------------------
 
-#[pin_project]
-pub struct ResponseToResultFuture<F>(#[pin] F);
+pin_project! {
+	pub struct ResponseToResultFuture<F> {
+		#[pin] inner: F
+	}
+}
 
 impl<F> From<F> for ResponseToResultFuture<F> {
 	fn from(inner: F) -> Self {
-		Self(inner)
+		Self { inner }
 	}
 }
 
@@ -52,7 +58,7 @@ where
 
 	#[inline]
 	fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-		self.project().0.poll(cx).map(|output| Ok(output))
+		self.project().inner.poll(cx).map(|output| Ok(output))
 	}
 }
 

@@ -125,9 +125,7 @@ impl<'r> Iterator for RouteSegments<'r> {
 	type Item = (&'r str, usize);
 
 	fn next(&mut self) -> Option<Self::Item> {
-		let Some((segment, segment_index)) = self.route_traversal.next_segment(self.route) else {
-			return None;
-		};
+		let (segment, segment_index) = self.route_traversal.next_segment(self.route)?;
 
 		Some((segment, segment_index))
 	}
@@ -136,6 +134,13 @@ impl<'r> Iterator for RouteSegments<'r> {
 // --------------------------------------------------
 
 pub(crate) struct UnusedRequest(Request);
+
+impl UnusedRequest {
+	#[inline]
+	pub(crate) fn into_request(self) -> Request {
+		self.0
+	}
+}
 
 impl From<Request> for UnusedRequest {
 	#[inline]
@@ -162,13 +167,6 @@ impl AsMut<Request> for UnusedRequest {
 	#[inline]
 	fn as_mut(&mut self) -> &mut Request {
 		&mut self.0
-	}
-}
-
-impl UnusedRequest {
-	#[inline]
-	pub(crate) fn into_request(self) -> Request {
-		self.0
 	}
 }
 

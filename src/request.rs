@@ -99,7 +99,7 @@ where
 	}
 }
 
-impl<'de, T> FromRequestHead for PathParam<T>
+impl<T> FromRequestHead for PathParam<T>
 where
 	T: DeserializeOwned,
 {
@@ -121,7 +121,7 @@ where
 
 pub struct QueryParams<T>(pub T);
 
-impl<'de, T> FromRequestHead for QueryParams<T>
+impl<T> FromRequestHead for QueryParams<T>
 where
 	T: DeserializeOwned,
 {
