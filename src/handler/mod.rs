@@ -200,13 +200,13 @@ impl Handler for ArcHandler {
 
 // -------------------------
 
-pub(crate) fn wrap_arc_handler<L, LayeredB>(boxed_handler: ArcHandler, layer: L) -> ArcHandler
+pub(crate) fn wrap_arc_handler<L, LayeredB>(arc_handler: ArcHandler, layer: L) -> ArcHandler
 where
 	L: Layer<AdaptiveHandler<LayeredB>, LayeredB>,
 	L::Handler: Handler + Send + Sync + 'static,
 	<L::Handler as Handler>::Response: IntoResponse,
 {
-	let adaptive_handler = AdaptiveHandler::from(RequestBodyAdapter::wrap(boxed_handler));
+	let adaptive_handler = AdaptiveHandler::from(RequestBodyAdapter::wrap(arc_handler));
 	let layered_handler = layer.wrap(adaptive_handler);
 	let ready_handler = ResponseFutureBoxer::wrap(IntoResponseAdapter::wrap(layered_handler));
 
@@ -215,13 +215,15 @@ where
 
 // --------------------------------------------------
 
-pub(crate) struct DummyHandler<M> {
-	_mark: PhantomData<fn() -> M>,
+pub(crate) struct DummyHandler<F> {
+	_future_mark: PhantomData<fn() -> F>,
 }
 
 impl DummyHandler<DefaultResponseFuture> {
 	pub(crate) fn new() -> Self {
-		Self { _mark: PhantomData }
+		Self {
+			_future_mark: PhantomData,
+		}
 	}
 }
 
@@ -237,7 +239,9 @@ impl Handler for DummyHandler<DefaultResponseFuture> {
 
 impl DummyHandler<BoxedFuture<Response>> {
 	pub(crate) fn new() -> Self {
-		Self { _mark: PhantomData }
+		Self {
+			_future_mark: PhantomData,
+		}
 	}
 }
 
@@ -255,7 +259,7 @@ impl Handler for DummyHandler<BoxedFuture<Response>> {
 
 pub struct AdaptiveHandler<B> {
 	inner: RequestBodyAdapter<ArcHandler>,
-	_body: PhantomData<B>,
+	_body_mark: PhantomData<B>,
 }
 
 impl<B> Service<Request<B>> for AdaptiveHandler<B>
@@ -281,7 +285,7 @@ impl<B> From<RequestBodyAdapter<ArcHandler>> for AdaptiveHandler<B> {
 	fn from(handler: RequestBodyAdapter<ArcHandler>) -> Self {
 		Self {
 			inner: handler,
-			_body: PhantomData,
+			_body_mark: PhantomData,
 		}
 	}
 }

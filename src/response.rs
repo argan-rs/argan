@@ -17,7 +17,7 @@ pub use http::StatusCode;
 pub type Response<B = BoxedBody> = http::response::Response<B>;
 pub type Head = Parts;
 
-// --------------------------------------------------------------------------------
+// --------------------------------------------------
 // IntoResponseHead trait
 
 pub trait IntoResponseHead {

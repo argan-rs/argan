@@ -56,7 +56,7 @@ struct FromStr<'de>(Option<&'de str>);
 
 impl<'de> FromStr<'de> {
 	#[inline]
-	fn new(some_str: Option<&'de str>) -> Self {
+	pub(super) fn new(some_str: Option<&'de str>) -> Self {
 		Self(some_str)
 	}
 }
@@ -283,4 +283,5 @@ impl<'de> VariantAccess<'de> for FromStr<'de> {
 	}
 }
 
-// --------------------------------------------------
+// --------------------------------------------------------------------------------
+// --------------------------------------------------------------------------------

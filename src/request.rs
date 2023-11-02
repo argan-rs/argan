@@ -22,7 +22,7 @@ pub use http::{header, Method, Uri, Version};
 pub type Request<B = IncomingBody> = http::Request<B>;
 pub type Head = Parts;
 
-// --------------------------------------------------------------------------------
+// --------------------------------------------------
 // FromRequestHead trait
 
 pub trait FromRequestHead: Sized {
@@ -107,10 +107,14 @@ where
 	type Future = Ready<Result<Self, Self::Error>>;
 
 	fn from_request_head(head: &mut Head) -> Self::Future {
-		let mut routing_state = head.extensions.get_mut::<RoutingState>().unwrap();
+		let mut routing_state = head
+			.extensions
+			.get_mut::<RoutingState>()
+			.expect("routing state should be inserted before ruting starts");
+
 		let mut from_params_list = routing_state.path_params.deserializer();
 
-		let value = T::deserialize(&mut from_params_list).unwrap();
+		let value = T::deserialize(&mut from_params_list).unwrap(); // TODO
 
 		ready(Ok(Self(value)))
 	}
@@ -129,9 +133,9 @@ where
 	type Future = Ready<Result<Self, Self::Error>>;
 
 	fn from_request_head(head: &mut Head) -> Self::Future {
-		let query_string = head.uri.query().unwrap();
+		let query_string = head.uri.query().unwrap(); // TODO
 
-		let value = serde_urlencoded::from_str::<T>(query_string).unwrap();
+		let value = serde_urlencoded::from_str::<T>(query_string).unwrap(); // TODO
 
 		ready(Ok(Self(value)))
 	}

@@ -45,9 +45,21 @@ impl Future for RequestReceiverFuture {
 	fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
 		let self_projection = self.project();
 
-		let mut request = self_projection.some_request.take().unwrap();
-		let mut routing_state = request.extensions_mut().remove::<RoutingState>().unwrap();
-		let current_resource = routing_state.current_resource.clone().unwrap();
+		let mut request = self_projection
+			.some_request
+			.take()
+			.expect("RequestReceiverFuture must be created from request");
+
+		let mut routing_state = request
+			.extensions_mut()
+			.remove::<RoutingState>()
+			.expect("routing state should be inserted before ruting starts");
+
+		// We don't take out the current resource because both the request_passer and
+		// request_handler need it.
+		let current_resource = routing_state.current_resource.clone().expect(
+			"current resource should be set in the request_passer or the call method of the Service",
+		);
 
 		if routing_state
 			.path_traversal
@@ -61,6 +73,7 @@ impl Future for RequestReceiverFuture {
 
 			let mut response = match current_resource.request_passer.as_ref() {
 				Some(request_passer) => {
+					// Current resource's request_passer was wrapped in middleware.
 					if let Poll::Ready(response) = pin!(request_passer.handle(request)).poll(cx) {
 						response
 					} else {
@@ -68,6 +81,7 @@ impl Future for RequestReceiverFuture {
 					}
 				}
 				None => {
+					// General request_passer without any middleware.
 					if let Poll::Ready(response) = pin!(request_passer(request)).poll(cx) {
 						response
 					} else {
@@ -83,7 +97,14 @@ impl Future for RequestReceiverFuture {
 				return Poll::Ready(response);
 			}
 
+			// At this point, no resource matched the request's path or the matched resource or
+			// some middleware has decided to respond with the status 'Not Found'. In the former
+			// case, the last request_passer in the subtree returns the request unused. We must
+			// try to recover it.
+
 			let Some(unused_request) = response.extensions_mut().remove::<UnusedRequest>() else {
+				// The request has already been used by some matched resource or some middleware or
+				// some other subtree handler below in the request's path.
 				return Poll::Ready(response);
 			};
 
@@ -93,10 +114,11 @@ impl Future for RequestReceiverFuture {
 		}
 
 		if let Some(request_handler) = current_resource.request_handler.as_ref() {
+			// Current resource's request_handler was wrapped in middleware.
 			return pin!(request_handler.handle(request)).poll(cx);
 		}
 
-		if current_resource.method_handlers.is_empty() {
+		if !current_resource.can_handle_request() {
 			return pin!(misdirected_request_handler(request)).poll(cx);
 		}
 
@@ -126,16 +148,28 @@ impl Future for RequestPasserFuture {
 	fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
 		let self_projection = self.project();
 
-		let mut request = self_projection.some_request.take().unwrap();
-		let mut routing_state = request.extensions_mut().remove::<RoutingState>().unwrap();
-		let current_resource = routing_state.current_resource.take().unwrap();
+		let mut request = self_projection
+			.some_request
+			.take()
+			.expect("RequestPasserFuture must be created from request");
+
+		let mut routing_state = request
+			.extensions_mut()
+			.remove::<RoutingState>()
+			.expect("routing state should be inserted before routing starts");
+
+		let current_resource = routing_state
+			.current_resource
+			.take()
+			.expect("current resource should be set before creating a RequestPasserFuture");
+
 		let mut path_params = std::mem::take(&mut routing_state.path_params);
 
 		let (some_next_resource, next_segment_index) = 'some_next_resource: {
 			let (next_segment, next_segment_index) = routing_state
 				.path_traversal
 				.next_segment(request.uri().path())
-				.unwrap();
+				.expect("RequestPasserFuture shouldn't be created when there is no next path segment");
 
 			if let Some(next_resource) =
 				current_resource
@@ -143,16 +177,24 @@ impl Future for RequestPasserFuture {
 					.as_ref()
 					.and_then(|resources| {
 						resources.iter().find(
-							// Static patterns keep percent encoded text. We may match them without
+							// Static patterns keep percent-encoded string. We may match them without
 							// decoding the segment.
-							|resource| resource.pattern.is_static_match(next_segment).unwrap(),
+							|resource| {
+								resource
+									.pattern
+									.is_static_match(next_segment)
+									.expect("static_resources must keep only the resources with a static pattern")
+							},
 						)
 					}) {
 				break 'some_next_resource (Some(next_resource), next_segment_index);
 			}
 
-			let decoded_segment =
-				Arc::<str>::from(percent_decode_str(next_segment).decode_utf8().unwrap());
+			let decoded_segment = Arc::<str>::from(
+				percent_decode_str(next_segment)
+					.decode_utf8()
+					.expect("decoded segment should be a valid utf8 string"), // ???
+			);
 
 			if let Some(next_resource) = current_resource
 				.regex_resources
@@ -162,7 +204,7 @@ impl Future for RequestPasserFuture {
 						resource
 							.pattern
 							.is_regex_match(decoded_segment.clone(), &mut path_params)
-							.unwrap()
+							.expect("regex_resources must keep only the resources with a regex pattern")
 					})
 				}) {
 				break 'some_next_resource (Some(next_resource), next_segment_index);
@@ -175,7 +217,7 @@ impl Future for RequestPasserFuture {
 					resource
 						.pattern
 						.is_wildcard_match(decoded_segment, &mut path_params)
-						.unwrap()
+						.expect("wildcard_resource must keep only a resource with a wilcard pattern")
 				});
 
 			(
@@ -189,10 +231,12 @@ impl Future for RequestPasserFuture {
 			routing_state
 				.current_resource
 				.replace(next_resource.clone());
+
 			request.extensions_mut().insert(routing_state);
 
 			let mut response = match next_resource.request_receiver.as_ref() {
 				Some(request_receiver) => {
+					// Next resource's request_receiver was wrapped in middleware.
 					if let Poll::Ready(response) = pin!(request_receiver.handle(request)).poll(cx) {
 						response
 					} else {
@@ -200,6 +244,7 @@ impl Future for RequestPasserFuture {
 					}
 				}
 				None => {
+					// General request_receiver without any middleware.
 					if let Poll::Ready(response) = pin!(request_receiver(request)).poll(cx) {
 						response
 					} else {
@@ -208,13 +253,21 @@ impl Future for RequestPasserFuture {
 				}
 			};
 
+			// If the requested resource wasn't found in the subtree and there is a subtree handler
+			// in the request's path, response contains the unused request. We must get it and recover
+			// the current resource before returning to the request_receiver.
+
 			let Some(unused_request) = response.extensions_mut().get_mut::<UnusedRequest>() else {
 				return Poll::Ready(response);
 			};
 
-			let req = unused_request.as_mut();
+			let request = unused_request.as_mut();
 
-			let routing_state = req.extensions_mut().get_mut::<RoutingState>().unwrap();
+			let routing_state = request
+				.extensions_mut()
+				.get_mut::<RoutingState>()
+				.expect("request must always have a RoutingState");
+
 			routing_state.current_resource.replace(current_resource);
 			routing_state
 				.path_traversal
@@ -224,6 +277,10 @@ impl Future for RequestPasserFuture {
 		}
 
 		request.extensions_mut().insert(routing_state);
+
+		// TODO: In the future, we may have a way to replace the 'misdirected_request_hanlder'
+		// with a custom handler. Then we may consider returning the unused request in a response
+		// from here.
 
 		pin!(misdirected_request_handler(request)).poll(cx)
 	}
@@ -238,6 +295,7 @@ pin_project! {
 }
 
 impl From<ResourceInnerFuture> for ResourceFuture {
+	#[inline(always)]
 	fn from(inner: ResourceInnerFuture) -> Self {
 		Self { inner }
 	}
@@ -246,7 +304,7 @@ impl From<ResourceInnerFuture> for ResourceFuture {
 impl Future for ResourceFuture {
 	type Output = Result<Response, Infallible>;
 
-	#[inline]
+	#[inline(always)]
 	fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
 		self.project().inner.poll(cx)
 	}
@@ -264,7 +322,7 @@ pin_project! {
 }
 
 impl From<BoxedFuture<Response>> for ResourceInnerFuture {
-	#[inline]
+	#[inline(always)]
 	fn from(boxed_future: BoxedFuture<Response>) -> Self {
 		Self::Boxed {
 			boxed: ResponseToResultFuture::from(boxed_future),
@@ -273,7 +331,7 @@ impl From<BoxedFuture<Response>> for ResourceInnerFuture {
 }
 
 impl From<RequestReceiverFuture> for ResourceInnerFuture {
-	#[inline]
+	#[inline(always)]
 	fn from(request_receiver_future: RequestReceiverFuture) -> Self {
 		Self::Unboxed {
 			unboxed: ResponseToResultFuture::from(request_receiver_future),
@@ -282,7 +340,7 @@ impl From<RequestReceiverFuture> for ResourceInnerFuture {
 }
 
 impl From<Ready<Response>> for ResourceInnerFuture {
-	#[inline]
+	#[inline(always)]
 	fn from(ready_future: Ready<Response>) -> Self {
 		Self::Ready {
 			ready: ResponseToResultFuture::from(ready_future),
@@ -293,7 +351,7 @@ impl From<Ready<Response>> for ResourceInnerFuture {
 impl Future for ResourceInnerFuture {
 	type Output = Result<Response, Infallible>;
 
-	#[inline]
+	#[inline(always)]
 	fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
 		match self.project() {
 			ResourceInnerFutureProjection::Boxed { boxed } => boxed.poll(cx),
