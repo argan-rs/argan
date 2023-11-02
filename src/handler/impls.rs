@@ -64,7 +64,14 @@ where
 macro_rules! impl_handler_fn {
 	($(($($ps:ident),*),)? $($lp:ident)?) => {
 		#[allow(non_snake_case)]
-		impl<Func, $($($ps,)*)? $($lp,)? Fut, O, B> IntoHandler<(Private, $($($ps,)*)? $($lp)?), B> for Func
+		impl<
+			Func,
+			$($($ps,)*)?
+			$($lp,)?
+			Fut,
+			O,
+			B,
+		> IntoHandler<(Private, $($($ps,)*)? $($lp)?), B> for Func
 		where
 			Func: Fn($($($ps,)*)? $($lp)?) -> Fut,
 			Fut: Future<Output = O>,
@@ -79,7 +86,14 @@ macro_rules! impl_handler_fn {
 		}
 
 		#[allow(non_snake_case)]
-		impl<Func, $($($ps,)*)? $($lp,)? Fut, O, B> Handler<B> for HandlerFn<Func, (Private, $($($ps,)*)? $($lp)?)>
+		impl<
+			Func,
+			$($($ps,)*)?
+			$($lp,)?
+			Fut,
+			O,
+			B,
+		> Handler<B> for HandlerFn<Func, (Private, $($($ps,)*)? $($lp)?)>
 		where
 			Func: Fn($($($ps,)*)? $($lp)?) -> Fut + Clone + 'static,
 			$($($ps: FromRequestHead,)*)?
@@ -99,7 +113,14 @@ macro_rules! impl_handler_fn {
 		}
 
 		#[allow(non_snake_case)]
-		impl<Func, $($($ps,)*)? $($lp,)? Fut, O, B> Future for HandlerFnFuture<Func, (Private, $($($ps,)*)? $($lp)?), B>
+		impl<
+			Func,
+			$($($ps,)*)?
+			$($lp,)?
+			Fut,
+			O,
+			B,
+		> Future for HandlerFnFuture<Func, (Private, $($($ps,)*)? $($lp)?), B>
 		where
 			Func: Fn($($($ps,)*)? $($lp)?) -> Fut + Clone + 'static,
 			$($($ps: FromRequestHead,)*)?
@@ -114,7 +135,9 @@ macro_rules! impl_handler_fn {
 				let self_projection = self.project();
 
 				$(
-					let (mut head, body) = self_projection.some_request.take().unwrap().into_parts();
+					let (mut head, body) = self_projection.some_request.take().expect(
+						"HandlerFnFuture should be created with a request",
+					).into_parts();
 
 					$(
 						let $ps = match pin!($ps::from_request_head(&mut head)).poll(cx) {
@@ -132,15 +155,18 @@ macro_rules! impl_handler_fn {
 				)?
 
 				$(
-					let $lp = match pin!($lp::from_request(self_projection.some_request.take().unwrap())).poll(cx) {
-						Poll::Ready(result) => {
-							match result {
-								Ok(value) => value,
-								Err(error) => return Poll::Ready(error.into_response()),
+					let $lp =
+						match pin!($lp::from_request(self_projection.some_request.take().expect(
+							"the constructor of the HandlerFnFuture or the local scope should set the request",
+						))).poll(cx) {
+							Poll::Ready(result) => {
+								match result {
+									Ok(value) => value,
+									Err(error) => return Poll::Ready(error.into_response()),
+								}
 							}
-						}
-						Poll::Pending => return Poll::Pending,
-					};
+							Poll::Pending => return Poll::Pending,
+						};
 				)?
 
 				match pin!((self_projection.func)($($($ps,)*)? $($lp)?)).poll(cx) {

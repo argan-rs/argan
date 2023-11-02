@@ -124,6 +124,7 @@ where
 			.unwrap()
 			.to_str()
 			.unwrap();
+
 		if content_type == mime::APPLICATION_WWW_FORM_URLENCODED {
 			if let Poll::Ready(result) = pin!(self_projection.request.collect()).poll(cx) {
 				let body = result.unwrap().to_bytes();

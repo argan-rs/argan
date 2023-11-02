@@ -1,4 +1,10 @@
-use std::{fmt::Display, iter::Peekable, slice, str::Chars, sync::Arc};
+use std::{
+	fmt::Display,
+	iter::Peekable,
+	slice,
+	str::Chars,
+	sync::{Arc, OnceLock},
+};
 
 use regex::{CaptureLocations, CaptureNames, Regex};
 
@@ -71,10 +77,14 @@ impl Pattern {
 						};
 
 						let regex_subpattern = format!(r"\A(?P<{}>{})\z", capture_name, subpattern);
-						let regex = Regex::new(&regex_subpattern).unwrap();
-						let capture_names = regex.capture_names();
+						match Regex::new(&regex_subpattern) {
+							Ok(regex) => {
+								let capture_names = regex.capture_names();
 
-						return Pattern::Regex(RegexNames::new(name, Some(capture_names)), Some(regex));
+								return Pattern::Regex(RegexNames::new(name, Some(capture_names)), Some(regex));
+							}
+							Err(error) => panic!("{}", error),
+						}
 					}
 				};
 			}
@@ -120,10 +130,14 @@ impl Pattern {
 			}
 
 			regex_pattern.push_str("\\z");
-			let regex = Regex::new(&regex_pattern).unwrap();
-			let capture_names = regex.capture_names();
+			match Regex::new(&regex_pattern) {
+				Ok(regex) => {
+					let capture_names = regex.capture_names();
 
-			return Pattern::Regex(RegexNames::new(name, Some(capture_names)), Some(regex));
+					return Pattern::Regex(RegexNames::new(name, Some(capture_names)), Some(regex));
+				}
+				Err(error) => panic!("{}", error),
+			}
 		}
 
 		if let Some('\\') = chars.peek() {
@@ -202,24 +216,22 @@ impl Pattern {
 		text: Arc<str>,
 		params_list: &mut ParamsList,
 	) -> Option<bool> {
-		if !text.is_empty() {
-			if let Self::Regex(names, Some(regex)) = self {
-				let mut capture_locations = regex.capture_locations();
-				if regex.captures_read(&mut capture_locations, &text).is_some() {
-					params_list.push(Params::with_regex_captures(
-						names.clone(),
-						capture_locations,
-						text,
-					));
+		if let Self::Regex(names, Some(regex)) = self {
+			let mut capture_locations = regex.capture_locations();
+			if regex.captures_read(&mut capture_locations, &text).is_some() {
+				params_list.push(Params::with_regex_captures(
+					names.clone(),
+					capture_locations,
+					text,
+				));
 
-					return Some(true);
-				}
-			} else {
-				return None;
+				return Some(true);
 			}
+
+			return Some(false);
 		}
 
-		Some(false)
+		None
 	}
 
 	pub(crate) fn is_wildcard_match(
@@ -227,17 +239,13 @@ impl Pattern {
 		text: Arc<str>,
 		params_list: &mut ParamsList,
 	) -> Option<bool> {
-		if !text.is_empty() {
-			if let Self::Wildcard(name) = self {
-				params_list.push(Params::with_wildcard_value(name.clone(), text));
+		if let Self::Wildcard(name) = self {
+			params_list.push(Params::with_wildcard_value(name.clone(), text));
 
-				return Some(true);
-			} else {
-				return None;
-			}
+			return Some(true);
+		} else {
+			return None;
 		}
-
-		Some(false)
 	}
 
 	pub(crate) fn compare(&self, other: &Self) -> Similarity {
@@ -294,6 +302,18 @@ impl Display for Pattern {
 		}
 	}
 }
+
+// -------------------------
+
+impl Default for Pattern {
+	fn default() -> Self {
+		EMPTY_STATIC
+			.get_or_init(|| Pattern::Static("".into()))
+			.clone()
+	}
+}
+
+static EMPTY_STATIC: OnceLock<Pattern> = OnceLock::new();
 
 // --------------------------------------------------
 

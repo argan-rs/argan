@@ -35,17 +35,17 @@ impl MethodHandlers {
 
 	// ----------
 
-	#[inline]
+	#[inline(always)]
 	pub(crate) fn count(&self) -> usize {
 		self.method_handlers.len()
 	}
 
-	#[inline]
+	#[inline(always)]
 	pub(crate) fn is_empty(&self) -> bool {
 		self.method_handlers.is_empty()
 	}
 
-	#[inline]
+	#[inline(always)]
 	pub(crate) fn has_some_effect(&self) -> bool {
 		!self.method_handlers.is_empty() || self.unsupported_method_handler.is_some()
 	}
@@ -67,7 +67,7 @@ impl MethodHandlers {
 		<L::Handler as Handler<IncomingBody>>::Response: IntoResponse,
 	{
 		let Some(position) = self.method_handlers.iter().position(|(m, _)| m == method) else {
-			panic!("{} handler doesn't exists", method)
+			panic!("'{}' handler doesn't exists", method)
 		};
 
 		let (method, boxed_handler) = std::mem::take(&mut self.method_handlers[position]);
@@ -110,8 +110,8 @@ impl MethodHandlers {
 				request.extensions_mut().insert(allowed_methods);
 
 				match self.unsupported_method_handler.as_ref() {
-					Some(mut not_allowed_method_handler) => not_allowed_method_handler.handle(request),
-					None => Box::pin(handle_not_allowed_method(request)),
+					Some(mut unsupported_method_handler) => unsupported_method_handler.handle(request),
+					None => Box::pin(handle_unsupported_method(request)),
 				}
 			}
 		}
@@ -133,10 +133,15 @@ impl Debug for MethodHandlers {
 
 pub(crate) struct AllowedMethods(String);
 
-#[inline]
-async fn handle_not_allowed_method(mut request: Request<IncomingBody>) -> Response {
-	let allowed_methods = request.extensions_mut().remove::<AllowedMethods>().unwrap();
-	let allowed_methods_header_value = HeaderValue::from_str(&allowed_methods.0).unwrap();
+#[inline(always)]
+async fn handle_unsupported_method(mut request: Request<IncomingBody>) -> Response {
+	let allowed_methods = request
+		.extensions_mut()
+		.remove::<AllowedMethods>()
+		.expect("allowed methods should be inserted by MethodHandlers instance");
+
+	let allowed_methods_header_value =
+		HeaderValue::from_str(&allowed_methods.0).expect("method name should be a valid header value");
 
 	let mut response = Response::default();
 	*response.status_mut() = StatusCode::METHOD_NOT_ALLOWED;

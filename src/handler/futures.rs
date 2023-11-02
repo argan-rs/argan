@@ -1,7 +1,7 @@
 use std::{
 	convert::Infallible,
 	future::Future,
-	pin::{pin, Pin},
+	pin::Pin,
 	task::{Context, Poll},
 };
 
@@ -32,7 +32,11 @@ where
 
 	#[inline]
 	fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-		self.project().inner.poll(cx).map(|output| output.unwrap())
+		self
+			.project()
+			.inner
+			.poll(cx)
+			.map(|output| output.expect("Err should be infallible"))
 	}
 }
 

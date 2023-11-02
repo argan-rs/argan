@@ -357,7 +357,7 @@ impl<'de> VariantAccess<'de> for FromParamsListEnumAccess<'_, 'de> {
 mod test {
 	use std::collections::HashMap;
 
-	use serde::Deserialize;
+	use serde::{Deserialize, Deserializer};
 
 	use crate::{
 		pattern::{ParamsList, Pattern},
