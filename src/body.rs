@@ -44,7 +44,7 @@ impl IncomingBody {
 	}
 
 	#[inline]
-	pub fn new<B: Sized>(mut body: B) -> Self
+	pub fn new<B: Sized>(body: B) -> Self
 	where
 		B: Body + Send + Sync + 'static,
 		B::Data: Debug,

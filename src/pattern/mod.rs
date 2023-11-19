@@ -479,7 +479,7 @@ fn split(mut chars: Peekable<Chars>) -> Vec<Segment> {
 		} else {
 			let (name, some_delimiter) = split_at_delimiter(&mut chars, |ch| ch == '(');
 
-			let Some(delimiter) = some_delimiter else {
+			let Some(_) = some_delimiter else {
 				panic!("incomplete pattern")
 			};
 
@@ -832,8 +832,6 @@ mod test {
 
 	#[test]
 	fn parse() {
-		let some_regex = Option::<&Regex>::None;
-		let some_ref_regex = some_regex.as_ref();
 		let cases = [
 			("", Pattern::Static(Arc::from(""))),
 			("static", Pattern::Static(Arc::from("static"))),

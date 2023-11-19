@@ -79,7 +79,7 @@ impl DefaultResponseFuture {
 impl Future for DefaultResponseFuture {
 	type Output = Response;
 
-	fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+	fn poll(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Self::Output> {
 		Poll::Ready(Response::default())
 	}
 }

@@ -75,7 +75,6 @@ impl Resource {
 
 		let mut route_segments = RouteSegments::new(path_patterns);
 
-		let mut resource_pattern: Pattern;
 		let mut prefix_path_patterns = Vec::new();
 
 		let resource_pattern = loop {
@@ -103,7 +102,7 @@ impl Resource {
 		resource_pattern: Pattern,
 	) -> Resource {
 		if let Pattern::Regex(ref name, None) = resource_pattern {
-			panic!("pattern has no regex segment")
+			panic!("{} pattern has no regex segment", name.pattern_name())
 		}
 
 		Resource {
@@ -311,9 +310,9 @@ impl Resource {
 	#[inline]
 	fn by_patterns_subresource_mut(
 		&mut self,
-		mut patterns: impl Iterator<Item = Pattern>,
+		patterns: impl Iterator<Item = Pattern>,
 	) -> &mut Resource {
-		let (mut leaf_resource_in_the_path, patterns) = self.by_patterns_leaf_resource_mut(patterns);
+		let (leaf_resource_in_the_path, patterns) = self.by_patterns_leaf_resource_mut(patterns);
 		leaf_resource_in_the_path.by_patterns_new_subresource_mut(patterns)
 	}
 
@@ -448,7 +447,7 @@ impl Resource {
 			(mut $resources:expr, mut $other_resources:expr) => {
 				if !$other_resources.is_empty() {
 					if $resources.is_empty() {
-						for mut other_resource in $other_resources.iter_mut() {
+						for other_resource in $other_resources.iter_mut() {
 							other_resource.prefix_segment_patterns = self.path_patterns();
 						}
 
@@ -642,8 +641,8 @@ impl Resource {
 			panic!("{} route must start with '/'", route)
 		}
 
-		let mut segments = RouteSegments::new(route);
-		let (mut leaf_resource_in_the_path, segments) = self.leaf_resource_mut(segments);
+		let segments = RouteSegments::new(route);
+		let (leaf_resource_in_the_path, segments) = self.leaf_resource_mut(segments);
 
 		leaf_resource_in_the_path.new_subresource_mut(segments)
 	}
@@ -953,7 +952,7 @@ impl Resource {
 	}
 
 	pub fn subresource_state<S: Clone + Send + Sync + 'static>(&self, route: &str) -> &S {
-		let mut route_segments = RouteSegments::new(route);
+		let route_segments = RouteSegments::new(route);
 		let (subresource, route_segments) = self.leaf_resource(route_segments);
 
 		if route_segments.has_remaining_segments() {
@@ -1091,7 +1090,7 @@ impl Resource {
 			subresources.push(resource);
 		}
 
-		for i in 0.. {
+		loop {
 			let Some(subresource) = subresources.pop() else {
 				break;
 			};
@@ -1118,7 +1117,7 @@ impl Resource {
 			subresources.push(resource);
 		}
 
-		for i in 0.. {
+		loop {
 			let Some(subresource) = subresources.pop() else {
 				break;
 			};
@@ -1431,7 +1430,7 @@ mod test {
 
 		for segment_patterns in path_patterns {
 			let resource = Resource::new(segment_patterns.0);
-			let mut segmets = RouteSegments::new(segment_patterns.1);
+			let segmets = RouteSegments::new(segment_patterns.1);
 			let mut segment_patterns = Vec::new();
 			for (segment, _) in segmets {
 				let pattern = Pattern::parse(segment);
@@ -1473,7 +1472,7 @@ mod test {
 	#[should_panic(expected = "is not unique in the path")]
 	fn check_names_are_unique_in_the_path1() {
 		let mut parent = Resource::new("/abc0/$abc1:@(p)/*abc2");
-		let mut faulty_resource = Resource::new("/$abc1:@cn(p)");
+		let faulty_resource = Resource::new("/$abc1:@cn(p)");
 
 		parent.add_subresource(faulty_resource);
 	}
@@ -1564,7 +1563,7 @@ mod test {
 			let new_resource = Resource::new(case.full_path);
 
 			parent.add_subresource_under(case.prefix_route_from_parent, new_resource);
-			let (mut resource, _) = parent.leaf_resource_mut(RouteSegments::new(case.route_from_parent));
+			let (resource, _) = parent.leaf_resource_mut(RouteSegments::new(case.route_from_parent));
 
 			assert_eq!(
 				resource
@@ -1620,7 +1619,7 @@ mod test {
 			resource4_1.set_handler(Method::PUT, DummyHandler::<DefaultResponseFuture>::new());
 			resource2_1.add_subresource_under("/abc3_0", resource4_1);
 
-			let mut resource5_0 = Resource::new("/abc0_0/*abc1_0/*abc2_1/abc3_0/*abc4_2/$abc5_0:@(p)");
+			let resource5_0 = Resource::new("/abc0_0/*abc1_0/*abc2_1/abc3_0/*abc4_2/$abc5_0:@(p)");
 			resource2_1.add_subresource_under("/abc3_0", resource5_0);
 
 			parent.add_subresource_under("", resource2_1);

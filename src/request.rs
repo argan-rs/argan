@@ -9,7 +9,7 @@ use serde::{de::DeserializeOwned, Deserializer};
 use crate::{
 	body::IncomingBody,
 	response::{IntoResponse, Response},
-	routing::RoutingState,
+	routing::RoutingState, utils::Uncloneable,
 };
 
 // ----------
@@ -107,10 +107,12 @@ where
 	type Future = Ready<Result<Self, Self::Error>>;
 
 	fn from_request_head(head: &mut Head) -> Self::Future {
-		let mut routing_state = head
+		let routing_state = head
 			.extensions
-			.get_mut::<RoutingState>()
-			.expect("routing state should be inserted before ruting starts");
+			.get_mut::<Uncloneable<RoutingState>>()
+			.expect("Uncloneable<RoutingState> should be inserted before request_handler is called")
+			.as_mut()
+			.expect("RoutingState should always exist in Uncloneable");
 
 		let mut from_params_list = routing_state.path_params.deserializer();
 

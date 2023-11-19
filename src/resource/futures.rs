@@ -17,7 +17,7 @@ use crate::{
 	request::Request,
 	response::Response,
 	routing::{RoutingState, UnusedRequest},
-	utils::BoxedFuture,
+	utils::{BoxedFuture, Uncloneable},
 };
 
 use super::service::{request_passer, request_receiver};
@@ -52,8 +52,10 @@ impl Future for RequestReceiverFuture {
 
 		let mut routing_state = request
 			.extensions_mut()
-			.remove::<RoutingState>()
-			.expect("routing state should be inserted before ruting starts");
+			.remove::<Uncloneable<RoutingState>>()
+			.expect("Uncloneable<RoutingState> should be inserted before routing starts")
+			.into_inner()
+			.expect("RoutingState should always exist in Uncloneable");
 
 		// We don't take out the current resource because both the request_passer and
 		// request_handler need it.
@@ -69,7 +71,7 @@ impl Future for RequestReceiverFuture {
 				routing_state.subtree_handler_exists = true;
 			}
 
-			request.extensions_mut().insert(routing_state);
+			request.extensions_mut().insert(Uncloneable::from(routing_state));
 
 			let mut response = match current_resource.request_passer.as_ref() {
 				Some(request_passer) => {
@@ -102,15 +104,18 @@ impl Future for RequestReceiverFuture {
 			// case, the last request_passer in the subtree returns the request unused. We must
 			// try to recover it.
 
-			let Some(unused_request) = response.extensions_mut().remove::<UnusedRequest>() else {
+			let some_uncloneable = response.extensions_mut().remove::<Uncloneable<UnusedRequest>>();
+			let Some(uncloneable) = some_uncloneable else {
 				// The request has already been used by some matched resource or some middleware or
 				// some other subtree handler below in the request's path.
 				return Poll::Ready(response);
 			};
 
-			request = unused_request.into_request()
+			request = uncloneable.into_inner()
+				.expect("unused request should always exist in Uncloneable")
+				.into_request();
 		} else {
-			request.extensions_mut().insert(routing_state);
+			request.extensions_mut().insert(Uncloneable::from(routing_state));
 		}
 
 		if let Some(request_handler) = current_resource.request_handler.as_ref() {
@@ -155,8 +160,10 @@ impl Future for RequestPasserFuture {
 
 		let mut routing_state = request
 			.extensions_mut()
-			.remove::<RoutingState>()
-			.expect("routing state should be inserted before routing starts");
+			.remove::<Uncloneable<RoutingState>>()
+			.expect("Uncloneable<RoutingState> should be inserted before request_passer is called")
+			.into_inner()
+			.expect("RoutingState should always exist in Uncloneable");
 
 		let current_resource = routing_state
 			.current_resource
@@ -210,7 +217,7 @@ impl Future for RequestPasserFuture {
 				break 'some_next_resource (Some(next_resource), next_segment_index);
 			}
 
-			current_resource
+			let _ = current_resource
 				.wildcard_resource
 				.as_ref()
 				.is_some_and(|resource| {
@@ -232,7 +239,7 @@ impl Future for RequestPasserFuture {
 				.current_resource
 				.replace(next_resource.clone());
 
-			request.extensions_mut().insert(routing_state);
+			request.extensions_mut().insert(Uncloneable::from(routing_state));
 
 			let mut response = match next_resource.request_receiver.as_ref() {
 				Some(request_receiver) => {
@@ -257,16 +264,21 @@ impl Future for RequestPasserFuture {
 			// in the request's path, response contains the unused request. We must get it and recover
 			// the current resource before returning to the request_receiver.
 
-			let Some(unused_request) = response.extensions_mut().get_mut::<UnusedRequest>() else {
+			let some_uncloneable = response.extensions_mut().get_mut::<Uncloneable<UnusedRequest>>();
+			let Some(uncloneable) = some_uncloneable else {
 				return Poll::Ready(response);
 			};
 
-			let request = unused_request.as_mut();
+			let request = uncloneable.as_mut()
+				.expect("unused request should always exist in Uncloneable")
+				.as_mut();
 
 			let routing_state = request
 				.extensions_mut()
-				.get_mut::<RoutingState>()
-				.expect("request must always have a RoutingState");
+				.get_mut::<Uncloneable<RoutingState>>()
+				.expect("unused request must always have Uncloneable<RoutingState>")
+				.as_mut()
+				.expect("RoutingState should always exist in Uncloneable");
 
 			routing_state.current_resource.replace(current_resource);
 			routing_state
@@ -276,7 +288,7 @@ impl Future for RequestPasserFuture {
 			return Poll::Ready(response);
 		}
 
-		request.extensions_mut().insert(routing_state);
+		request.extensions_mut().insert(Uncloneable::from(routing_state));
 
 		// TODO: In the future, we may have a way to replace the 'misdirected_request_hanlder'
 		// with a custom handler. Then we may consider returning the unused request in a response

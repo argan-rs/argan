@@ -12,7 +12,7 @@ use crate::{
 	request::Request,
 	response::Response,
 	routing::{RouteTraversal, RoutingState},
-	utils::{BoxedError, BoxedFuture},
+	utils::{BoxedError, BoxedFuture, Uncloneable},
 };
 
 use super::futures::{
@@ -119,8 +119,9 @@ where
 			}
 		};
 
-		let routing_state = RoutingState::new(route_traversal, self.clone());
-		request.extensions_mut().insert(routing_state);
+		let mut routing_state = RoutingState::new(route_traversal, self.clone());
+		routing_state.path_params = path_params;
+		request.extensions_mut().insert(Uncloneable::from(routing_state));
 
 		if matched {
 			match self.request_receiver.as_ref() {
@@ -138,21 +139,23 @@ where
 // --------------------------------------------------------------------------------
 
 #[inline(always)]
-pub(super) fn request_receiver(mut request: Request) -> RequestReceiverFuture {
+pub(super) fn request_receiver(request: Request) -> RequestReceiverFuture {
 	RequestReceiverFuture::from(request)
 }
 
 #[inline(always)]
-pub(super) fn request_passer(mut request: Request) -> RequestPasserFuture {
+pub(super) fn request_passer(request: Request) -> RequestPasserFuture {
 	RequestPasserFuture::from(request)
 }
 
 #[inline(always)]
-pub(super) fn request_handler(mut request: Request) -> BoxedFuture<Response> {
+pub(super) fn request_handler(request: Request) -> BoxedFuture<Response> {
 	let routing_state = request
-		.extensions_mut()
-		.get_mut::<RoutingState>()
-		.expect("routing state should be inserted before routing starts");
+		.extensions()
+		.get::<Uncloneable<RoutingState>>()
+		.expect("Uncloneable<RoutingState> should be inserted before request_handler is called")
+		.as_ref()
+		.expect("RoutingState should always exist in Uncloneable");
 
 	let current_resource = routing_state.current_resource.clone().expect(
 		"current resource should be set in the request_passer or the call method of the Service",
