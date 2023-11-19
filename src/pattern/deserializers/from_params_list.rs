@@ -63,7 +63,7 @@ macro_rules! declare_deserialize_for_simple_types {
 				V: Visitor<'de>,
 			{
 				println!("\nfrom params list: {}", stringify!($deserialize));
-				if let Some(mut from_params) = self.current_valid_params_deserializer() {
+				if let Some(from_params) = self.current_valid_params_deserializer() {
 					return from_params.$deserialize(visitor)
 				}
 
@@ -271,7 +271,7 @@ impl<'de> MapAccess<'de> for FromParamsListMapAccess<'_, 'de> {
 		println!("from params list: next_value_seed");
 		let data_type = self.0.data_type;
 
-		if let Some(mut from_params) = self.0.current_valid_params_deserializer() {
+		if let Some(from_params) = self.0.current_valid_params_deserializer() {
 			println!("pattern: {}", from_params.pattern_name());
 			if data_type == DataType::Struct {
 				println!("\tstruct value -> ");
@@ -339,7 +339,7 @@ impl<'de> VariantAccess<'de> for FromParamsListEnumAccess<'_, 'de> {
 
 	fn struct_variant<V>(
 		self,
-		fields: &'static [&'static str],
+		_fields: &'static [&'static str],
 		visitor: V,
 	) -> Result<V::Value, Self::Error>
 	where
@@ -357,14 +357,12 @@ impl<'de> VariantAccess<'de> for FromParamsListEnumAccess<'_, 'de> {
 mod test {
 	use std::collections::HashMap;
 
-	use serde::{Deserialize, Deserializer};
+	use serde::Deserialize;
 
 	use crate::{
 		pattern::{ParamsList, Pattern},
 		routing::RouteSegments,
 	};
-
-	use super::*;
 
 	// --------------------------------------------------
 
@@ -378,7 +376,7 @@ mod test {
 
 		let match_path = "/cba0/cba1/static-cp1_42/42";
 
-		let mut get_path_params = || {
+		let get_path_params = || {
 			let mut path_params = ParamsList::new();
 			let mut patterns_iter = patterns.iter();
 

@@ -27,7 +27,7 @@ impl Display for E {
 impl Error for E {}
 
 impl serde::de::Error for E {
-	fn custom<T>(msg: T) -> Self
+	fn custom<T>(_msg: T) -> Self
 	where
 		T: Display,
 	{
@@ -81,7 +81,7 @@ macro_rules! declare_deserialize_for_parsable {
 impl<'de> Deserializer<'de> for FromStr<'de> {
 	type Error = E;
 
-	fn deserialize_any<V>(self, visitor: V) -> Result<V::Value, Self::Error>
+	fn deserialize_any<V>(self, _visitor: V) -> Result<V::Value, Self::Error>
 	where
 		V: Visitor<'de>,
 	{
@@ -110,7 +110,7 @@ impl<'de> Deserializer<'de> for FromStr<'de> {
 		let mut chars = value.chars();
 		let value = chars.next().ok_or(E)?;
 
-		if chars.any(|remaining| true) {
+		if chars.any(|_remaining| true) {
 			return Err(E);
 		}
 
@@ -237,7 +237,7 @@ impl<'de> EnumAccess<'de> for FromStr<'de> {
 	type Error = E;
 	type Variant = Self;
 
-	fn variant_seed<V>(mut self, seed: V) -> Result<(V::Value, Self::Variant), Self::Error>
+	fn variant_seed<V>(self, seed: V) -> Result<(V::Value, Self::Variant), Self::Error>
 	where
 		V: DeserializeSeed<'de>,
 	{
@@ -262,7 +262,7 @@ impl<'de> VariantAccess<'de> for FromStr<'de> {
 		seed.deserialize(self)
 	}
 
-	fn tuple_variant<V>(self, _len: usize, visitor: V) -> Result<V::Value, Self::Error>
+	fn tuple_variant<V>(self, _len: usize, _visitor: V) -> Result<V::Value, Self::Error>
 	where
 		V: Visitor<'de>,
 	{
@@ -273,7 +273,7 @@ impl<'de> VariantAccess<'de> for FromStr<'de> {
 	fn struct_variant<V>(
 		self,
 		_fields: &'static [&'static str],
-		visitor: V,
+		_visitor: V,
 	) -> Result<V::Value, Self::Error>
 	where
 		V: Visitor<'de>,

@@ -400,7 +400,7 @@ where
 	type Output = Result<Vec<u8>, Response>;
 
 	fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-		let mut self_projection = self.project();
+		let self_projection = self.project();
 
 		let content_type = self_projection
 			.request
@@ -474,7 +474,7 @@ where
 	type Output = Result<Bytes, Response>;
 
 	fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-		let mut self_projection = self.project();
+		let self_projection = self.project();
 
 		let content_type = self_projection
 			.request

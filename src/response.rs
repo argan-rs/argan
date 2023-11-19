@@ -39,7 +39,7 @@ where
 	B::Error: Into<BoxedError>,
 {
 	fn into_response(self) -> Response {
-		let (head, mut body) = self.into_parts();
+		let (head, body) = self.into_parts();
 		let mut some_body = Some(body);
 
 		if let Some(some_boxed_body) = <dyn Any>::downcast_mut::<Option<BoxedBody>>(&mut some_body) {

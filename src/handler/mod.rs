@@ -147,6 +147,7 @@ where
 
 // ----------
 
+#[derive(Clone)]
 pub struct HandlerState<S>(S);
 
 // --------------------------------------------------------------------------------
@@ -232,7 +233,7 @@ impl Handler for DummyHandler<DefaultResponseFuture> {
 	type Future = DefaultResponseFuture;
 
 	#[inline]
-	fn handle(&self, req: Request<IncomingBody>) -> Self::Future {
+	fn handle(&self, _req: Request<IncomingBody>) -> Self::Future {
 		DefaultResponseFuture::new()
 	}
 }
@@ -250,7 +251,7 @@ impl Handler for DummyHandler<BoxedFuture<Response>> {
 	type Future = BoxedFuture<Response>;
 
 	#[inline]
-	fn handle(&self, req: Request<IncomingBody>) -> Self::Future {
+	fn handle(&self, _req: Request<IncomingBody>) -> Self::Future {
 		Box::pin(DefaultResponseFuture::new())
 	}
 }

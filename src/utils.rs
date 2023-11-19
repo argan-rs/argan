@@ -38,3 +38,35 @@ pub(crate) fn route_to_patterns(patterns: &str) -> Vec<Pattern> {
 
 	patterns
 }
+
+// --------------------------------------------------------------------------------
+
+pub(crate) struct Uncloneable<T>(Option<T>);
+
+impl<T> Clone for Uncloneable<T> {
+	fn clone(&self) -> Self {
+		Self(None)
+	}
+}
+
+impl<T> From<T> for Uncloneable<T> {
+	fn from(value: T) -> Self {
+	  Self(Some(value))
+	}
+}
+
+impl<T> Uncloneable<T> {
+	pub(crate) fn as_ref(&self) -> Option<&T> {
+	  self.0.as_ref()
+	}
+
+	pub(crate) fn as_mut(&mut self) -> Option<&mut T> {
+		self.0.as_mut()
+	}
+
+	pub(crate) fn into_inner(mut self) -> Option<T> {
+		self.0.take()
+	}
+}
+
+// --------------------------------------------------------------------------------

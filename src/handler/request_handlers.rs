@@ -11,7 +11,7 @@ use crate::{
 	request::Request,
 	response::{IntoResponse, Response},
 	routing::UnusedRequest,
-	utils::BoxedFuture,
+	utils::{BoxedFuture, Uncloneable},
 };
 
 use super::{wrap_arc_handler, AdaptiveHandler, ArcHandler, Handler};
@@ -104,13 +104,13 @@ impl MethodHandlers {
 			.map(|(_, h)| h.clone());
 
 		match some_handler {
-			Some(mut handler) => handler.handle(request),
+			Some(handler) => handler.handle(request),
 			None => {
 				let allowed_methods = self.allowed_methods();
-				request.extensions_mut().insert(allowed_methods);
+				request.extensions_mut().insert(Uncloneable::from(allowed_methods));
 
 				match self.unsupported_method_handler.as_ref() {
-					Some(mut unsupported_method_handler) => unsupported_method_handler.handle(request),
+					Some(unsupported_method_handler) => unsupported_method_handler.handle(request),
 					None => Box::pin(handle_unsupported_method(request)),
 				}
 			}
@@ -137,8 +137,10 @@ pub(crate) struct AllowedMethods(String);
 async fn handle_unsupported_method(mut request: Request<IncomingBody>) -> Response {
 	let allowed_methods = request
 		.extensions_mut()
-		.remove::<AllowedMethods>()
-		.expect("allowed methods should be inserted by MethodHandlers instance");
+		.remove::<Uncloneable<AllowedMethods>>()
+		.expect("Uncloneable<AllowedMethods> should be inserted by MethodHandlers instance")
+		.into_inner()
+		.expect("AllowedMethods should always exist in Uncloneable");
 
 	let allowed_methods_header_value =
 		HeaderValue::from_str(&allowed_methods.0).expect("method name should be a valid header value");
@@ -159,7 +161,7 @@ pub(crate) fn misdirected_request_handler(request: Request<IncomingBody>) -> Rea
 	*response.status_mut() = StatusCode::NOT_FOUND;
 	response
 		.extensions_mut()
-		.insert(UnusedRequest::from(request));
+		.insert(Uncloneable::from(UnusedRequest::from(request)));
 
 	ready(response)
 }
