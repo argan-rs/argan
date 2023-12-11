@@ -12,7 +12,7 @@ use super::utils::BoxedError;
 
 // ----------
 
-pub use http_body_util::{BodyExt, Empty, Full};
+pub use http_body_util::{BodyExt, BodyStream, Empty, Full, StreamBody};
 pub use hyper::body::{Body, Buf, Bytes, Frame, Incoming};
 
 // --------------------------------------------------------------------------------
