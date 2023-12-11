@@ -324,6 +324,7 @@ where
 			.unwrap()
 			.to_str()
 			.unwrap();
+
 		if content_type == mime::TEXT_PLAIN_UTF_8 {
 			if let Poll::Ready(result) = pin!(self_projection.request.collect()).poll(cx) {
 				let body = result.unwrap().to_bytes();

@@ -7,7 +7,9 @@ license = "MIT OR Apache-2.0"
 authors = ["Shohruh Adham <shohruh.adham@gmail.com>"]
 
 [dependencies]
+bytes = "1.5.0"
 cookie = { version = "0.18.0", features = ["percent-encode"] }
+futures-util = "0.3.29"
 http = "1.0.0"
 http-body-util = "0.1.0"
 hyper = { version = "1.0.1", features = ["full"] }

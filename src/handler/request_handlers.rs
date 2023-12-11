@@ -107,7 +107,9 @@ impl MethodHandlers {
 			Some(handler) => handler.handle(request),
 			None => {
 				let allowed_methods = self.allowed_methods();
-				request.extensions_mut().insert(Uncloneable::from(allowed_methods));
+				request
+					.extensions_mut()
+					.insert(Uncloneable::from(allowed_methods));
 
 				match self.unsupported_method_handler.as_ref() {
 					Some(unsupported_method_handler) => unsupported_method_handler.handle(request),

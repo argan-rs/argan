@@ -9,7 +9,8 @@ use serde::{de::DeserializeOwned, Deserializer};
 use crate::{
 	body::IncomingBody,
 	response::{IntoResponse, Response},
-	routing::RoutingState, utils::Uncloneable,
+	routing::RoutingState,
+	utils::Uncloneable,
 };
 
 // ----------

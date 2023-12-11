@@ -121,7 +121,9 @@ where
 
 		let mut routing_state = RoutingState::new(route_traversal, self.clone());
 		routing_state.path_params = path_params;
-		request.extensions_mut().insert(Uncloneable::from(routing_state));
+		request
+			.extensions_mut()
+			.insert(Uncloneable::from(routing_state));
 
 		if matched {
 			match self.request_receiver.as_ref() {

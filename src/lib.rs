@@ -1,5 +1,8 @@
 #![allow(dead_code)]
 
+#[macro_use]
+pub(crate) mod macros;
+
 pub mod body;
 mod data;
 pub mod handler;
