@@ -1,6 +1,5 @@
 use std::{
 	any::Any,
-	fmt::Debug,
 	pin::Pin,
 	task::{Context, Poll},
 };
@@ -47,7 +46,6 @@ impl IncomingBody {
 	pub fn new<B: Sized>(body: B) -> Self
 	where
 		B: Body + Send + Sync + 'static,
-		B::Data: Debug,
 		B::Error: Into<BoxedError>,
 	{
 		let mut some_body = Some(body);
@@ -55,13 +53,16 @@ impl IncomingBody {
 		if let Some(some_incoming_body) =
 			<dyn Any>::downcast_mut::<Option<IncomingBody>>(&mut some_body)
 		{
-			return some_incoming_body
-				.take()
-				.expect("Option should have been created from a valid value in a local scope");
+			if let Some(incoming_body) = some_incoming_body.take() {
+				return incoming_body;
+			} else {
+				panic!("Option should have been created from a valid value in a local scope")
+			}
 		}
 
-		let body =
-			some_body.expect("Option should have been created from a valid value in a local scope");
+		let Some(body) = some_body else {
+			panic!("Option should have been created from a valid value in a local scope")
+		};
 
 		Self {
 			inner: InnerBody::Boxed {
@@ -102,7 +103,6 @@ impl<B> BodyAdapter<B> {
 impl<B> Body for BodyAdapter<B>
 where
 	B: Body,
-	B::Data: Debug,
 	B::Error: Into<BoxedError>,
 {
 	type Data = Bytes;
