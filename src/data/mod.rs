@@ -132,6 +132,7 @@ where
 			.unwrap()
 			.to_str()
 			.unwrap();
+
 		if content_type == mime::APPLICATION_JSON {
 			if let Poll::Ready(result) = pin!(self_projection.request.collect()).poll(cx) {
 				let body = result.unwrap().to_bytes();
@@ -339,6 +340,7 @@ where
 			.unwrap()
 			.to_str()
 			.unwrap();
+
 		if content_type == mime::APPLICATION_OCTET_STREAM {
 			if let Poll::Ready(result) = pin!(self_projection.request.collect()).poll(cx) {
 				let value = result.unwrap().to_bytes().to_vec();
@@ -413,6 +415,7 @@ where
 			.unwrap()
 			.to_str()
 			.unwrap();
+
 		if content_type == mime::APPLICATION_OCTET_STREAM {
 			if let Poll::Ready(result) = pin!(self_projection.request.collect()).poll(cx) {
 				return Poll::Ready(Ok(result.unwrap().to_bytes()));
