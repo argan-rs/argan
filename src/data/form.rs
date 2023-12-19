@@ -13,16 +13,16 @@ use super::*;
 // --------------------------------------------------
 // Form
 
-pub struct Form<T>(pub T);
+pub struct Form<T, const SIZE_LIMIT: usize = { 2 * 1024 * 1024 }>(pub T);
 
-impl<B, T> FromRequest<B> for Form<T>
+impl<B, T, const SIZE_LIMIT: usize> FromRequest<B> for Form<T, SIZE_LIMIT>
 where
 	B: Body,
-	B::Error: Debug,
+	B::Error: Into<BoxedError>,
 	T: DeserializeOwned,
 {
 	type Error = Response;
-	type Future = FormFuture<B, T>;
+	type Future = FormFuture<B, T, SIZE_LIMIT>;
 
 	fn from_request(request: Request<B>) -> Self::Future {
 		FormFuture {
@@ -32,20 +32,20 @@ where
 	}
 }
 
-pin_project! {
-	pub struct FormFuture<B, T> {
-		#[pin] request: Request<B>,
-		_mark: PhantomData<T>,
-	}
+#[pin_project]
+pub struct FormFuture<B, T, const SIZE_LIMIT: usize> {
+	#[pin]
+	request: Request<B>,
+	_mark: PhantomData<T>,
 }
 
-impl<B, T> Future for FormFuture<B, T>
+impl<B, T, const SIZE_LIMIT: usize> Future for FormFuture<B, T, SIZE_LIMIT>
 where
 	B: Body,
-	B::Error: Debug,
+	B::Error: Into<BoxedError>,
 	T: DeserializeOwned,
 {
-	type Output = Result<Form<T>, Response>;
+	type Output = Result<Form<T, SIZE_LIMIT>, Response>;
 
 	fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
 		let self_projection = self.project();
@@ -59,7 +59,8 @@ where
 			.unwrap();
 
 		if content_type == mime::APPLICATION_WWW_FORM_URLENCODED {
-			if let Poll::Ready(result) = pin!(self_projection.request.collect()).poll(cx) {
+			let limited_body = Limited::new(self_projection.request, SIZE_LIMIT);
+			if let Poll::Ready(result) = pin!(limited_body.collect()).poll(cx) {
 				let body = result.unwrap().to_bytes();
 				let value = serde_urlencoded::from_bytes::<T>(&body).unwrap();
 
@@ -68,7 +69,7 @@ where
 
 			Poll::Pending
 		} else {
-			Poll::Ready(Err(StatusCode::BAD_REQUEST.into_response()))
+			Poll::Ready(Err(StatusCode::UNSUPPORTED_MEDIA_TYPE.into_response()))
 		}
 	}
 }
@@ -92,13 +93,13 @@ where
 // --------------------------------------------------
 // Multipart
 
-struct Multipart<const SIZE: usize = { 4 * 1024 * 1024 }> {
+struct Multipart<const SIZE_LIMIT: usize = { 8 * 1024 * 1024 }> {
 	body_stream: BodyStream<Limited<IncomingBody>>,
 	boundary: String,
 	constraints: Option<Constraints>,
 }
 
-impl<const SIZE: usize> Multipart<SIZE> {
+impl<const SIZE_LIMIT: usize> Multipart<SIZE_LIMIT> {
 	fn with_constraints(mut self, constraints: Constraints) -> Self {
 		self.constraints = Some(constraints);
 
@@ -130,13 +131,13 @@ impl<const SIZE: usize> Multipart<SIZE> {
 	}
 }
 
-impl<B, const SIZE: usize> FromRequest<B> for Multipart<SIZE>
+impl<B, const SIZE_LIMIT: usize> FromRequest<B> for Multipart<SIZE_LIMIT>
 where
 	B: Body + Send + Sync + 'static,
 	B::Error: Into<BoxedError>,
 {
 	type Error = Response;
-	type Future = Ready<Result<Multipart<SIZE>, Self::Error>>;
+	type Future = Ready<Result<Multipart<SIZE_LIMIT>, Self::Error>>;
 
 	fn from_request(request: Request<B>) -> Self::Future {
 		let content_type = request
@@ -148,7 +149,7 @@ where
 
 		if let Ok(boundary) = parse_boundary(content_type) {
 			let body = request.into_body();
-			let limited_incoming_body = Limited::new(IncomingBody::new(body), SIZE);
+			let limited_incoming_body = Limited::new(IncomingBody::new(body), SIZE_LIMIT);
 
 			let body_stream = BodyStream::new(limited_incoming_body);
 			let multipart_form = Multipart {
@@ -159,7 +160,7 @@ where
 
 			ready(Ok(multipart_form))
 		} else {
-			ready(Err(StatusCode::BAD_REQUEST.into_response()))
+			ready(Err(StatusCode::UNSUPPORTED_MEDIA_TYPE.into_response()))
 		}
 	}
 }

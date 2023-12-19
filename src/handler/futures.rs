@@ -5,22 +5,19 @@ use std::{
 	task::{Context, Poll},
 };
 
-use pin_project_lite::pin_project;
+use pin_project::pin_project;
 
 use crate::response::Response;
 
 // --------------------------------------------------------------------------------
 // --------------------------------------------------------------------------------
 
-pin_project! {
-	pub struct ResultToResponseFuture<F> {
-		#[pin] inner: F
-	}
-}
+#[pin_project]
+pub struct ResultToResponseFuture<F>(#[pin] F);
 
 impl<F> From<F> for ResultToResponseFuture<F> {
 	fn from(inner: F) -> Self {
-		Self { inner }
+		Self(inner)
 	}
 }
 
@@ -34,7 +31,7 @@ where
 	fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
 		self
 			.project()
-			.inner
+			.0
 			.poll(cx)
 			.map(|output| output.expect("Err should be infallible"))
 	}
@@ -42,15 +39,12 @@ where
 
 // --------------------------------------------------------------------------------
 
-pin_project! {
-	pub struct ResponseToResultFuture<F> {
-		#[pin] inner: F
-	}
-}
+#[pin_project]
+pub struct ResponseToResultFuture<F>(#[pin] F);
 
 impl<F> From<F> for ResponseToResultFuture<F> {
 	fn from(inner: F) -> Self {
-		Self { inner }
+		Self(inner)
 	}
 }
 
@@ -62,7 +56,7 @@ where
 
 	#[inline]
 	fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-		self.project().inner.poll(cx).map(|output| Ok(output))
+		self.project().0.poll(cx).map(|output| Ok(output))
 	}
 }
 
