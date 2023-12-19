@@ -12,7 +12,7 @@ use http::{
 };
 use http_body_util::{BodyExt, StreamBody};
 use hyper::body::Frame;
-use pin_project_lite::pin_project;
+use pin_project::pin_project;
 use serde::Serialize;
 
 use crate::utils::{BoxedError, Interval};
@@ -22,11 +22,11 @@ use super::{IntoResponse, Response};
 // --------------------------------------------------------------------------------
 // --------------------------------------------------------------------------------
 
-pin_project! {
-	pub struct EventStream<S> {
-		#[pin] inner: S,
-		keep_alive_interval: Option<Interval>,
-	}
+#[pin_project]
+pub struct EventStream<S> {
+	#[pin]
+	inner: S,
+	keep_alive_interval: Option<Interval>,
 }
 
 impl<S> EventStream<S> {

@@ -8,7 +8,7 @@ use std::{
 
 use http::StatusCode;
 use percent_encoding::percent_decode_str;
-use pin_project_lite::pin_project;
+use pin_project::pin_project;
 
 use crate::{
 	handler::{
@@ -25,17 +25,12 @@ use super::service::{request_passer, request_receiver};
 // --------------------------------------------------------------------------------
 // --------------------------------------------------------------------------------
 
-pin_project! {
-	pub(crate) struct RequestReceiverFuture {
-		some_request: Option<Request>
-	}
-}
+#[pin_project]
+pub(crate) struct RequestReceiverFuture(Option<Request>);
 
 impl From<Request> for RequestReceiverFuture {
 	fn from(request: Request) -> Self {
-		Self {
-			some_request: Some(request),
-		}
+		Self(Some(request))
 	}
 }
 
@@ -46,7 +41,7 @@ impl Future for RequestReceiverFuture {
 		let self_projection = self.project();
 
 		let mut request = self_projection
-			.some_request
+			.0
 			.take()
 			.expect("RequestReceiverFuture must be created from request");
 
@@ -141,17 +136,12 @@ impl Future for RequestReceiverFuture {
 
 // --------------------------------------------------------------------------------
 
-pin_project! {
-	pub struct RequestPasserFuture {
-		some_request: Option<Request>
-	}
-}
+#[pin_project]
+pub struct RequestPasserFuture(Option<Request>);
 
 impl From<Request> for RequestPasserFuture {
 	fn from(request: Request) -> Self {
-		Self {
-			some_request: Some(request),
-		}
+		Self(Some(request))
 	}
 }
 
@@ -162,7 +152,7 @@ impl Future for RequestPasserFuture {
 		let self_projection = self.project();
 
 		let mut request = self_projection
-			.some_request
+			.0
 			.take()
 			.expect("RequestPasserFuture must be created from request");
 
@@ -315,16 +305,13 @@ impl Future for RequestPasserFuture {
 
 // --------------------------------------------------------------------------------
 
-pin_project! {
-	pub struct ResourceFuture {
-		#[pin] inner: ResourceInnerFuture,
-	}
-}
+#[pin_project]
+pub struct ResourceFuture(#[pin] ResourceInnerFuture);
 
 impl From<ResourceInnerFuture> for ResourceFuture {
 	#[inline(always)]
 	fn from(inner: ResourceInnerFuture) -> Self {
-		Self { inner }
+		Self(inner)
 	}
 }
 
@@ -333,19 +320,26 @@ impl Future for ResourceFuture {
 
 	#[inline(always)]
 	fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-		self.project().inner.poll(cx)
+		self.project().0.poll(cx)
 	}
 }
 
 // ----------
 
-pin_project! {
-	#[project = ResourceInnerFutureProjection]
-	pub(crate) enum ResourceInnerFuture {
-		Boxed { #[pin] boxed: ResponseToResultFuture<BoxedFuture<Response>> },
-		Unboxed { #[pin] unboxed: ResponseToResultFuture<RequestReceiverFuture> },
-		Ready { #[pin] ready: ResponseToResultFuture<Ready<Response>> },
-	}
+#[pin_project(project = ResourceInnerFutureProjection)]
+pub(crate) enum ResourceInnerFuture {
+	Boxed {
+		#[pin]
+		boxed: ResponseToResultFuture<BoxedFuture<Response>>,
+	},
+	Unboxed {
+		#[pin]
+		unboxed: ResponseToResultFuture<RequestReceiverFuture>,
+	},
+	Ready {
+		#[pin]
+		ready: ResponseToResultFuture<Ready<Response>>,
+	},
 }
 
 impl From<BoxedFuture<Response>> for ResourceInnerFuture {

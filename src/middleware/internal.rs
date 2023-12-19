@@ -5,7 +5,7 @@ use std::{
 	task::{Context, Poll},
 };
 
-use pin_project_lite::pin_project;
+use pin_project::pin_project;
 
 use crate::{
 	body::{Body, IncomingBody},
@@ -76,15 +76,12 @@ impl<H> IntoResponseAdapter<H> {
 
 // ----------
 
-pin_project! {
-	pub(crate) struct IntoResponseFuture<F> {
-		#[pin] inner: F
-	}
-}
+#[pin_project]
+pub(crate) struct IntoResponseFuture<F>(#[pin] F);
 
 impl<F> From<F> for IntoResponseFuture<F> {
 	fn from(inner: F) -> Self {
-		Self { inner }
+		Self(inner)
 	}
 }
 
@@ -99,7 +96,7 @@ where
 	fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
 		self
 			.project()
-			.inner
+			.0
 			.poll(cx)
 			.map(|output| output.into_response())
 	}

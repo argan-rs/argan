@@ -5,7 +5,7 @@ use std::{
 	task::{Context, Poll},
 };
 
-use pin_project_lite::pin_project;
+use pin_project::pin_project;
 
 use crate::{
 	request::{FromRequest, FromRequestHead, Request},
@@ -204,12 +204,11 @@ impl_handler_fn!(
 
 // --------------------------------------------------
 
-pin_project! {
-	pub struct HandlerFnFuture<Func, M, B> {
-		func: Func,
-		some_request: Option<Request<B>>,
-		_mark: PhantomData<fn() -> M>
-	}
+#[pin_project]
+pub struct HandlerFnFuture<Func, M, B> {
+	func: Func,
+	some_request: Option<Request<B>>,
+	_mark: PhantomData<fn() -> M>,
 }
 
 impl<Func, M, B> HandlerFnFuture<Func, M, B> {
