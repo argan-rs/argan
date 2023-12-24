@@ -78,15 +78,6 @@ impl<T> Uncloneable<T> {
 
 // --------------------------------------------------------------------------------
 
-pub(crate) trait Uint {}
-
-impl Uint for u8 {}
-impl Uint for u16 {}
-impl Uint for u32 {}
-impl Uint for u64 {}
-
-// --------------------------------------------------------------------------------
-
 pub(crate) struct Interval {
 	sleep: Pin<Box<dyn Sleep>>,
 }
