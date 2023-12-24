@@ -13,7 +13,15 @@ macro_rules! bit_flags {
 
 		impl $flags
 		where
-			$type: crate::utils::Uint,
+			$type: Copy
+				+ std::ops::BitOr
+				+ std::ops::BitOrAssign
+				+ std::ops::BitAnd
+				+ std::ops::BitAndAssign
+				+ std::cmp::PartialEq
+				+ std::cmp::Eq
+				+ std::cmp::PartialOrd
+				+ std::cmp::Ord,
 		{
 			#[inline(always)]
 			$flags_vis fn new() -> Self {
@@ -50,7 +58,15 @@ macro_rules! bit_flags {
 
 		impl std::ops::BitOr for $flags
 		where
-			$type: crate::utils::Uint,
+			$type: Copy
+				+ std::ops::BitOr
+				+ std::ops::BitOrAssign
+				+ std::ops::BitAnd
+				+ std::ops::BitAndAssign
+				+ std::cmp::PartialEq
+				+ std::cmp::Eq
+				+ std::cmp::PartialOrd
+				+ std::cmp::Ord,
 		{
 			type Output = $flags;
 
