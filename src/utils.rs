@@ -17,6 +17,11 @@ pub type BoxedFuture<T> = Pin<Box<dyn Future<Output = T>>>;
 
 // --------------------------------------------------------------------------------
 
+// Used when expecting a valid value in Options or Results.
+pub(crate) const SCOPE_VALIDITY: &'static str = "scope validity";
+
+// --------------------------------------------------------------------------------
+
 pub(crate) mod mark {
 	pub trait Sealed {}
 
@@ -116,3 +121,18 @@ impl Future for Interval {
 }
 
 // --------------------------------------------------------------------------------
+
+#[inline]
+pub(crate) fn strip_double_quotes(slice: &[u8]) -> &[u8] {
+	let slice = if let Some(stripped_slice) = slice.strip_prefix(b"\"") {
+		stripped_slice
+	} else {
+		slice
+	};
+
+	if let Some(stripped_slice) = slice.strip_suffix(b"\"") {
+		stripped_slice
+	} else {
+		slice
+	}
+}
