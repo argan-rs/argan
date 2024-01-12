@@ -1,4 +1,5 @@
 #![allow(dead_code)]
+#![allow(unused)]
 
 #[macro_use]
 pub(crate) mod macros;

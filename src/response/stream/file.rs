@@ -1,6 +1,8 @@
 use std::{
+	fmt::Display,
 	fs::File,
 	io::{Error as IoError, ErrorKind, Read},
+	ops::RangeBounds,
 	path::Path,
 	pin::Pin,
 	str::FromStr,
@@ -22,7 +24,7 @@ use rand::{rngs::SmallRng, Rng, SeedableRng};
 
 use crate::{
 	response::{IntoResponse, Response},
-	utils::BoxedError,
+	utils::{BoxedError, SCOPE_VALIDITY},
 };
 
 // --------------------------------------------------------------------------------
@@ -39,7 +41,7 @@ pub struct FileStream {
 	file_size: String,
 	current_range_index: usize,
 	current_range_remaining_size: u64,
-	some_ranges: Option<Vec<RangeValue>>,
+	ranges: Vec<RangeValue>,
 	some_boundary: Option<Arc<str>>,
 	some_content_type_value: Option<HeaderValue>,
 	some_file_name: Option<String>,
@@ -58,7 +60,7 @@ impl FileStream {
 			file_size: file_size.to_string(),
 			current_range_index: 0,
 			current_range_remaining_size: file_size,
-			some_ranges: None,
+			ranges: Vec::new(),
 			some_boundary: None,
 			some_content_type_value: None,
 			some_file_name: None,
@@ -75,7 +77,7 @@ impl FileStream {
 			file_size: file_size.to_string(),
 			current_range_index: 0,
 			current_range_remaining_size: file_size,
-			some_ranges: None,
+			ranges: Vec::new(),
 			some_boundary: None,
 			some_content_type_value: None,
 			some_file_name: None,
@@ -85,10 +87,11 @@ impl FileStream {
 
 	pub fn open_ranges<P: AsRef<Path>>(
 		path: P,
-		ranges: Vec<RangeValue>,
+		range_header_value: &str,
+		allow_descending: bool,
 	) -> Result<Self, FileStreamError> {
-		if ranges.is_empty() {
-			return Err(FileStreamError::NoRange);
+		if range_header_value.is_empty() {
+			return Err(FileStreamError::InvalidValue);
 		}
 
 		let file = File::open(path)?;
@@ -96,16 +99,14 @@ impl FileStream {
 		let metadata = file.metadata()?;
 		let file_size = metadata.len();
 
-		if ranges.iter().any(|range| range.end() >= file_size) {
-			return Err(FileStreamError::RangeNotSatisfiable);
-		}
+		let ranges = parse_range_header_value(range_header_value, file_size, allow_descending)?;
 
 		Ok(Self {
 			file,
 			file_size: file_size.to_string(),
 			current_range_index: 0,
 			current_range_remaining_size: ranges[0].size(),
-			some_ranges: Some(ranges),
+			ranges,
 			some_content_type_value: None,
 			some_boundary: None,
 			some_file_name: None,
@@ -113,24 +114,26 @@ impl FileStream {
 		})
 	}
 
-	pub fn from_file_ranges(file: File, ranges: Vec<RangeValue>) -> Result<Self, FileStreamError> {
-		if ranges.is_empty() {
-			return Err(FileStreamError::NoRange);
+	pub fn from_file_ranges(
+		file: File,
+		range_header_value: &str,
+		allow_descending: bool,
+	) -> Result<Self, FileStreamError> {
+		if range_header_value.is_empty() {
+			return Err(FileStreamError::InvalidValue);
 		}
 
 		let metadata = file.metadata()?;
 		let file_size = metadata.len();
 
-		if ranges.iter().any(|range| range.end() >= file_size) {
-			return Err(FileStreamError::RangeNotSatisfiable);
-		}
+		let ranges = parse_range_header_value(range_header_value, file_size, allow_descending)?;
 
 		Ok(Self {
 			file,
 			file_size: file_size.to_string(),
 			current_range_index: 0,
 			current_range_remaining_size: ranges[0].size(),
-			some_ranges: Some(ranges),
+			ranges,
 			some_content_type_value: None,
 			some_boundary: None,
 			some_file_name: None,
@@ -187,13 +190,11 @@ impl IntoResponse for FileStream {
 		if self.some_boundary.is_some() {
 			multipart_ranges_response(self)
 		} else {
-			if self
-				.some_ranges
-				.as_ref()
-				.is_some_and(|ranges| ranges.len() > 1)
-			{
-				self.some_boundary =
-					Some(generate_boundary(48).expect("the boundary must not be longer than 70 characters"));
+			if !self.ranges.is_empty() {
+				self.some_boundary = Some(
+					generate_boundary(48)
+						.expect("should be valid when the length is no longer than 70 characters"),
+				);
 
 				multipart_ranges_response(self)
 			} else {
@@ -223,14 +224,14 @@ fn single_range_response(mut file_stream: FileStream) -> Response {
 
 	// Non-multipart responses may have a single range. It's expected to be checked before
 	// the function is called.
-	if let Some(ranges) = file_stream.some_ranges.as_ref() {
+	if !file_stream.ranges.is_empty() {
 		*response.status_mut() = StatusCode::PARTIAL_CONTENT;
 
 		let mut content_range_value = String::new();
 		content_range_value.push_str("bytes ");
-		content_range_value.push_str(&ranges[0].start_str());
+		content_range_value.push_str(&file_stream.ranges[0].start_str());
 		content_range_value.push('-');
-		content_range_value.push_str(&ranges[0].end_str());
+		content_range_value.push_str(&file_stream.ranges[0].end_str());
 		content_range_value.push('/');
 		content_range_value.push_str(&file_stream.file_size);
 
@@ -301,8 +302,8 @@ fn multipart_ranges_response(file_stream: FileStream) -> Response {
 	}
 
 	let mut body_size = 0u64;
-	if let Some(ranges) = &file_stream.some_ranges {
-		for range in ranges {
+	if !file_stream.ranges.is_empty() {
+		for range in file_stream.ranges.iter() {
 			body_size += part_header_size(
 				boundary.len(),
 				file_stream.some_content_type_value.as_ref(),
@@ -382,13 +383,11 @@ impl Body for FileStream {
 		if self.some_boundary.is_some() {
 			stream_multipart_ranges(self, cx)
 		} else {
-			if self
-				.some_ranges
-				.as_ref()
-				.is_some_and(|ranges| ranges.len() > 1)
-			{
-				self.some_boundary =
-					Some(generate_boundary(48).expect("the boundary must not be longer than 70 characters"));
+			if !self.ranges.is_empty() {
+				self.some_boundary = Some(
+					generate_boundary(48)
+						.expect("should be valid when the length is no longer than 70 characters"),
+				);
 
 				stream_multipart_ranges(self, cx)
 			} else {
@@ -438,15 +437,12 @@ fn stream_multipart_ranges(
 	cx: &mut Context<'_>,
 ) -> Poll<Option<Result<Frame<Bytes>, BoxedError>>> {
 	let new_part = if file_stream.current_range_remaining_size == 0 {
-		if let Some((true, next_range_index, next_range_size)) =
-			file_stream.some_ranges.as_ref().map(|ranges| {
-				let next_range_index = file_stream.current_range_index + 1;
-				if let Some(next_range) = ranges.get(next_range_index) {
-					(true, next_range_index, next_range.size())
-				} else {
-					(false, 0, 0)
-				}
-			}) {
+		let next_range_index = file_stream.current_range_index + 1;
+		if let Some(next_range_size) = file_stream
+			.ranges
+			.get(next_range_index)
+			.map(|next_range| next_range.size())
+		{
 			file_stream.current_range_index = next_range_index;
 			file_stream.current_range_remaining_size = next_range_size;
 
@@ -467,9 +463,9 @@ fn stream_multipart_ranges(
 	let (capacity, last_one) = if file_stream.current_range_remaining_size <= BUFFER_SIZE as u64 {
 		let capacity = file_stream.current_range_remaining_size as usize;
 
-		if file_stream.some_ranges.as_ref().map_or(true, |ranges| {
-			file_stream.current_range_index == ranges.len() - 1
-		}) {
+		if file_stream.ranges.is_empty()
+			|| file_stream.current_range_index == file_stream.ranges.len() - 1
+		{
 			//          |     |       |     |
 			//          \r\n--boundary--\r\n
 			(capacity + 4 + boundary.len() + 4, true)
@@ -481,8 +477,8 @@ fn stream_multipart_ranges(
 	};
 
 	let (mut buffer, start_index) = if new_part {
-		let some_range = if let Some(ranges) = file_stream.some_ranges.as_ref() {
-			Some(&ranges[file_stream.current_range_index])
+		let some_range = if !file_stream.ranges.is_empty() {
+			Some(&file_stream.ranges[file_stream.current_range_index])
 		} else {
 			None
 		};
@@ -508,11 +504,11 @@ fn stream_multipart_ranges(
 		buffer.put_slice(b"\r\n");
 		buffer.put_slice(CONTENT_RANGE.as_str().as_bytes());
 		buffer.put_slice(b": bytes ");
-		buffer.put_slice(some_range.map_or(b"0", |range| range.start_string.as_bytes()));
+		buffer.put_slice(some_range.map_or(b"0", |range| range.start_str().as_bytes()));
 		buffer.put_u8(b'-');
 		buffer.put_slice(
 			some_range.map_or(file_stream.file_size.as_bytes(), |range| {
-				range.end_string.as_bytes()
+				range.end_str().as_bytes()
 			}),
 		);
 		buffer.put_u8(b'/');
@@ -593,76 +589,469 @@ bit_flags! {
 
 // ----------
 
-pub struct RangeValue {
-	start: u64,
-	start_string: String,
-	end: u64,
-	end_string: String,
+fn parse_range_header_value(
+	value: &str,
+	file_size: u64,
+	allow_descending: bool,
+) -> Result<Vec<RangeValue>, FileStreamError> {
+	let Some(ranges_str) = value.strip_prefix("bytes=") else {
+		return Err(FileStreamError::InvalidValue);
+	};
+
+	dbg!(ranges_str);
+
+	let mut raw_ranges = ranges_str
+		.split(',')
+		.filter_map(|range_str| {
+			RawRangeValue::from_str(range_str.trim())
+				.and_then(|range| {
+					if range
+						.some_start
+						.as_ref()
+						.is_some_and(|start| start.0 < file_size)
+					{
+						return Ok(range);
+					}
+
+					if range.some_start.is_none() && range.some_end.as_ref().is_some_and(|end| end.0 > 0) {
+						return Ok(range);
+					}
+
+					Err(FileStreamError::UnSatisfiableRange)
+				})
+				.ok()
+		})
+		.collect::<Vec<RawRangeValue>>();
+
+	if raw_ranges.is_empty() {
+		return Err(FileStreamError::UnSatisfiableRange);
+	}
+
+	let mut raw_ranges = dbg!(raw_ranges);
+
+	if raw_ranges.len() == 1 {
+		let file_end = file_size - 1;
+
+		let mut raw_range = raw_ranges.pop().expect(SCOPE_VALIDITY);
+		let range = if raw_range.some_start.is_none() {
+			let end = raw_range
+				.some_end
+				.take()
+				.expect("suffix range must have a valid end length");
+
+			if end.0 < file_size {
+				RangeValue::new(file_size - end.0, file_end)
+			} else {
+				RangeValue::new(0, file_end)
+			}
+		} else if raw_range
+			.some_end
+			.as_ref()
+			.is_some_and(|end| end.0 < file_size)
+		{
+			RangeValue::try_from(raw_range).expect(SCOPE_VALIDITY)
+		} else {
+			RangeValue {
+				start: raw_range.some_start.expect(SCOPE_VALIDITY),
+				end: (file_end, file_end.to_string().into()),
+			}
+		};
+
+		return Ok(vec![range]);
+	}
+
+	let ascending_range = if let Some(first_position) = raw_ranges
+		.iter()
+		.position(|range| range.some_start.is_some())
+	{
+		let first_start = raw_ranges[first_position]
+			.some_start
+			.as_ref()
+			.expect(SCOPE_VALIDITY);
+
+		let start_index = first_position + 1;
+		if let Some(second_position) = raw_ranges[start_index..]
+			.iter()
+			.position(|range| range.some_start.is_some())
+			.map(|position| position + start_index)
+		{
+			let second_start = raw_ranges[second_position]
+				.some_start
+				.as_ref()
+				.expect(SCOPE_VALIDITY);
+
+			first_start.0 < second_start.0
+		} else {
+			true // We have a single range with a start value that we're considering as ascending.
+		}
+	} else {
+		false // We have only suffix length values.
+	};
+
+	if !ascending_range && !allow_descending {
+		return Err(FileStreamError::UnSatisfiableRange);
+	}
+
+	let (mut valid_ranges, some_biggest_suffix_range) =
+		get_valid_rangges(raw_ranges, ascending_range, file_size)?;
+
+	let mut valid_ranges = dbg!(valid_ranges);
+	let some_biggest_suffix_range = dbg!(some_biggest_suffix_range);
+
+	Ok(combine_valid_and_suffix_ranges(
+		valid_ranges,
+		some_biggest_suffix_range,
+		ascending_range,
+		file_size,
+	))
 }
 
-impl FromStr for RangeValue {
+#[inline(always)]
+fn get_valid_rangges(
+	ranges: Vec<RawRangeValue>,
+	ascending_range: bool,
+	file_size: u64,
+) -> Result<(Vec<RangeValue>, Option<RawRangeValue>), FileStreamError> {
+	let mut valid_ranges = Vec::<RangeValue>::new();
+	let mut overlap_count = 0;
+	let mut range_with_file_end_exists = false;
+	let mut some_biggest_suffix_range = None;
+
+	for mut range in ranges {
+		if let Some(current_start) = range.some_start.take() {
+			if let Some(previous_start) = valid_ranges.last().map(|range| range.start.0) {
+				// If ranges were descending and this wasn't allowed
+				// we would have returned an error so far.
+				// Here we're checking if they are mixed or not.
+				if current_start.0 < previous_start {
+					if ascending_range {
+						return Err(FileStreamError::UnSatisfiableRange);
+					}
+				} else if !ascending_range {
+					return Err(FileStreamError::UnSatisfiableRange);
+				}
+			}
+
+			if range_with_file_end_exists && ascending_range {
+				// There is no point in going through the remaining non-suffix ranges because,
+				// from this range, we have to return the remaining chunk of the file as a whole,
+				// unless some suffix range requires starting from an earlier position.
+				continue;
+			}
+
+			let current_end = if range
+				.some_end
+				.as_ref()
+				.is_some_and(|current_end| current_end.0 < file_size)
+			{
+				range.some_end.expect(SCOPE_VALIDITY)
+			} else {
+				range_with_file_end_exists = true;
+				let file_end = file_size - 1;
+
+				(file_end, file_end.to_string().into())
+			};
+
+			let mut merge = false;
+
+			// Merge conditions.
+			if ascending_range {
+				if let Some(previous_end) = valid_ranges.last().map(|range| range.end.0) {
+					if current_start.0 < previous_end {
+						if overlap_count > 1 {
+							return Err(FileStreamError::UnSatisfiableRange);
+						}
+
+						overlap_count += 1;
+						merge = true;
+					} else if current_start.0 - previous_end < 128 {
+						merge = true;
+					}
+				}
+			} else {
+				if let Some(position) = valid_ranges
+					.iter()
+					.position(|range| range.start.0 <= current_end.0)
+				{
+					valid_ranges.truncate(position + 1);
+				}
+
+				if let Some(previous_start) = valid_ranges.last().map(|range| range.start.0) {
+					if previous_start < current_end.0 {
+						if overlap_count > 1 {
+							return Err(FileStreamError::UnSatisfiableRange);
+						}
+
+						overlap_count += 1;
+						merge = true;
+					} else if previous_start - current_end.0 < 128 {
+						merge = true;
+					}
+				}
+			}
+
+			if merge {
+				valid_ranges.last_mut().map(|range| {
+					if !ascending_range {
+						range.start = current_start;
+					}
+
+					if range.end.0 < current_end.0 {
+						range.end = current_end;
+					}
+				});
+			} else {
+				valid_ranges.push(RangeValue {
+					start: current_start,
+					end: current_end,
+				});
+			}
+		} else {
+			// Finding the biggest suffix range.
+			let current_end = range
+				.some_end
+				.expect("suffix range must have a valid end length");
+
+			if some_biggest_suffix_range
+				.as_ref()
+				.map_or(true, |range: &RawRangeValue| {
+					range.some_end.as_ref().expect(SCOPE_VALIDITY).0 < current_end.0
+				}) {
+				if current_end.0 < file_size {
+					some_biggest_suffix_range = Some(RawRangeValue {
+						some_start: None,
+						some_end: Some(current_end),
+					});
+				} else {
+					return Ok((vec![RangeValue::new(0, file_size - 1)], None));
+				}
+			}
+		}
+	}
+
+	Ok((valid_ranges, some_biggest_suffix_range))
+}
+
+#[inline(always)]
+fn combine_valid_and_suffix_ranges(
+	mut valid_ranges: Vec<RangeValue>,
+	some_biggest_suffix_range: Option<RawRangeValue>,
+	ascending_range: bool,
+	file_size: u64,
+) -> Vec<RangeValue> {
+	if let Some(suffix_range) = some_biggest_suffix_range {
+		let end_length = suffix_range
+			.some_end
+			.as_ref()
+			.expect("suffix range must have a valid end length")
+			.0;
+
+		let suffix_range_start = file_size - end_length;
+		dbg!(suffix_range_start);
+		let check_position = |(i, range): (usize, &RangeValue)| {
+			if range.end.0 < suffix_range_start {
+				Some((i, true, range.end.0))
+			} else if range.start.0 < suffix_range_start {
+				Some((i, false, 0))
+			} else {
+				None
+			}
+		};
+
+		let file_end = file_size - 1;
+
+		if ascending_range {
+			if let Some((position, bigger_than_end, end)) = valid_ranges
+				.iter()
+				.enumerate()
+				.rev()
+				.find_map(|indexed_range| check_position(indexed_range))
+			{
+				dbg!((position, bigger_than_end, end));
+				valid_ranges.truncate(position + 1);
+
+				if !bigger_than_end || suffix_range_start - end < 128 {
+					valid_ranges[position].end = (file_end, file_end.to_string().into());
+				} else {
+					valid_ranges.push(RangeValue::new(suffix_range_start, file_end))
+				}
+			} else {
+				valid_ranges.clear();
+				valid_ranges.push(RangeValue::new(0, file_end));
+			}
+		} else {
+			if let Some((mut position, bigger_than_end, end)) = valid_ranges
+				.iter()
+				.enumerate()
+				.find_map(|indexed_range| check_position(indexed_range))
+			{
+				dbg!((position, bigger_than_end, end));
+				if !bigger_than_end || suffix_range_start - end < 128 {
+					valid_ranges[position].end = (file_end, file_end.to_string().into());
+					valid_ranges.rotate_left(position);
+					valid_ranges.truncate(valid_ranges.len() - position);
+				} else {
+					if position > 0 {
+						position -= 1;
+						valid_ranges[position] = RangeValue::new(suffix_range_start, file_end);
+						valid_ranges.rotate_left(position);
+						valid_ranges.truncate(valid_ranges.len() - position);
+					} else {
+						valid_ranges.insert(position, RangeValue::new(suffix_range_start, file_end));
+					}
+				}
+			} else {
+				valid_ranges.clear();
+				valid_ranges.push(RangeValue::new(suffix_range_start, file_end));
+			}
+		}
+	}
+
+	valid_ranges
+}
+
+// --------------------------------------------------
+
+#[derive(Debug, Eq)]
+struct RawRangeValue {
+	some_start: Option<(u64, Box<str>)>,
+	some_end: Option<(u64, Box<str>)>,
+}
+
+impl FromStr for RawRangeValue {
 	type Err = FileStreamError;
 
 	fn from_str(s: &str) -> Result<Self, Self::Err> {
-		let Some(mut range_value) = s.split_once('-').map(|(start, end)| RangeValue {
-			start: 0,
-			start_string: start.to_owned(),
-			end: 0,
-			end_string: end.to_owned(),
-		}) else {
+		let Some((start, end)) = s.split_once('-') else {
 			return Err(FileStreamError::InvalidValue);
 		};
 
-		let Ok(start) = range_value.start_string.parse::<u64>() else {
-			return Err(FileStreamError::InvalidValue);
+		let some_start_u64 = if !start.is_empty() {
+			if let Ok(start_u64) = start.parse::<u64>() {
+				Some(start_u64)
+			} else {
+				return Err(FileStreamError::InvalidValue);
+			}
+		} else {
+			None
 		};
 
-		let Ok(end) = range_value.end_string.parse::<u64>() else {
-			return Err(FileStreamError::InvalidValue);
+		let some_end_u64 = if !end.is_empty() {
+			if let Ok(end_64) = end.parse::<u64>() {
+				Some(end_64)
+			} else {
+				return Err(FileStreamError::InvalidValue);
+			}
+		} else {
+			None
 		};
 
-		if end < start {
-			return Err(FileStreamError::RangeNotSatisfiable);
+		if some_end_u64
+			.is_some_and(|end_u64| some_start_u64.is_some_and(|start_u64| end_u64 < start_u64))
+		{
+			return Err(FileStreamError::UnSatisfiableRange);
 		}
 
-		range_value.start = start;
-		range_value.end = end;
-
-		Ok(range_value)
+		Ok(RawRangeValue {
+			some_start: if let Some(start_u64) = some_start_u64 {
+				Some((start_u64, start.into()))
+			} else {
+				None
+			},
+			some_end: if let Some(end_u64) = some_end_u64 {
+				Some((end_u64, end.into()))
+			} else {
+				None
+			},
+		})
 	}
+}
+
+impl PartialEq for RawRangeValue {
+	fn eq(&self, other: &Self) -> bool {
+		self.some_start.as_ref().is_some_and(|self_start| {
+			other
+				.some_start
+				.as_ref()
+				.is_some_and(|other_start| other_start.0 == self_start.0)
+		}) && self.some_end.as_ref().is_some_and(|self_end| {
+			other
+				.some_end
+				.as_ref()
+				.is_some_and(|other_end| other_end.0 == self_end.0)
+		})
+	}
+}
+
+// ----------
+
+#[derive(Debug, Eq)]
+struct RangeValue {
+	start: (u64, Box<str>),
+	end: (u64, Box<str>),
 }
 
 impl RangeValue {
 	#[inline(always)]
+	pub fn new(start: u64, end: u64) -> Self {
+		Self {
+			start: (start, start.to_string().into()),
+			end: (end, end.to_string().into()),
+		}
+	}
+
+	#[inline(always)]
 	pub fn start(&self) -> u64 {
-		self.start
+		self.start.0
 	}
 
 	#[inline(always)]
 	pub fn start_str(&self) -> &str {
-		&self.start_string
+		self.start.1.as_ref()
 	}
 
 	#[inline(always)]
 	pub fn end(&self) -> u64 {
-		self.end
+		self.end.0
 	}
 
 	#[inline(always)]
 	pub fn end_str(&self) -> &str {
-		&self.end_string
+		self.end.1.as_ref()
 	}
 
 	#[inline(always)]
 	pub fn len(&self) -> usize {
 		// |    ||  |
 		// start-end
-		self.start_string.len() + 1 + self.end_string.len()
+		self.start.1.len() + 1 + self.end.1.len()
 	}
 
 	#[inline(always)]
 	pub fn size(&self) -> u64 {
-		self.end - self.start + 1 // end is inclusive
+		// Invariant: start <= end.
+		self.end.0 - self.start.0 + 1 // End is inclusive.
+	}
+}
+
+impl TryFrom<RawRangeValue> for RangeValue {
+	type Error = FileStreamError;
+
+	fn try_from(value: RawRangeValue) -> Result<Self, Self::Error> {
+		if value.some_start.is_none() || value.some_end.is_none() {
+			return Err(FileStreamError::InvalidValue);
+		}
+
+		let start = value.some_start.expect(SCOPE_VALIDITY);
+		let end = value.some_end.expect(SCOPE_VALIDITY);
+
+		Ok(Self { start, end })
+	}
+}
+
+impl PartialEq for RangeValue {
+	fn eq(&self, other: &Self) -> bool {
+		self.start.0 == other.start.0 && self.end.0 == other.end.0
 	}
 }
 
@@ -671,10 +1060,9 @@ impl RangeValue {
 // ???
 #[derive(Debug)]
 pub enum FileStreamError {
-	NoRange,
 	InternalServerError,
 	InvalidValue,
-	RangeNotSatisfiable,
+	UnSatisfiableRange,
 	IoError(IoError),
 }
 
@@ -684,4 +1072,389 @@ impl From<IoError> for FileStreamError {
 	}
 }
 
+impl Display for FileStreamError {
+	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+		write!(f, "{:?}", self)
+	}
+}
+
+impl std::error::Error for FileStreamError {}
+
 // --------------------------------------------------------------------------------
+// --------------------------------------------------------------------------------
+
+#[cfg(test)]
+mod test {
+	use super::*;
+
+	#[test]
+	fn parse_ranges() {
+		const FILE_SIZE: u64 = 10000;
+		const END: u64 = FILE_SIZE - 1;
+
+		macro_rules! get_start {
+			() => {
+				(0, 0.to_string().into())
+			};
+		}
+
+		macro_rules! get_end {
+			() => {
+				(END, END.to_string().into())
+			};
+		}
+
+		macro_rules! get_field {
+			($n:expr) => {
+				($n, $n.to_string().into())
+			};
+		}
+
+		macro_rules! get_range {
+			($start:expr, $end:expr) => {
+				RangeValue {
+					start: get_field!($start),
+					end: get_field!($end),
+				}
+			};
+		}
+
+		struct Case(&'static str, u64, bool, Vec<RangeValue>);
+
+		let cases = [
+			Case("bytes=200-", FILE_SIZE, false, vec![get_range!(200, END)]),
+			Case("bytes=,200-,", FILE_SIZE, false, vec![get_range!(200, END)]),
+			Case(
+				"bytes=-500",
+				FILE_SIZE,
+				false,
+				vec![get_range!(FILE_SIZE - 500, END)],
+			),
+			Case(
+				"bytes=,-500,",
+				FILE_SIZE,
+				false,
+				vec![get_range!(FILE_SIZE - 500, END)],
+			),
+			Case(
+				"bytes=200-500",
+				FILE_SIZE,
+				false,
+				vec![get_range!(200, 500)],
+			),
+			Case(
+				"bytes=200-500, 800-1000, 5000-6000, -1000",
+				FILE_SIZE,
+				true,
+				vec![
+					get_range!(200, 500),
+					get_range!(800, 1000),
+					get_range!(5000, 6000),
+					get_range!(FILE_SIZE - 1000, END),
+				],
+			),
+			Case(
+				"bytes=200-800, 500-1000, 5000-6000, -1000",
+				FILE_SIZE,
+				false,
+				vec![
+					get_range!(200, 1000),
+					get_range!(5000, 6000),
+					get_range!(FILE_SIZE - 1000, END),
+				],
+			),
+			Case(
+				"bytes=200-1000, 500-800, 5000-6000, -1000",
+				FILE_SIZE,
+				false,
+				vec![
+					get_range!(200, 1000),
+					get_range!(5000, 6000),
+					get_range!(FILE_SIZE - 1000, END),
+				],
+			),
+			Case(
+				"bytes=200-800, 500-5000, 1000-6000, -1000",
+				FILE_SIZE,
+				false,
+				vec![get_range!(200, 6000), get_range!(FILE_SIZE - 1000, END)],
+			),
+			Case(
+				"bytes=200-500, 800-1000, 5000-6000, -4500",
+				FILE_SIZE,
+				true,
+				vec![
+					get_range!(200, 500),
+					get_range!(800, 1000),
+					get_range!(5000, END),
+				],
+			),
+			Case(
+				"bytes=200-500, 800-1000, -1000, 5000-6000, -4500, -500",
+				FILE_SIZE,
+				true,
+				vec![
+					get_range!(200, 500),
+					get_range!(800, 1000),
+					get_range!(5000, END),
+				],
+			),
+			Case(
+				"bytes=200-500, 800-1000, 5000-6000, -9100",
+				FILE_SIZE,
+				true,
+				vec![get_range!(200, 500), get_range!(800, END)],
+			),
+			Case(
+				"bytes=200-500, 800-, 5000-6000, -500",
+				FILE_SIZE,
+				true,
+				vec![get_range!(200, 500), get_range!(800, END)],
+			),
+			Case(
+				"bytes=200-1000, 800-, 5000-6000, -500",
+				FILE_SIZE,
+				true,
+				vec![get_range!(200, END)],
+			),
+			Case(
+				"bytes=200-300, 800-, 5000-6000, -9500",
+				FILE_SIZE,
+				true,
+				vec![get_range!(200, 300), get_range!(FILE_SIZE - 9500, END)],
+			),
+			Case(
+				"bytes=200-1000, 800-, 5000-6000, -9500",
+				FILE_SIZE,
+				true,
+				vec![get_range!(200, END)],
+			),
+			Case(
+				"bytes=200-1000, 1100-2000, 5000-6000, -9500",
+				FILE_SIZE,
+				true,
+				vec![get_range!(200, END)],
+			),
+			Case(
+				"bytes=200-1000, 1100-2000, 5000-6000, -6500",
+				FILE_SIZE,
+				true,
+				vec![get_range!(200, 2000), get_range!(FILE_SIZE - 6500, END)],
+			),
+			Case(
+				"bytes=100-300, 500-1000, 1100-7000, 5000-6000, -1500, 7000-8000, -500",
+				FILE_SIZE,
+				true,
+				vec![
+					get_range!(100, 300),
+					get_range!(500, 8000),
+					get_range!(FILE_SIZE - 1500, END),
+				],
+			),
+			Case(
+				"bytes=100-300, 500-1000, 1100-7000, 5000-6000, -1500, 7000-8000, -500, -9500",
+				FILE_SIZE,
+				true,
+				vec![get_range!(100, 300), get_range!(FILE_SIZE - 9500, END)],
+			),
+			Case(
+				"bytes=100-300, 500-1000, 1100-7000, 5000-6000, -1500, 7000-8000, -500, -9800",
+				FILE_SIZE,
+				true,
+				vec![get_range!(100, END)],
+			),
+			Case(
+				"bytes=100-300, -0, 1100-7000, 7000-8000, 15000-20000",
+				FILE_SIZE,
+				true,
+				vec![get_range!(100, 300), get_range!(1100, 8000)],
+			),
+			Case(
+				"bytes=100-100, -0, 1000-7000, 8000-20000",
+				FILE_SIZE,
+				true,
+				vec![
+					get_range!(100, 100),
+					get_range!(1000, 7000),
+					get_range!(8000, END),
+				],
+			),
+			Case(
+				"bytes=100-100, -0, 1000-7000, -20000, 8000-20000",
+				FILE_SIZE,
+				true,
+				vec![get_range!(0, END)],
+			),
+			Case(
+				"bytes=-1000, 5000-6000, 800-1000, 200-500",
+				FILE_SIZE,
+				true,
+				vec![
+					get_range!(FILE_SIZE - 1000, END),
+					get_range!(5000, 6000),
+					get_range!(800, 1000),
+					get_range!(200, 500),
+				],
+			),
+			Case(
+				"bytes=-1000, 5000-6000, 500-1000, 200-800",
+				FILE_SIZE,
+				true,
+				vec![
+					get_range!(FILE_SIZE - 1000, END),
+					get_range!(5000, 6000),
+					get_range!(200, 1000),
+				],
+			),
+			Case(
+				"bytes=-1000, 5000-6000, 500-800, 200-1000",
+				FILE_SIZE,
+				true,
+				vec![
+					get_range!(FILE_SIZE - 1000, END),
+					get_range!(5000, 6000),
+					get_range!(200, 1000),
+				],
+			),
+			Case(
+				"bytes=-1000, 1000-6000, 500-5000, 200-800",
+				FILE_SIZE,
+				true,
+				vec![get_range!(FILE_SIZE - 1000, END), get_range!(200, 6000)],
+			),
+			Case(
+				"bytes=-4500, 5000-6000, 800-1000, 200-500",
+				FILE_SIZE,
+				true,
+				vec![
+					get_range!(5000, END),
+					get_range!(800, 1000),
+					get_range!(200, 500),
+				],
+			),
+			Case(
+				"bytes=-500, -4500, 5000-6000, -1000, 800-1000, 200-500",
+				FILE_SIZE,
+				true,
+				vec![
+					get_range!(5000, END),
+					get_range!(800, 1000),
+					get_range!(200, 500),
+				],
+			),
+			Case(
+				"bytes=-9100, 5000-6000, 800-1000, 200-500",
+				FILE_SIZE,
+				true,
+				vec![get_range!(800, END), get_range!(200, 500)],
+			),
+			Case(
+				"bytes=-500, 5000-6000, 800-, 200-500",
+				FILE_SIZE,
+				true,
+				vec![get_range!(800, END), get_range!(200, 500)],
+			),
+			Case(
+				"bytes=-500, 5000-6000, 800-, 200-1000",
+				FILE_SIZE,
+				true,
+				vec![get_range!(200, END)],
+			),
+			Case(
+				"bytes=-9500, 5000-6000, 800-, 200-300",
+				FILE_SIZE,
+				true,
+				vec![get_range!(FILE_SIZE - 9500, END), get_range!(200, 300)],
+			),
+			Case(
+				"bytes=-9500, 5000-6000, 800-, 200-1000",
+				FILE_SIZE,
+				true,
+				vec![get_range!(200, END)],
+			),
+			Case(
+				"bytes=-9500, 5000-6000, 1100-2000, 200-1000",
+				FILE_SIZE,
+				true,
+				vec![get_range!(200, END)],
+			),
+			Case(
+				"bytes=-6500, 5000-6000, 1100-2000, 200-1000",
+				FILE_SIZE,
+				true,
+				vec![get_range!(FILE_SIZE - 6500, END), get_range!(200, 2000)],
+			),
+			Case(
+				"bytes=-500, 7000-8000, -1500, 5000-6000, 1100-7000, 500-1000, 100-300",
+				FILE_SIZE,
+				true,
+				vec![
+					get_range!(FILE_SIZE - 1500, END),
+					get_range!(500, 8000),
+					get_range!(100, 300),
+				],
+			),
+			Case(
+				"bytes=-9500, -500, 7000-8000, -1500, 5000-6000, 1100-7000, 500-1000, 100-300",
+				FILE_SIZE,
+				true,
+				vec![get_range!(FILE_SIZE - 9500, END), get_range!(100, 300)],
+			),
+			Case(
+				"bytes=-9800, -500, 7000-8000, -1500, 5000-6000, 1100-7000, 500-1000, 100-300",
+				FILE_SIZE,
+				true,
+				vec![get_range!(100, END)],
+			),
+			Case(
+				"bytes=15000-20000, 7000-8000, 1100-7000, -0, 100-300",
+				FILE_SIZE,
+				true,
+				vec![get_range!(1100, 8000), get_range!(100, 300)],
+			),
+			Case(
+				"bytes=8000-20000, 1000-7000, -0, 100-100",
+				FILE_SIZE,
+				true,
+				vec![
+					get_range!(8000, END),
+					get_range!(1000, 7000),
+					get_range!(100, 100),
+				],
+			),
+			Case(
+				"bytes=8000-20000, -20000, 1000-7000, -0, 100-100",
+				FILE_SIZE,
+				true,
+				vec![get_range!(0, END)],
+			),
+		];
+
+		for case in cases {
+			let ranges = parse_range_header_value(case.0, case.1, case.2).unwrap();
+			assert_eq!(ranges, case.3);
+		}
+
+		// ----------
+
+		struct ErrorCase(&'static str, u64, bool);
+
+		let cases = [
+			ErrorCase("bytes=500-200", FILE_SIZE, false),
+			ErrorCase(
+				"200-800, 500-5000, 1000-6000, 400-7000, -1000",
+				FILE_SIZE,
+				true,
+			),
+			ErrorCase("200-800, 100-1000, 500-4000", FILE_SIZE, false),
+			ErrorCase("200-800, 1000-2000, 500-4000", FILE_SIZE, false),
+			ErrorCase("200-800, 1000-2000, 500-4000", FILE_SIZE, true),
+			ErrorCase("4000-8000, 1000-2000, 3000-3500", FILE_SIZE, true),
+		];
+
+		for case in cases {
+			let result = parse_range_header_value(case.0, case.1, case.2);
+			assert!(result.is_err());
+		}
+	}
+}
