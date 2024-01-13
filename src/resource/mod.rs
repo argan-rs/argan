@@ -948,142 +948,6 @@ impl Resource {
 
 	// -------------------------
 
-	pub fn add_subresource_state<S: Clone + Send + Sync + 'static>(&mut self, route: &str, state: S) {
-		let subresource = self.subresource_mut(route);
-		subresource.add_state(state);
-	}
-
-	pub fn subresource_state<S: Clone + Send + Sync + 'static>(&self, route: &str) -> &S {
-		let route_segments = RouteSegments::new(route);
-		let (subresource, route_segments) = self.leaf_resource(route_segments);
-
-		if route_segments.has_remaining_segments() {
-			panic!("{} doesn't exist", route)
-		}
-
-		subresource.state()
-	}
-
-	// pub fn set_subresource_config(&mut self, route: &str, config: Config) {
-	// 	let subresource = self.subresource_mut(route);
-	// 	subresource.set_config(config);
-	// }
-	//
-	// pub fn subresource_config(&self, route: &str) -> Config {
-	// 	let mut route_segments = RouteSegments::new(route);
-	// 	let (subresource, route_segments) = self.leaf_resource(route_segments);
-	//
-	// 	if route_segments.has_remaining_segments() {
-	// 		panic!("{} doesn't exist", route)
-	// 	}
-	//
-	// 	subresource.config()
-	// }
-
-	pub fn set_subresource_handler<H, M>(&mut self, route: &str, method: Method, handler: H)
-	where
-		H: IntoHandler<M, IncomingBody>,
-		H::Handler: Handler + Send + Sync + 'static,
-		<H::Handler as Handler>::Response: IntoResponse,
-	{
-		let subresource = self.subresource_mut(route);
-		subresource.set_handler(method, handler);
-	}
-
-	pub fn wrap_subresource_request_receiver<L, LayeredB>(&mut self, route: &str, layer: L)
-	where
-		L: Layer<AdaptiveHandler<LayeredB>, LayeredB>,
-		L::Handler: Handler + Send + Sync + 'static,
-		<L::Handler as Handler>::Response: IntoResponse,
-	{
-		let subresource = self.subresource_mut(route);
-		subresource.wrap_request_receiver(layer);
-	}
-
-	pub fn wrap_subresource_request_passer<L, LayeredB>(&mut self, route: &str, layer: L)
-	where
-		L: Layer<AdaptiveHandler<LayeredB>, LayeredB>,
-		L::Handler: Handler + Send + Sync + 'static,
-		<L::Handler as Handler>::Response: IntoResponse,
-	{
-		let subresource = self.subresource_mut(route);
-		subresource.wrap_request_passer(layer);
-	}
-
-	pub fn wrap_subresource_request_handler<L, LayeredB>(&mut self, route: &str, layer: L)
-	where
-		L: Layer<AdaptiveHandler<LayeredB>, LayeredB>,
-		L::Handler: Handler + Send + Sync + 'static,
-		<L::Handler as Handler>::Response: IntoResponse,
-	{
-		let subresource = self.subresource_mut(route);
-		subresource.wrap_request_handler(layer);
-	}
-
-	pub fn wrap_subresource_method_handler<L, LayeredB>(
-		&mut self,
-		route: &str,
-		method: Method,
-		layer: L,
-	) where
-		L: Layer<AdaptiveHandler<LayeredB>, LayeredB>,
-		L::Handler: Handler + Send + Sync + 'static,
-		<L::Handler as Handler>::Response: IntoResponse,
-	{
-		let subresource = self.subresource_mut(route);
-		subresource.wrap_method_handler(method, layer);
-	}
-
-	// -------------------------
-
-	pub fn add_subresources_state<S: Clone + Send + Sync + 'static>(&mut self, state: S) {
-		self.for_each_subresource(|subresource| {
-			subresource.add_state(state.clone());
-		});
-	}
-
-	// pub fn set_subresources_config(&mut self, config: Config) {
-	// 	todo!()
-	// }
-
-	pub fn wrap_subresources_request_receivers<L, LayeredB>(&mut self, layer: L)
-	where
-		L: Layer<AdaptiveHandler<LayeredB>, LayeredB> + Clone,
-		L::Handler: Handler + Send + Sync + 'static,
-		<L::Handler as Handler>::Response: IntoResponse,
-	{
-		self.for_each_subresource(|subresource| subresource.wrap_request_receiver(layer.clone()))
-	}
-
-	pub fn wrap_subresources_request_passers<L, LayeredB>(&mut self, layer: L)
-	where
-		L: Layer<AdaptiveHandler<LayeredB>, LayeredB> + Clone,
-		L::Handler: Handler + Send + Sync + 'static,
-		<L::Handler as Handler>::Response: IntoResponse,
-	{
-		self.for_each_subresource(|subresource| subresource.wrap_request_passer(layer.clone()))
-	}
-
-	pub fn wrap_subresources_request_handlers<L, LayeredB>(&mut self, layer: L)
-	where
-		L: Layer<AdaptiveHandler<LayeredB>, LayeredB> + Clone,
-		L::Handler: Handler + Send + Sync + 'static,
-		<L::Handler as Handler>::Response: IntoResponse,
-	{
-		self.for_each_subresource(|subresource| subresource.wrap_request_handler(layer.clone()))
-	}
-
-	pub fn wrap_subresources_method_handlers<L, LayeredB>(&mut self, method: Method, layer: L)
-	where
-		L: Layer<AdaptiveHandler<LayeredB>, LayeredB> + Clone,
-		L::Handler: Handler + Send + Sync + 'static,
-		<L::Handler as Handler>::Response: IntoResponse,
-	{
-		self.for_each_subresource(|subresource| {
-			subresource.wrap_method_handler(method.clone(), layer.clone())
-		})
-	}
-
 	pub fn for_each_subresource(&mut self, func: impl Fn(&mut Resource)) {
 		let mut subresources = Vec::new();
 		subresources.extend(self.static_resources.iter_mut());
@@ -1098,33 +962,6 @@ impl Resource {
 			};
 
 			func(subresource);
-
-			subresources.extend(subresource.static_resources.iter_mut());
-			subresources.extend(subresource.regex_resources.iter_mut());
-			if let Some(resource) = subresource.wildcard_resource.as_deref_mut() {
-				subresources.push(resource);
-			}
-		}
-	}
-
-	pub fn for_each_subresource_with_param<T: Clone>(
-		&mut self,
-		v: T,
-		func: impl Fn(&mut Resource, T),
-	) {
-		let mut subresources = Vec::new();
-		subresources.extend(self.static_resources.iter_mut());
-		subresources.extend(self.regex_resources.iter_mut());
-		if let Some(resource) = self.wildcard_resource.as_deref_mut() {
-			subresources.push(resource);
-		}
-
-		loop {
-			let Some(subresource) = subresources.pop() else {
-				break;
-			};
-
-			func(subresource, v.clone());
 
 			subresources.extend(subresource.static_resources.iter_mut());
 			subresources.extend(subresource.regex_resources.iter_mut());
@@ -1335,11 +1172,9 @@ mod test {
 
 			let (resource2_0, _) = parent.leaf_resource_mut(RouteSegments::new("/$abc2_0:@(p0)"));
 			resource2_0.set_handler(Method::POST, DummyHandler::<DefaultResponseFuture>::new());
-			resource2_0.set_subresource_handler(
-				"/$abc3_1:@cn0(p0)/*abc4_0",
-				Method::GET,
-				DummyHandler::<DefaultResponseFuture>::new(),
-			);
+			resource2_0
+				.subresource_mut("/$abc3_1:@cn0(p0)/*abc4_0")
+				.set_handler(Method::GET, DummyHandler::<DefaultResponseFuture>::new());
 
 			let (resource4_2, _) =
 				resource2_0.leaf_resource_mut(RouteSegments::new("/$abc3_1:@cn0(p0)/abc4_2"));
@@ -1354,11 +1189,9 @@ mod test {
 			let mut resource3_1 = Resource::new("/$abc3_1:@cn0(p0)");
 			resource3_1.set_handler(Method::GET, DummyHandler::<DefaultResponseFuture>::new());
 			resource3_1.set_handler(Method::POST, DummyHandler::<DefaultResponseFuture>::new());
-			resource3_1.set_subresource_handler(
-				"/abc4_1",
-				Method::POST,
-				DummyHandler::<DefaultResponseFuture>::new(),
-			);
+			resource3_1
+				.subresource_mut("/abc4_1")
+				.set_handler(Method::POST, DummyHandler::<DefaultResponseFuture>::new());
 			resource3_1.new_subresource_mut(RouteSegments::new("/$abc4_3:@(p0)"));
 			resource3_1.new_subresource_mut(RouteSegments::new("/abc4_4"));
 
@@ -1583,11 +1416,9 @@ mod test {
 
 		{
 			let mut resource3_0 = Resource::new("/abc3_0");
-			resource3_0.set_subresource_handler(
-				"/*abc4_0",
-				Method::POST,
-				DummyHandler::<DefaultResponseFuture>::new(),
-			);
+			resource3_0
+				.subresource_mut("/*abc4_0")
+				.set_handler(Method::POST, DummyHandler::<DefaultResponseFuture>::new());
 
 			let resource4_1 = Resource::new("/abc4_2");
 			resource3_0.add_subresource_under("", resource4_1);
@@ -1610,11 +1441,9 @@ mod test {
 			resource2_1.set_handler(Method::GET, DummyHandler::<DefaultResponseFuture>::new());
 
 			let mut resource4_0 = Resource::new("/$abc4_0:@cn(p)");
-			resource4_0.set_subresource_handler(
-				"/*abc5_0",
-				Method::GET,
-				DummyHandler::<DefaultResponseFuture>::new(),
-			);
+			resource4_0
+				.subresource_mut("/*abc5_0")
+				.set_handler(Method::GET, DummyHandler::<DefaultResponseFuture>::new());
 			resource2_1.add_subresource_under("/abc3_0", resource4_0);
 
 			let mut resource4_1 = Resource::new("/$abc4_1:@cn(p)/");

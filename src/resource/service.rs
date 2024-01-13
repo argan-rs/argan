@@ -189,7 +189,9 @@ mod test {
 	async fn resource_service() {
 		let mut root = Resource::new("/");
 		let handler = |_request: Request| async {};
-		root.set_subresource_handler("/abc", Method::GET, handler);
+		root
+			.subresource_mut("/abc")
+			.set_handler(Method::GET, handler);
 		assert_eq!(root.subresource_mut("/abc").pattern(), "abc");
 		assert!(root.subresource_mut("/abc").can_handle_request());
 
@@ -212,8 +214,7 @@ mod test {
 		let mut resource = Resource::new("/abc0_0");
 		resource.set_handler(Method::GET, hello_world);
 
-		resource.set_subresource_handler(
-			"/*abc1_0",
+		resource.subresource_mut("/*abc1_0").set_handler(
 			Method::PUT,
 			|PathParam(wildcard): PathParam<String>| async move {
 				println!("got param: {}", wildcard);
@@ -222,15 +223,16 @@ mod test {
 			},
 		);
 
-		resource.set_subresource_handler(
-			"/*abc1_0/$abc2_0:@(abc2_0)",
-			Method::POST,
-			|PathParam(path_values): PathParam<PathValues1_0_2_0>| async move {
-				println!("got path values: {:?}", path_values);
+		resource
+			.subresource_mut("/*abc1_0/$abc2_0:@(abc2_0)")
+			.set_handler(
+				Method::POST,
+				|PathParam(path_values): PathParam<PathValues1_0_2_0>| async move {
+					println!("got path values: {:?}", path_values);
 
-				Json(path_values)
-			},
-		);
+					Json(path_values)
+				},
+			);
 
 		#[derive(Debug, Serialize, Deserialize)]
 		struct PathValues1_0_2_0 {
@@ -239,15 +241,16 @@ mod test {
 			abc3_0: Option<u64>,
 		}
 
-		resource.set_subresource_handler(
-			"/*abc1_0/$abc2_1:@cn(abc2_1)-cba/*abc3_0",
-			Method::GET,
-			|PathParam(path_values): PathParam<PathValues1_0_2_1_3_0>| async move {
-				println!("got path values: {:?}", path_values);
+		resource
+			.subresource_mut("/*abc1_0/$abc2_1:@cn(abc2_1)-cba/*abc3_0")
+			.set_handler(
+				Method::GET,
+				|PathParam(path_values): PathParam<PathValues1_0_2_1_3_0>| async move {
+					println!("got path values: {:?}", path_values);
 
-				Json(path_values)
-			},
-		);
+					Json(path_values)
+				},
+			);
 
 		#[derive(Debug, Serialize, Deserialize)]
 		struct PathValues1_0_2_1_3_0 {
@@ -256,18 +259,21 @@ mod test {
 			abc3_0: u64,
 		}
 
-		resource.set_subresource_handler(
-			"/$abc1_1:@cn(abc1_1)-cba",
-			Method::GET,
-			|PathParam(value): PathParam<String>| async move {
-				let vector = Vec::from(value);
-				println!("got path values: {:?}", vector);
+		resource
+			.subresource_mut("/$abc1_1:@cn(abc1_1)-cba")
+			.set_handler(
+				Method::GET,
+				|PathParam(value): PathParam<String>| async move {
+					let vector = Vec::from(value);
+					println!("got path values: {:?}", vector);
 
-				vector
-			},
-		);
+					vector
+				},
+			);
 
-		resource.set_subresource_handler("/$abc1_1:@cn(abc1_1)-cba/abc2_0", Method::GET, hello_world);
+		resource
+			.subresource_mut("/$abc1_1:@cn(abc1_1)-cba/abc2_0")
+			.set_handler(Method::GET, hello_world);
 
 		dbg!();
 
