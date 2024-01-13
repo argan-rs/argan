@@ -834,7 +834,7 @@ impl Resource {
 		self.states.push(Box::new(state));
 	}
 
-	pub fn state<S: Clone + Send + Sync + 'static>(&self) -> &S {
+	pub fn state_ref<S: Clone + Send + Sync + 'static>(&self) -> &S {
 		self
 			.states
 			.iter()
@@ -948,7 +948,10 @@ impl Resource {
 
 	// -------------------------
 
-	pub fn for_each_subresource(&mut self, func: impl Fn(&mut Resource)) {
+	pub fn for_each_subresource<T, F>(&mut self, mut param: T, mut func: F) -> T
+	where
+		F: FnMut(&mut T, &mut Resource) -> Iteration,
+	{
 		let mut subresources = Vec::new();
 		subresources.extend(self.static_resources.iter_mut());
 		subresources.extend(self.regex_resources.iter_mut());
@@ -958,10 +961,14 @@ impl Resource {
 
 		loop {
 			let Some(subresource) = subresources.pop() else {
-				break;
+				break param;
 			};
 
-			func(subresource);
+			match func(&mut param, subresource) {
+				Iteration::SkipSubtree => continue,
+				Iteration::Stop => break param,
+				_ => {}
+			}
 
 			subresources.extend(subresource.static_resources.iter_mut());
 			subresources.extend(subresource.regex_resources.iter_mut());
@@ -1073,6 +1080,15 @@ impl Debug for Resource {
 			self.is_subtree_handler,
 		)
 	}
+}
+
+// -------------------------
+
+#[repr(u8)]
+pub enum Iteration {
+	Continue,
+	SkipSubtree,
+	Stop,
 }
 
 // --------------------------------------------------------------------------------
