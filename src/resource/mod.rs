@@ -24,6 +24,7 @@ use crate::{
 
 mod futures;
 mod service;
+mod static_files;
 
 use self::{
 	futures::{RequestPasserFuture, RequestReceiverFuture},
@@ -31,6 +32,7 @@ use self::{
 };
 
 pub use service::ResourceService;
+pub use static_files::{StaticFiles, Tagger};
 
 // --------------------------------------------------------------------------------
 // --------------------------------------------------------------------------------
