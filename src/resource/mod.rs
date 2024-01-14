@@ -10,7 +10,7 @@ use crate::{
 	body::IncomingBody,
 	handler::{
 		request_handlers::MethodHandlers, wrap_arc_handler, AdaptiveHandler, ArcHandler, Handler,
-		IntoArcHandler, IntoHandler,
+		HandlerKind, HandlerState, Inner, IntoArcHandler, IntoHandler, IntoHandlerKindList,
 	},
 	middleware::{IntoResponseAdapter, Layer, ResponseFutureBoxer},
 	pattern::{Pattern, Similarity},
@@ -43,13 +43,14 @@ pub struct Resource {
 
 	static_resources: Vec<Resource>,
 	regex_resources: Vec<Resource>,
-	wildcard_resource: Option<Box<Resource>>,
+	some_wildcard_resource: Option<Box<Resource>>,
 
-	request_receiver: Option<ArcHandler>,
-	request_passer: Option<ArcHandler>,
-	request_handler: Option<ArcHandler>,
+	some_request_receiver: Option<ArcHandler>,
+	some_request_passer: Option<ArcHandler>,
+	some_request_handler: Option<ArcHandler>,
 
 	method_handlers: MethodHandlers,
+	some_misdirected_request_handler: Option<ArcHandler>,
 
 	states: Vec<Box<dyn Any + Send + Sync>>,
 
@@ -112,11 +113,12 @@ impl Resource {
 			prefix_segment_patterns: prefix_path_patterns,
 			static_resources: Vec::new(),
 			regex_resources: Vec::new(),
-			wildcard_resource: None,
-			request_receiver: None,
-			request_passer: None,
-			request_handler: None,
+			some_wildcard_resource: None,
+			some_request_receiver: None,
+			some_request_passer: None,
+			some_request_handler: None,
 			method_handlers: MethodHandlers::new(),
+			some_misdirected_request_handler: None,
 			states: Vec::new(),
 			is_subtree_handler: false,
 		}
@@ -159,9 +161,9 @@ impl Resource {
 	#[inline(always)]
 	fn has_some_effect(&self) -> bool {
 		self.method_handlers.has_some_effect()
-			|| self.request_handler.is_some()
-			|| self.request_passer.is_some()
-			|| self.request_receiver.is_some()
+			|| self.some_request_handler.is_some()
+			|| self.some_request_passer.is_some()
+			|| self.some_request_receiver.is_some()
 	}
 
 	// -------------------------
@@ -239,7 +241,7 @@ impl Resource {
 			Pattern::Regex(..) => add_resource!(self.regex_resources, new_resource),
 			Pattern::Wildcard(_) => {
 				// Explanation inside the above macro 'add_resource!' also applies here.
-				if let Some(mut wildcard_resource) = self.wildcard_resource.take() {
+				if let Some(mut wildcard_resource) = self.some_wildcard_resource.take() {
 					if wildcard_resource.pattern.compare(&new_resource.pattern) == Similarity::Same {
 						if !new_resource.has_some_effect() {
 							wildcard_resource.keep_subresources(new_resource);
@@ -259,10 +261,10 @@ impl Resource {
 						panic!("resource can have only one child resource with a wildcard pattern")
 					}
 
-					self.wildcard_resource = Some(wildcard_resource);
+					self.some_wildcard_resource = Some(wildcard_resource);
 				} else {
 					new_resource.prefix_segment_patterns = self.path_patterns();
-					self.wildcard_resource = Some(Box::new(new_resource));
+					self.some_wildcard_resource = Some(Box::new(new_resource));
 				}
 			}
 		}
@@ -360,12 +362,12 @@ impl Resource {
 				}
 				Pattern::Wildcard(_) => {
 					if leaf_resource
-						.wildcard_resource
+						.some_wildcard_resource
 						.as_ref()
 						.is_some_and(|resource| resource.pattern.compare(pattern) == Similarity::Same)
 					{
 						leaf_resource = leaf_resource
-							.wildcard_resource
+							.some_wildcard_resource
 							.as_deref_mut()
 							.expect("if statement should prove that the wildcard resource exists");
 
@@ -417,7 +419,7 @@ impl Resource {
 		let mut resources = Vec::new();
 		resources.extend(new_resource.regex_resources.iter());
 
-		if let Some(wildcard_resource) = &new_resource.wildcard_resource {
+		if let Some(wildcard_resource) = &new_resource.some_wildcard_resource {
 			resources.push(wildcard_resource);
 		}
 
@@ -435,7 +437,7 @@ impl Resource {
 
 			resources.extend(resource.regex_resources.iter());
 
-			if let Some(wildcard_resource) = &resource.wildcard_resource {
+			if let Some(wildcard_resource) = &resource.some_wildcard_resource {
 				resources.push(wildcard_resource);
 			}
 		}
@@ -494,8 +496,8 @@ impl Resource {
 
 		keep_other_resources!(mut self.regex_resources, mut other.regex_resources);
 
-		if let Some(mut other_wildcard_resource) = other.wildcard_resource.take() {
-			if let Some(mut wildcard_resource) = self.wildcard_resource.take() {
+		if let Some(mut other_wildcard_resource) = other.some_wildcard_resource.take() {
+			if let Some(mut wildcard_resource) = self.some_wildcard_resource.take() {
 				if wildcard_resource
 					.pattern
 					.compare(&other_wildcard_resource.pattern)
@@ -517,10 +519,10 @@ impl Resource {
 					panic!("sub resource has wildcard pattern with different name")
 				}
 
-				self.wildcard_resource = Some(wildcard_resource);
+				self.some_wildcard_resource = Some(wildcard_resource);
 			} else {
 				other_wildcard_resource.prefix_segment_patterns = self.path_patterns();
-				self.wildcard_resource = Some(other_wildcard_resource);
+				self.some_wildcard_resource = Some(other_wildcard_resource);
 			}
 		}
 	}
@@ -692,12 +694,12 @@ impl Resource {
 				}
 				Pattern::Wildcard(_) => {
 					if leaf_resource
-						.wildcard_resource
+						.some_wildcard_resource
 						.as_ref()
 						.is_some_and(|resource| resource.pattern.compare(&pattern) == Similarity::Same)
 					{
 						leaf_resource = leaf_resource
-							.wildcard_resource
+							.some_wildcard_resource
 							.as_deref()
 							.expect("if statement should prove that the wildcard resource exists");
 					} else {
@@ -755,12 +757,12 @@ impl Resource {
 				}
 				Pattern::Wildcard(_) => {
 					if leaf_resource
-						.wildcard_resource
+						.some_wildcard_resource
 						.as_ref()
 						.is_some_and(|resource| resource.pattern.compare(&pattern) == Similarity::Same)
 					{
 						leaf_resource = leaf_resource
-							.wildcard_resource
+							.some_wildcard_resource
 							.as_deref_mut()
 							.expect("if statement should prove that the wildcard resource exists");
 					} else {
@@ -854,18 +856,37 @@ impl Resource {
 	// }
 
 	// TODO: Create IntoMethod sealed trait and implement it for a Method and String.
-	pub fn set_handler<H, M>(&mut self, method: Method, handler: H)
+	pub fn set_handler_for<L, const N: usize>(&mut self, handler_kind_list: L)
 	where
-		H: IntoHandler<M, IncomingBody>,
-		H::Handler: Handler + Send + Sync + 'static,
-		<H::Handler as Handler>::Response: IntoResponse,
+		L: IntoHandlerKindList<N>,
 	{
-		let ready_handler =
-			ResponseFutureBoxer::wrap(IntoResponseAdapter::wrap(handler.into_handler()));
+		let handler_kind_list = handler_kind_list.into_hanlder_list();
+		for handler_kind in handler_kind_list {
+			match handler_kind {
+				HandlerKind(Inner::Method(method, handler)) => {
+					let ready_handler =
+						ResponseFutureBoxer::wrap(IntoResponseAdapter::wrap(handler.into_handler()));
 
-		self
-			.method_handlers
-			.set_handler(method, ready_handler.into_arc_handler())
+					self
+						.method_handlers
+						.set_for(method, ready_handler.into_arc_handler())
+				}
+				HandlerKind(Inner::AllMethods(handler)) => {
+					let ready_handler =
+						ResponseFutureBoxer::wrap(IntoResponseAdapter::wrap(handler.into_handler()));
+
+					self
+						.method_handlers
+						.set_for_all_methods(ready_handler.into_arc_handler())
+				}
+				HandlerKind(Inner::MisdirectedRequest(handler)) => {
+					let ready_handler =
+						ResponseFutureBoxer::wrap(IntoResponseAdapter::wrap(handler.into_handler()));
+
+					self.some_misdirected_request_handler = Some(ready_handler.into_arc_handler())
+				}
+			}
+		}
 	}
 
 	pub fn wrap_request_receiver<L, LayeredB>(&mut self, layer: L)
@@ -874,7 +895,7 @@ impl Resource {
 		<L>::Handler: Handler + Send + Sync + 'static,
 		<L::Handler as Handler>::Response: IntoResponse,
 	{
-		let boxed_request_receiver = match self.request_receiver.take() {
+		let boxed_request_receiver = match self.some_request_receiver.take() {
 			Some(request_receiver) => request_receiver,
 			None => {
 				let request_receiver = <fn(Request) -> RequestReceiverFuture as IntoHandler<(
@@ -888,7 +909,7 @@ impl Resource {
 
 		let boxed_request_receiver = wrap_arc_handler(boxed_request_receiver, layer);
 
-		self.request_receiver.replace(boxed_request_receiver);
+		self.some_request_receiver.replace(boxed_request_receiver);
 	}
 
 	pub fn wrap_request_passer<L, LayeredB>(&mut self, layer: L)
@@ -897,7 +918,7 @@ impl Resource {
 		<L>::Handler: Handler + Send + Sync + 'static,
 		<L::Handler as Handler>::Response: IntoResponse,
 	{
-		let boxed_request_passer = match self.request_passer.take() {
+		let boxed_request_passer = match self.some_request_passer.take() {
 			Some(request_passer) => request_passer,
 			None => {
 				let request_passer = <fn(Request) -> RequestPasserFuture as IntoHandler<(
@@ -911,7 +932,7 @@ impl Resource {
 
 		let boxed_request_passer = wrap_arc_handler(boxed_request_passer, layer);
 
-		self.request_passer.replace(boxed_request_passer);
+		self.some_request_passer.replace(boxed_request_passer);
 	}
 
 	pub fn wrap_request_handler<L, LayeredB>(&mut self, layer: L)
@@ -920,7 +941,7 @@ impl Resource {
 		<L>::Handler: Handler + Send + Sync + 'static,
 		<L::Handler as Handler>::Response: IntoResponse,
 	{
-		let boxed_request_handler = match self.request_handler.take() {
+		let boxed_request_handler = match self.some_request_handler.take() {
 			Some(request_handler) => request_handler,
 			None => {
 				let request_handler =
@@ -934,7 +955,7 @@ impl Resource {
 
 		let boxed_request_handler = wrap_arc_handler(boxed_request_handler, layer);
 
-		self.request_handler.replace(boxed_request_handler);
+		self.some_request_handler.replace(boxed_request_handler);
 	}
 
 	pub fn wrap_method_handler<L, LayeredB>(&mut self, method: Method, layer: L)
@@ -943,7 +964,7 @@ impl Resource {
 		<L>::Handler: Handler + Send + Sync + 'static,
 		<L::Handler as Handler>::Response: IntoResponse,
 	{
-		self.method_handlers.wrap_handler(method, layer);
+		self.method_handlers.wrap(method, layer);
 	}
 
 	// -------------------------
@@ -955,7 +976,7 @@ impl Resource {
 		let mut subresources = Vec::new();
 		subresources.extend(self.static_resources.iter_mut());
 		subresources.extend(self.regex_resources.iter_mut());
-		if let Some(resource) = self.wildcard_resource.as_deref_mut() {
+		if let Some(resource) = self.some_wildcard_resource.as_deref_mut() {
 			subresources.push(resource);
 		}
 
@@ -972,7 +993,7 @@ impl Resource {
 
 			subresources.extend(subresource.static_resources.iter_mut());
 			subresources.extend(subresource.regex_resources.iter_mut());
-			if let Some(resource) = subresource.wildcard_resource.as_deref_mut() {
+			if let Some(resource) = subresource.some_wildcard_resource.as_deref_mut() {
 				subresources.push(resource);
 			}
 		}
@@ -983,10 +1004,10 @@ impl Resource {
 			pattern,
 			static_resources,
 			regex_resources,
-			wildcard_resource,
-			request_receiver,
-			request_passer,
-			request_handler,
+			some_wildcard_resource: wildcard_resource,
+			some_request_receiver: request_receiver,
+			some_request_passer: request_passer,
+			some_request_handler: request_handler,
 			method_handlers,
 			states: state,
 			is_subtree_handler,
@@ -1053,29 +1074,29 @@ impl Debug for Resource {
 			f,
 			"Resource {{
 				pattern: {},
-				prefix_path_patterns: {},
-				static_resources_count: {},
-				regex_resources_count: {},
-				wildcard_resource_exists: {},
-				layered_request_receiver: {},
-				layered_request_passer: {},
-				layered_request_handler: {},
+				prefix_segment_patterns: {},
+				static_resources count: {},
+				regex_resources count: {},
+				wildcard_resource exists: {},
+				layered request_receiver exists: {},
+				layered request_passer exists: {},
+				layered request_handler exists: {},
 				method_handlers: {{ count: {}, unsupported_method_handler_exists: {} }},
-				states_count: {},
+				misdirected_request_handler exists: {},
+				states count: {},
 				is_subtree_handler: {},
 			}}",
 			&self.pattern,
 			patterns_to_route(&self.prefix_segment_patterns),
 			self.static_resources.len(),
 			self.regex_resources.len(),
-			self.wildcard_resource.is_some(),
-			self.request_receiver.is_some(),
-			self.request_passer.is_some(),
-			self.request_handler.is_some(),
+			self.some_wildcard_resource.is_some(),
+			self.some_request_receiver.is_some(),
+			self.some_request_passer.is_some(),
+			self.some_request_handler.is_some(),
 			self.method_handlers.count(),
-			self
-				.method_handlers
-				.has_layered_unsupported_method_handler(),
+			self.method_handlers.has_all_methods_handler(),
+			self.some_misdirected_request_handler.is_some(),
 			self.states.len(),
 			self.is_subtree_handler,
 		)
@@ -1097,7 +1118,7 @@ pub enum Iteration {
 #[cfg(test)]
 mod test {
 	use crate::{
-		handler::{futures::DefaultResponseFuture, DummyHandler},
+		handler::{futures::DefaultResponseFuture, get, post, put, DummyHandler},
 		utils::route_to_patterns,
 	};
 
@@ -1187,10 +1208,10 @@ mod test {
 			// Existing resources in the tree.
 
 			let (resource2_0, _) = parent.leaf_resource_mut(RouteSegments::new("/$abc2_0:@(p0)"));
-			resource2_0.set_handler(Method::POST, DummyHandler::<DefaultResponseFuture>::new());
+			resource2_0.set_handler_for(post(DummyHandler::<DefaultResponseFuture>::new()));
 			resource2_0
 				.subresource_mut("/$abc3_1:@cn0(p0)/*abc4_0")
-				.set_handler(Method::GET, DummyHandler::<DefaultResponseFuture>::new());
+				.set_handler_for(get(DummyHandler::<DefaultResponseFuture>::new()));
 
 			let (resource4_2, _) =
 				resource2_0.leaf_resource_mut(RouteSegments::new("/$abc3_1:@cn0(p0)/abc4_2"));
@@ -1203,11 +1224,14 @@ mod test {
 			let mut resource2_0 = Resource::new("/$abc2_0:@(p0)");
 
 			let mut resource3_1 = Resource::new("/$abc3_1:@cn0(p0)");
-			resource3_1.set_handler(Method::GET, DummyHandler::<DefaultResponseFuture>::new());
-			resource3_1.set_handler(Method::POST, DummyHandler::<DefaultResponseFuture>::new());
+			resource3_1.set_handler_for([
+				get(DummyHandler::<DefaultResponseFuture>::new()),
+				post(DummyHandler::<DefaultResponseFuture>::new()),
+			]);
+
 			resource3_1
 				.subresource_mut("/abc4_1")
-				.set_handler(Method::POST, DummyHandler::<DefaultResponseFuture>::new());
+				.set_handler_for(post(DummyHandler::<DefaultResponseFuture>::new()));
 			resource3_1.new_subresource_mut(RouteSegments::new("/$abc4_3:@(p0)"));
 			resource3_1.new_subresource_mut(RouteSegments::new("/abc4_4"));
 
@@ -1226,7 +1250,7 @@ mod test {
 				parent.leaf_resource(RouteSegments::new("/$abc2_0:@(p0)/$abc3_1:@cn0(p0)"));
 			assert_eq!(resource3_1.static_resources.len(), 3);
 			assert_eq!(resource3_1.regex_resources.len(), 1);
-			assert!(resource3_1.wildcard_resource.is_some());
+			assert!(resource3_1.some_wildcard_resource.is_some());
 			assert_eq!(resource3_1.method_handlers.count(), 2);
 
 			let (resource4_0, _) = resource3_1.leaf_resource(RouteSegments::new("/*abc4_0"));
@@ -1251,7 +1275,7 @@ mod test {
 
 			let mut resource3_0 = Resource::new(pattern3_0);
 			resource3_0.by_patterns_new_subresource_mut(std::iter::once(Pattern::parse("abc4_2")));
-			resource3_0.set_handler(Method::GET, DummyHandler::<DefaultResponseFuture>::new());
+			resource3_0.set_handler_for(get(DummyHandler::<DefaultResponseFuture>::new()));
 
 			parent.add_subresource(resource3_0);
 			let (resource3_0, _) = parent.leaf_resource_mut(RouteSegments::new(route3_0));
@@ -1424,7 +1448,7 @@ mod test {
 			);
 
 			if case.resource_has_handler {
-				resource.set_handler(Method::GET, DummyHandler::<DefaultResponseFuture>::new());
+				resource.set_handler_for(get(DummyHandler::<DefaultResponseFuture>::new()));
 			}
 
 			resource.check_path_segments_are_the_same(&mut route_to_patterns(case.full_path).into_iter());
@@ -1434,7 +1458,7 @@ mod test {
 			let mut resource3_0 = Resource::new("/abc3_0");
 			resource3_0
 				.subresource_mut("/*abc4_0")
-				.set_handler(Method::POST, DummyHandler::<DefaultResponseFuture>::new());
+				.set_handler_for(post(DummyHandler::<DefaultResponseFuture>::new()));
 
 			let resource4_1 = Resource::new("/abc4_2");
 			resource3_0.add_subresource_under("", resource4_1);
@@ -1454,16 +1478,16 @@ mod test {
 
 		{
 			let mut resource2_1 = Resource::new("/abc0_0/*abc1_0/*abc2_1");
-			resource2_1.set_handler(Method::GET, DummyHandler::<DefaultResponseFuture>::new());
+			resource2_1.set_handler_for(get(DummyHandler::<DefaultResponseFuture>::new()));
 
 			let mut resource4_0 = Resource::new("/$abc4_0:@cn(p)");
 			resource4_0
 				.subresource_mut("/*abc5_0")
-				.set_handler(Method::GET, DummyHandler::<DefaultResponseFuture>::new());
+				.set_handler_for(get(DummyHandler::<DefaultResponseFuture>::new()));
 			resource2_1.add_subresource_under("/abc3_0", resource4_0);
 
 			let mut resource4_1 = Resource::new("/$abc4_1:@cn(p)/");
-			resource4_1.set_handler(Method::PUT, DummyHandler::<DefaultResponseFuture>::new());
+			resource4_1.set_handler_for(put(DummyHandler::<DefaultResponseFuture>::new()));
 			resource2_1.add_subresource_under("/abc3_0", resource4_1);
 
 			let resource5_0 = Resource::new("/abc0_0/*abc1_0/*abc2_1/abc3_0/*abc4_2/$abc5_0:@(p)");
@@ -1478,7 +1502,7 @@ mod test {
 
 			let (resource4_0, _) =
 				resource2_1.leaf_resource(RouteSegments::new("/abc3_0/$abc4_0:@cn(p)"));
-			assert!(resource4_0.wildcard_resource.is_some());
+			assert!(resource4_0.some_wildcard_resource.is_some());
 			assert_eq!(resource4_0.method_handlers.count(), 1);
 
 			let (resource4_1, _) =
