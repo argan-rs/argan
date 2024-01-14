@@ -19,7 +19,7 @@ use http::{
 use httpdate::HttpDate;
 
 use crate::{
-	handler::request_handlers::misdirected_request_handler,
+	handler::{get, request_handlers::misdirected_request_handler},
 	request::Request,
 	response::{stream::FileStream, IntoResponse, Response},
 	routing::RoutingState,
@@ -108,7 +108,7 @@ impl StaticFiles {
 		};
 
 		if self.flags.has(Flags::GET) {
-			resource.set_handler(Method::GET, get_handler);
+			resource.set_handler_for(get(get_handler));
 		}
 
 		resource

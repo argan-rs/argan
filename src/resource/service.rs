@@ -177,6 +177,7 @@ mod test {
 	use crate::{
 		body::{Bytes, Empty},
 		data::Json,
+		handler::{get, method, post},
 		request::PathParam,
 		resource::Resource,
 	};
@@ -189,9 +190,7 @@ mod test {
 	async fn resource_service() {
 		let mut root = Resource::new("/");
 		let handler = |_request: Request| async {};
-		root
-			.subresource_mut("/abc")
-			.set_handler(Method::GET, handler);
+		root.subresource_mut("/abc").set_handler_for(get(handler));
 		assert_eq!(root.subresource_mut("/abc").pattern(), "abc");
 		assert!(root.subresource_mut("/abc").can_handle_request());
 
@@ -212,27 +211,26 @@ mod test {
 		//					 -> $abc1_1:@cn(abc1_1)-cba -> abc2_0
 
 		let mut resource = Resource::new("/abc0_0");
-		resource.set_handler(Method::GET, hello_world);
+		resource.set_handler_for(get(hello_world));
 
-		resource.subresource_mut("/*abc1_0").set_handler(
-			Method::PUT,
+		resource.subresource_mut("/*abc1_0").set_handler_for(method(
+			"PUT",
 			|PathParam(wildcard): PathParam<String>| async move {
 				println!("got param: {}", wildcard);
 
 				wildcard
 			},
-		);
+		));
 
 		resource
 			.subresource_mut("/*abc1_0/$abc2_0:@(abc2_0)")
-			.set_handler(
-				Method::POST,
+			.set_handler_for(post(
 				|PathParam(path_values): PathParam<PathValues1_0_2_0>| async move {
 					println!("got path values: {:?}", path_values);
 
 					Json(path_values)
 				},
-			);
+			));
 
 		#[derive(Debug, Serialize, Deserialize)]
 		struct PathValues1_0_2_0 {
@@ -243,14 +241,13 @@ mod test {
 
 		resource
 			.subresource_mut("/*abc1_0/$abc2_1:@cn(abc2_1)-cba/*abc3_0")
-			.set_handler(
-				Method::GET,
+			.set_handler_for(get(
 				|PathParam(path_values): PathParam<PathValues1_0_2_1_3_0>| async move {
 					println!("got path values: {:?}", path_values);
 
 					Json(path_values)
 				},
-			);
+			));
 
 		#[derive(Debug, Serialize, Deserialize)]
 		struct PathValues1_0_2_1_3_0 {
@@ -261,19 +258,16 @@ mod test {
 
 		resource
 			.subresource_mut("/$abc1_1:@cn(abc1_1)-cba")
-			.set_handler(
-				Method::GET,
-				|PathParam(value): PathParam<String>| async move {
-					let vector = Vec::from(value);
-					println!("got path values: {:?}", vector);
+			.set_handler_for(get(|PathParam(value): PathParam<String>| async move {
+				let vector = Vec::from(value);
+				println!("got path values: {:?}", vector);
 
-					vector
-				},
-			);
+				vector
+			}));
 
 		resource
 			.subresource_mut("/$abc1_1:@cn(abc1_1)-cba/abc2_0")
-			.set_handler(Method::GET, hello_world);
+			.set_handler_for(get(hello_world));
 
 		dbg!();
 

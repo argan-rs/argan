@@ -17,9 +17,11 @@ pub use hyper::service::Service;
 
 pub(crate) mod futures;
 pub mod impls;
+mod kind;
 pub(crate) mod request_handlers;
 
 use self::futures::{DefaultResponseFuture, ResponseToResultFuture, ResultToResponseFuture};
+pub use kind::*;
 
 // --------------------------------------------------------------------------------
 // --------------------------------------------------------------------------------
@@ -76,6 +78,12 @@ where
 	fn into_handler(self) -> Self::Handler {
 		self
 	}
+}
+
+// -------------------------
+
+pub trait IntoHandlerKindList<const N: usize> {
+	fn into_hanlder_list(self) -> [HandlerKind; N];
 }
 
 // --------------------------------------------------------------------------------
