@@ -65,9 +65,9 @@ impl MethodHandlers {
 	}
 
 	#[inline]
-	pub(crate) fn wrap<L, LayeredB>(&mut self, method: Method, layer: L)
+	pub(crate) fn wrap<L>(&mut self, method: Method, layer: L)
 	where
-		L: Layer<AdaptiveHandler<LayeredB>, LayeredB>,
+		L: Layer<AdaptiveHandler>,
 		L::Handler: Handler<IncomingBody> + Send + Sync + 'static,
 		<L::Handler as Handler<IncomingBody>>::Response: IntoResponse,
 	{
