@@ -1,6 +1,6 @@
 use tower_layer::Layer as TowerLayer;
 
-use crate::handler::HandlerService;
+use crate::handler::{HandlerService, AdaptiveHandler};
 
 // --------------------------------------------------
 
@@ -11,15 +11,15 @@ pub(crate) use internal::*;
 // --------------------------------------------------------------------------------
 // --------------------------------------------------------------------------------
 
-pub trait Layer<H, LayeredB> {
+pub trait Layer<H> {
 	type Handler;
 
 	fn wrap(&self, handler: H) -> Self::Handler;
 }
 
-impl<L, H, LayeredB> Layer<H, LayeredB> for L
+impl<L, H> Layer<H> for L
 where
-	L: TowerLayer<HandlerService<H, LayeredB>>,
+	L: TowerLayer<HandlerService<H>>,
 {
 	type Handler = L::Service;
 
@@ -28,4 +28,6 @@ where
 	}
 }
 
-// --------------------------------------------------------------------------------
+// --------------------------------------------------
+
+// type BoxedLayer = Box<dyn Layer<AdaptiveHandler>>;

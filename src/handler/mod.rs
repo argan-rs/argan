@@ -61,9 +61,9 @@ pub trait IntoHandler<M, B = IncomingBody>: Sized {
 		StatefulHandler::new(self.into_handler(), state)
 	}
 
-	fn wrapped_in<L, NewB>(self, layer: L) -> L::Handler
+	fn wrapped_in<L>(self, layer: L) -> L::Handler
 	where
-		L: Layer<Self::Handler, NewB>,
+		L: Layer<Self::Handler>,
 	{
 		layer.wrap(self.into_handler())
 	}
@@ -88,22 +88,22 @@ pub trait IntoHandlerKindList<const N: usize> {
 
 // --------------------------------------------------------------------------------
 
-pub struct HandlerService<H, B> {
+pub struct HandlerService<H> {
 	handler: H,
-	_body_mark: PhantomData<B>,
+	// _body_mark: PhantomData<B>,
 }
 
-impl<H, B> From<H> for HandlerService<H, B> {
+impl<H> From<H> for HandlerService<H> {
 	#[inline]
 	fn from(handler: H) -> Self {
 		Self {
 			handler,
-			_body_mark: PhantomData,
+			// _body_mark: PhantomData,
 		}
 	}
 }
 
-impl<H, B> Service<Request<B>> for HandlerService<H, B>
+impl<H, B> Service<Request<B>> for HandlerService<H>
 where
 	H: Handler<B>,
 {
@@ -209,9 +209,9 @@ impl Handler for ArcHandler {
 
 // -------------------------
 
-pub(crate) fn wrap_arc_handler<L, LayeredB>(arc_handler: ArcHandler, layer: L) -> ArcHandler
+pub(crate) fn wrap_arc_handler<L>(arc_handler: ArcHandler, layer: L) -> ArcHandler
 where
-	L: Layer<AdaptiveHandler<LayeredB>, LayeredB>,
+	L: Layer<AdaptiveHandler>,
 	L::Handler: Handler + Send + Sync + 'static,
 	<L::Handler as Handler>::Response: IntoResponse,
 {
@@ -266,12 +266,12 @@ impl Handler for DummyHandler<BoxedFuture<Response>> {
 
 // --------------------------------------------------
 
-pub struct AdaptiveHandler<B> {
+pub struct AdaptiveHandler {
 	inner: RequestBodyAdapter<ArcHandler>,
-	_body_mark: PhantomData<B>,
+	// _body_mark: PhantomData<B>,
 }
 
-impl<B> Service<Request<B>> for AdaptiveHandler<B>
+impl<B> Service<Request<B>> for AdaptiveHandler
 where
 	B: Body + Send + Sync + 'static,
 	B::Data: Debug,
@@ -289,12 +289,12 @@ where
 	}
 }
 
-impl<B> From<RequestBodyAdapter<ArcHandler>> for AdaptiveHandler<B> {
+impl From<RequestBodyAdapter<ArcHandler>> for AdaptiveHandler {
 	#[inline]
 	fn from(handler: RequestBodyAdapter<ArcHandler>) -> Self {
 		Self {
 			inner: handler,
-			_body_mark: PhantomData,
+			// _body_mark: PhantomData,
 		}
 	}
 }
