@@ -5,7 +5,7 @@ use percent_encoding::percent_decode_str;
 use crate::{
 	body::{Body, IncomingBody},
 	handler::{
-		request_handlers::{misdirected_request_handler, MethodHandlers},
+		request_handlers::{handle_misdirected_request, MethodHandlers},
 		ArcHandler, Handler, Service,
 	},
 	pattern::{ParamsList, Pattern},
@@ -133,7 +133,7 @@ where
 				None => ResourceInnerFuture::from(request_receiver(request)).into(),
 			}
 		} else {
-			ResourceInnerFuture::from(misdirected_request_handler(request)).into()
+			ResourceInnerFuture::from(handle_misdirected_request(request)).into()
 		}
 	}
 }

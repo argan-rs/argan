@@ -61,17 +61,12 @@ where
 
 // --------------------------------------------------
 
+#[rustfmt::skip]
 macro_rules! impl_handler_fn {
 	($(($($ps:ident),*),)? $($lp:ident)?) => {
 		#[allow(non_snake_case)]
-		impl<
-			Func,
-			$($($ps,)*)?
-			$($lp,)?
-			Fut,
-			O,
-			B,
-		> IntoHandler<(Private, $($($ps,)*)? $($lp)?), B> for Func
+		impl<Func, $($($ps,)*)? $($lp,)? Fut, O, B> IntoHandler<(Private, $($($ps,)*)? $($lp)?), B>
+			for Func
 		where
 			Func: Fn($($($ps,)*)? $($lp)?) -> Fut,
 			Fut: Future<Output = O>,
@@ -86,14 +81,8 @@ macro_rules! impl_handler_fn {
 		}
 
 		#[allow(non_snake_case)]
-		impl<
-			Func,
-			$($($ps,)*)?
-			$($lp,)?
-			Fut,
-			O,
-			B,
-		> Handler<B> for HandlerFn<Func, (Private, $($($ps,)*)? $($lp)?)>
+		impl<Func, $($($ps,)*)? $($lp,)? Fut, O, B> Handler<B>
+			for HandlerFn<Func, (Private, $($($ps,)*)? $($lp)?)>
 		where
 			Func: Fn($($($ps,)*)? $($lp)?) -> Fut + Clone + 'static,
 			$($($ps: FromRequestHead,)*)?
@@ -113,14 +102,8 @@ macro_rules! impl_handler_fn {
 		}
 
 		#[allow(non_snake_case)]
-		impl<
-			Func,
-			$($($ps,)*)?
-			$($lp,)?
-			Fut,
-			O,
-			B,
-		> Future for HandlerFnFuture<Func, (Private, $($($ps,)*)? $($lp)?), B>
+		impl<Func, $($($ps,)*)? $($lp,)? Fut, O, B> Future
+			for HandlerFnFuture<Func, (Private, $($($ps,)*)? $($lp)?), B>
 		where
 			Func: Fn($($($ps,)*)? $($lp)?) -> Fut + Clone + 'static,
 			$($($ps: FromRequestHead,)*)?
@@ -193,14 +176,10 @@ impl_handler_fn!((P1, P2, P3, P4, P5, P6, P7, P8, P9, P10), LP);
 impl_handler_fn!((P1, P2, P3, P4, P5, P6, P7, P8, P9, P10, P11), LP);
 impl_handler_fn!((P1, P2, P3, P4, P5, P6, P7, P8, P9, P10, P11, P12), LP);
 impl_handler_fn!((P1, P2, P3, P4, P5, P6, P7, P8, P9, P10, P11, P12, P13), LP);
-impl_handler_fn!(
-	(P1, P2, P3, P4, P5, P6, P7, P8, P9, P10, P11, P12, P13, P14),
-	LP
-);
-impl_handler_fn!(
-	(P1, P2, P3, P4, P5, P6, P7, P8, P9, P10, P11, P12, P13, P14, P15),
-	LP
-);
+#[rustfmt::skip]
+impl_handler_fn!((P1, P2, P3, P4, P5, P6, P7, P8, P9, P10, P11, P12, P13, P14), LP);
+#[rustfmt::skip]
+impl_handler_fn!((P1, P2, P3, P4, P5, P6, P7, P8, P9, P10, P11, P12, P13, P14, P15), LP);
 
 // --------------------------------------------------
 
