@@ -2,7 +2,6 @@ use std::{
 	fmt::Display,
 	fs::File,
 	io::{Error as IoError, ErrorKind, Read},
-	ops::RangeBounds,
 	path::Path,
 	pin::Pin,
 	str::FromStr,

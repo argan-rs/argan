@@ -3,9 +3,9 @@ use std::{convert::Infallible, fmt::Debug, future::Future, marker::PhantomData, 
 use crate::{
 	body::Body,
 	body::IncomingBody,
-	middleware::{IntoResponseAdapter, Layer, RequestBodyAdapter, ResponseFutureBoxer},
+	middleware::{Layer, RequestBodyAdapter},
 	request::Request,
-	response::{IntoResponse, Response},
+	response::Response,
 	utils::{BoxedError, BoxedFuture},
 };
 

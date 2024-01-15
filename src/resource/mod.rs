@@ -5,18 +5,15 @@ use std::{
 	sync::Arc,
 };
 
-use http::Method;
-
 use crate::{
-	body::IncomingBody,
 	handler::{
 		request_handlers::{handle_misdirected_request, MethodHandlers},
-		AdaptiveHandler, ArcHandler, Handler, HandlerKind, HandlerState, IntoArcHandler, IntoHandler,
+		AdaptiveHandler, ArcHandler, HandlerKind, IntoArcHandler, IntoHandler,
 	},
-	middleware::{IntoResponseAdapter, Layer, LayerTarget, ResponseFutureBoxer},
+	middleware::{IntoResponseAdapter, LayerTarget, ResponseFutureBoxer},
 	pattern::{Pattern, Similarity},
 	request::Request,
-	response::{IntoResponse, Response},
+	response::Response,
 	routing::RouteSegments,
 	utils::{mark::Private, patterns_to_route, BoxedFuture, IntoArray},
 };
@@ -848,18 +845,9 @@ impl Resource {
 			))
 	}
 
-	// pub fn set_config(&mut self, config: Config) {
-	// 	todo!()
-	// }
-	//
-	// pub fn config(&self) -> Config {
-	// 	todo!()
-	// }
-
-	// TODO: Create IntoMethod sealed trait and implement it for a Method and String.
 	pub fn set_handler_for<H, const N: usize>(&mut self, handler_kinds: H)
 	where
-		H: IntoArray<N, HandlerKind>,
+		H: IntoArray<HandlerKind, N>,
 	{
 		let handler_kinds = handler_kinds.into_array();
 		for handler_kind in handler_kinds {
@@ -894,9 +882,9 @@ impl Resource {
 
 	pub fn wrap<L, const N: usize>(&mut self, layer_targets: L)
 	where
-		L: Into<[LayerTarget; N]>,
+		L: IntoArray<LayerTarget, N>,
 	{
-		let layer_targets = layer_targets.into();
+		let layer_targets = layer_targets.into_array();
 		for layer_target in layer_targets {
 			use crate::middleware::Inner::*;
 
@@ -948,8 +936,12 @@ impl Resource {
 					let arc_request_handler = boxed_layer.wrap(AdaptiveHandler::from(arc_request_handler));
 					self.some_request_handler.replace(arc_request_handler);
 				}
-				MethodHandler(method, boxed_layer) => {
-					self.method_handlers.wrap_handler_of(method, boxed_layer);
+				MethodHandler(methods, arc_layer) => {
+					for method in methods {
+						self
+							.method_handlers
+							.wrap_handler_of(method, arc_layer.clone());
+					}
 				}
 				AllMethodsHandler(boxed_layer) => {
 					self.method_handlers.wrap_all_methods_handler(boxed_layer);

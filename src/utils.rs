@@ -22,21 +22,28 @@ pub(crate) const SCOPE_VALIDITY: &'static str = "scope validity";
 
 // --------------------------------------------------------------------------------
 
-pub trait IntoArray<const N: usize, T> {
+pub trait IntoArray<T, const N: usize> {
 	fn into_array(self) -> [T; N];
 }
 
-impl<const N: usize, T> IntoArray<N, T> for [T; N] {
-	#[inline(always)]
+impl<T, const N: usize> IntoArray<T, N> for [T; N] {
 	fn into_array(self) -> [T; N] {
-	  self
+		self
 	}
 }
 
-// --------------------------------------------------
+impl<T> IntoArray<T, 1> for T {
+	fn into_array(self) -> [T; 1] {
+		[self]
+	}
+}
+
+// --------------------------------------------------------------------------------
 
 pub(crate) mod mark {
 	pub trait Sealed {}
+
+	// ----------
 
 	pub struct Private;
 }

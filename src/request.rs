@@ -64,7 +64,7 @@ impl<T: FromRequestHead, B> FromRequest<B> for T {
 }
 
 // --------------------------------------------------
-// Method & Uri
+// Method
 
 impl FromRequestHead for Method {
 	type Error = Infallible;
@@ -74,6 +74,9 @@ impl FromRequestHead for Method {
 		ready(Ok(head.method.clone()))
 	}
 }
+
+// --------------------------------------------------
+// Uri
 
 impl FromRequestHead for Uri {
 	type Error = Infallible;
