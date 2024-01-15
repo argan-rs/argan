@@ -6,10 +6,9 @@ use std::{
 use http::{HeaderName, HeaderValue, Method, StatusCode};
 
 use crate::{
-	body::IncomingBody,
-	middleware::{BoxedLayer, IntoResponseAdapter, Layer, ResponseFutureBoxer},
+	middleware::{ArcLayer, BoxedLayer, ResponseFutureBoxer},
 	request::Request,
-	response::{IntoResponse, Response},
+	response::Response,
 	routing::UnusedRequest,
 	utils::{mark::Private, BoxedFuture, Uncloneable},
 };
@@ -65,13 +64,13 @@ impl MethodHandlers {
 	}
 
 	#[inline]
-	pub(crate) fn wrap_handler_of(&mut self, method: Method, boxed_layer: BoxedLayer) {
+	pub(crate) fn wrap_handler_of(&mut self, method: Method, arc_layer: ArcLayer) {
 		let Some(position) = self.list.iter().position(|(m, _)| m == method) else {
 			panic!("'{}' handler doesn't exists", method)
 		};
 
 		let (method, arc_handler) = std::mem::take(&mut self.list[position]);
-		let arc_handler = boxed_layer.wrap(AdaptiveHandler::from(arc_handler));
+		let arc_handler = arc_layer.wrap(AdaptiveHandler::from(arc_handler));
 
 		self.list[position] = (method, arc_handler);
 	}

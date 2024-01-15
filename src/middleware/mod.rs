@@ -1,10 +1,12 @@
+use std::sync::Arc;
+
 use http::Method;
 use tower_layer::Layer as TowerLayer;
 
 use crate::{
 	handler::{AdaptiveHandler, ArcHandler, Handler, HandlerService, IntoArcHandler},
 	response::IntoResponse,
-	utils::mark::Private,
+	utils::IntoArray,
 };
 
 // --------------------------------------------------
@@ -57,6 +59,7 @@ where
 // --------------------------------------------------
 
 pub(crate) type BoxedLayer = Box<dyn Layer<AdaptiveHandler, Handler = ArcHandler>>;
+pub(crate) type ArcLayer = Arc<dyn Layer<AdaptiveHandler, Handler = ArcHandler>>;
 
 // -------------------------
 
@@ -66,7 +69,7 @@ pub(crate) enum Inner {
 	RequestReceiver(BoxedLayer),
 	RequestPasser(BoxedLayer),
 	RequestHandler(BoxedLayer),
-	MethodHandler(Method, BoxedLayer),
+	MethodHandler(Vec<Method>, ArcLayer),
 	AllMethodsHandler(BoxedLayer),
 	MisdirectedRequestHandler(BoxedLayer),
 }
@@ -99,16 +102,17 @@ layer_target_wrapper!(request_passer_with, RequestPasser);
 
 layer_target_wrapper!(request_handler_with, RequestHandler);
 
-pub fn method_handler_of<L, M>(method: Method, layer: L) -> LayerTarget
+pub fn method_handler_of<M, const N: usize, L, Mark>(methods: M, layer: L) -> LayerTarget
 where
-	L: IntoLayer<M, AdaptiveHandler>,
+	M: IntoArray<Method, N>,
+	L: IntoLayer<Mark, AdaptiveHandler>,
 	L::Layer: Layer<AdaptiveHandler> + 'static,
 	<L::Layer as Layer<AdaptiveHandler>>::Handler: Handler + Send + Sync + 'static,
 	<<L::Layer as Layer<AdaptiveHandler>>::Handler as Handler>::Response: IntoResponse,
 {
 	LayerTarget(Inner::MethodHandler(
-		method,
-		Box::new(AdaptiveHandlerWrapper(layer.into_layer())),
+		methods.into_array().into(),
+		Arc::new(AdaptiveHandlerWrapper(layer.into_layer())),
 	))
 }
 

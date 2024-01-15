@@ -1,17 +1,5 @@
-use std::{
-	collections::HashMap,
-	fs::Metadata,
-	future::ready,
-	io::Error as IoError,
-	ops::{Deref, Not},
-	path::Path,
-	process::Output,
-	ptr::hash,
-	str::FromStr,
-	sync::Arc,
-};
+use std::{fs::Metadata, io::Error as IoError, path::Path, str::FromStr, sync::Arc};
 
-use futures_util::{future::Ready, Future};
 use http::{
 	header::{IF_MATCH, IF_MODIFIED_SINCE, IF_NONE_MATCH, IF_RANGE, IF_UNMODIFIED_SINCE, RANGE},
 	HeaderMap, Method, StatusCode,

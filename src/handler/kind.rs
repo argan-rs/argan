@@ -5,7 +5,7 @@ use http::Method;
 use crate::{
 	body::IncomingBody,
 	middleware::{IntoResponseAdapter, ResponseFutureBoxer},
-	response::IntoResponse, utils::IntoArray,
+	response::IntoResponse,
 };
 
 use super::{ArcHandler, Handler, IntoArcHandler, IntoHandler};
@@ -19,14 +19,6 @@ pub(crate) enum Inner {
 	Method(Method, ArcHandler),
 	AllMethods(ArcHandler),
 	MisdirectedRequest(ArcHandler),
-}
-
-// ----------
-
-impl IntoArray<1, HandlerKind> for HandlerKind {
-	fn into_array(self) -> [HandlerKind; 1] {
-	  [self]
-	}
 }
 
 // --------------------------------------------------
