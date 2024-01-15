@@ -5,10 +5,10 @@ use http::Method;
 use crate::{
 	body::IncomingBody,
 	middleware::{IntoResponseAdapter, ResponseFutureBoxer},
-	response::IntoResponse,
+	response::IntoResponse, utils::IntoArray,
 };
 
-use super::{ArcHandler, Handler, IntoArcHandler, IntoHandler, IntoHandlerKindList};
+use super::{ArcHandler, Handler, IntoArcHandler, IntoHandler};
 
 // --------------------------------------------------------------------------------
 // --------------------------------------------------------------------------------
@@ -23,15 +23,9 @@ pub(crate) enum Inner {
 
 // ----------
 
-impl IntoHandlerKindList<1> for HandlerKind {
-	fn into_hanlder_list(self) -> [HandlerKind; 1] {
-		[self]
-	}
-}
-
-impl<const N: usize> IntoHandlerKindList<N> for [HandlerKind; N] {
-	fn into_hanlder_list(self) -> [HandlerKind; N] {
-		self
+impl IntoArray<1, HandlerKind> for HandlerKind {
+	fn into_array(self) -> [HandlerKind; 1] {
+	  [self]
 	}
 }
 

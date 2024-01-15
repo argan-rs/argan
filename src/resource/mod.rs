@@ -10,14 +10,14 @@ use crate::{
 	body::IncomingBody,
 	handler::{
 		request_handlers::MethodHandlers, wrap_arc_handler, AdaptiveHandler, ArcHandler, Handler,
-		HandlerKind, HandlerState, Inner, IntoArcHandler, IntoHandler, IntoHandlerKindList,
+		HandlerKind, HandlerState, Inner, IntoArcHandler, IntoHandler,
 	},
 	middleware::{IntoResponseAdapter, Layer, ResponseFutureBoxer},
 	pattern::{Pattern, Similarity},
 	request::Request,
 	response::{IntoResponse, Response},
 	routing::RouteSegments,
-	utils::{mark::Private, patterns_to_route, BoxedFuture},
+	utils::{mark::Private, patterns_to_route, BoxedFuture, IntoArray},
 };
 
 // --------------------------------------------------
@@ -856,12 +856,12 @@ impl Resource {
 	// }
 
 	// TODO: Create IntoMethod sealed trait and implement it for a Method and String.
-	pub fn set_handler_for<L, const N: usize>(&mut self, handler_kind_list: L)
+	pub fn set_handler_for<H, const N: usize>(&mut self, handler_kinds: H)
 	where
-		L: IntoHandlerKindList<N>,
+		H: IntoArray<N, HandlerKind>,
 	{
-		let handler_kind_list = handler_kind_list.into_hanlder_list();
-		for handler_kind in handler_kind_list {
+		let handler_kinds = handler_kinds.into_array();
+		for handler_kind in handler_kinds {
 			match handler_kind {
 				HandlerKind(Inner::Method(method, handler)) => {
 					let ready_handler =
@@ -944,7 +944,7 @@ impl Resource {
 		let arc_request_handler = match self.some_request_handler.take() {
 			Some(request_handler) => request_handler,
 			None => {
-				let request_handler = 
+				let request_handler =
 					<fn(Request) -> BoxedFuture<Response> as IntoHandler<Request>>::into_handler(
 						request_handler,
 					);

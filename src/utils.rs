@@ -22,6 +22,19 @@ pub(crate) const SCOPE_VALIDITY: &'static str = "scope validity";
 
 // --------------------------------------------------------------------------------
 
+pub trait IntoArray<const N: usize, T> {
+	fn into_array(self) -> [T; N];
+}
+
+impl<const N: usize, T> IntoArray<N, T> for [T; N] {
+	#[inline(always)]
+	fn into_array(self) -> [T; N] {
+	  self
+	}
+}
+
+// --------------------------------------------------
+
 pub(crate) mod mark {
 	pub trait Sealed {}
 
