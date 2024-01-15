@@ -19,7 +19,7 @@ use http::{
 use httpdate::HttpDate;
 
 use crate::{
-	handler::{get, request_handlers::misdirected_request_handler},
+	handler::{get, request_handlers::handle_misdirected_request},
 	request::Request,
 	response::{stream::FileStream, IntoResponse, Response},
 	routing::RoutingState,
@@ -169,11 +169,11 @@ async fn get_handler(
 		.path_traversal
 		.remaining_segments(request_path)
 	else {
-		return Err(misdirected_request_handler(request).await); // ???
+		return Err(handle_misdirected_request(request).await); // ???
 	};
 
 	let Ok(path) = files_dir.join(remaining_segments).canonicalize() else {
-		return Err(misdirected_request_handler(request).await); // ???
+		return Err(handle_misdirected_request(request).await); // ???
 	};
 
 	// TODO: Test canonicalize.
@@ -183,11 +183,11 @@ async fn get_handler(
 
 	let path_metadata = match path.metadata() {
 		Ok(metadata) => metadata,
-		Err(error) => return Err(misdirected_request_handler(request).await), // ???
+		Err(error) => return Err(handle_misdirected_request(request).await), // ???
 	};
 
 	if !path_metadata.is_file() {
-		return Err(misdirected_request_handler(request).await); // ???
+		return Err(handle_misdirected_request(request).await); // ???
 	}
 
 	match evaluate_preconditions(

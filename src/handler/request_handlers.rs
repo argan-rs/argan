@@ -7,14 +7,14 @@ use http::{HeaderName, HeaderValue, Method, StatusCode};
 
 use crate::{
 	body::IncomingBody,
-	middleware::{IntoResponseAdapter, Layer, ResponseFutureBoxer},
+	middleware::{BoxedLayer, IntoResponseAdapter, Layer, ResponseFutureBoxer},
 	request::Request,
 	response::{IntoResponse, Response},
 	routing::UnusedRequest,
-	utils::{BoxedFuture, Uncloneable},
+	utils::{mark::Private, BoxedFuture, Uncloneable},
 };
 
-use super::{wrap_arc_handler, AdaptiveHandler, ArcHandler, Handler, IntoArcHandler, IntoHandler};
+use super::{AdaptiveHandler, ArcHandler, Handler, IntoArcHandler, IntoHandler};
 
 // --------------------------------------------------------------------------------
 // --------------------------------------------------------------------------------
@@ -65,20 +65,34 @@ impl MethodHandlers {
 	}
 
 	#[inline]
-	pub(crate) fn wrap<L>(&mut self, method: Method, layer: L)
-	where
-		L: Layer<AdaptiveHandler>,
-		L::Handler: Handler<IncomingBody> + Send + Sync + 'static,
-		<L::Handler as Handler<IncomingBody>>::Response: IntoResponse,
-	{
+	pub(crate) fn wrap_handler_of(&mut self, method: Method, boxed_layer: BoxedLayer) {
 		let Some(position) = self.list.iter().position(|(m, _)| m == method) else {
 			panic!("'{}' handler doesn't exists", method)
 		};
 
-		let (method, boxed_handler) = std::mem::take(&mut self.list[position]);
-		let boxed_handler = wrap_arc_handler(boxed_handler, layer);
+		let (method, arc_handler) = std::mem::take(&mut self.list[position]);
+		let arc_handler = boxed_layer.wrap(AdaptiveHandler::from(arc_handler));
 
-		self.list[position] = (method, boxed_handler);
+		self.list[position] = (method, arc_handler);
+	}
+
+	#[inline]
+	pub(crate) fn wrap_all_methods_handler(&mut self, boxed_layer: BoxedLayer) {
+		let arc_handler = match self.some_all_methods_handler.take() {
+			Some(all_methods_handler) => all_methods_handler,
+			None => {
+				let unimplemented_method_handler = <fn(Request) -> Ready<Response> as IntoHandler<(
+					Private,
+					Request,
+				)>>::into_handler(handle_unimplemented_method);
+
+				ResponseFutureBoxer::wrap(unimplemented_method_handler).into_arc_handler()
+			}
+		};
+
+		let arc_handler = boxed_layer.wrap(AdaptiveHandler::from(arc_handler));
+
+		self.some_all_methods_handler.replace(arc_handler);
 	}
 
 	#[inline(always)]
@@ -129,7 +143,7 @@ impl Debug for MethodHandlers {
 	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
 		write!(
 			f,
-			"MethodHandlers {{ method_handlers_count: {}, unsupported_method_handler_exists: {} }}",
+			"MethodHandlers {{ method_handlers count: {}, all_methods_handler exists: {} }}",
 			self.list.len(),
 			self.some_all_methods_handler.is_some(),
 		)
@@ -141,7 +155,7 @@ impl Debug for MethodHandlers {
 pub(crate) struct AllowedMethods(String);
 
 #[inline(always)]
-async fn handle_unimplemented_method(mut request: Request<IncomingBody>) -> Response {
+fn handle_unimplemented_method(mut request: Request) -> Ready<Response> {
 	let allowed_methods = request
 		.extensions_mut()
 		.remove::<Uncloneable<AllowedMethods>>()
@@ -159,11 +173,11 @@ async fn handle_unimplemented_method(mut request: Request<IncomingBody>) -> Resp
 		allowed_methods_header_value,
 	);
 
-	response
+	ready(response)
 }
 
 #[inline]
-pub(crate) fn misdirected_request_handler(request: Request<IncomingBody>) -> Ready<Response> {
+pub(crate) fn handle_misdirected_request(request: Request) -> Ready<Response> {
 	let mut response = Response::default();
 	*response.status_mut() = StatusCode::NOT_FOUND;
 	response

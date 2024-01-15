@@ -12,7 +12,7 @@ use pin_project::pin_project;
 
 use crate::{
 	handler::{
-		futures::ResponseToResultFuture, request_handlers::misdirected_request_handler, Handler,
+		futures::ResponseToResultFuture, request_handlers::handle_misdirected_request, Handler,
 	},
 	request::Request,
 	response::Response,
@@ -127,7 +127,7 @@ impl Future for RequestReceiverFuture {
 		}
 
 		if !current_resource.can_handle_request() {
-			return pin!(misdirected_request_handler(request)).poll(cx);
+			return pin!(handle_misdirected_request(request)).poll(cx);
 		}
 
 		pin!(current_resource.method_handlers.handle(request)).poll(cx)
@@ -299,7 +299,7 @@ impl Future for RequestPasserFuture {
 		// with a custom handler. Then we may consider returning the unused request in a response
 		// from here.
 
-		pin!(misdirected_request_handler(request)).poll(cx)
+		pin!(handle_misdirected_request(request)).poll(cx)
 	}
 }
 

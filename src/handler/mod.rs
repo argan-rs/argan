@@ -16,11 +16,12 @@ pub use hyper::service::Service;
 // --------------------------------------------------
 
 pub(crate) mod futures;
-pub mod impls;
+mod impls;
 mod kind;
 pub(crate) mod request_handlers;
 
 use self::futures::{DefaultResponseFuture, ResponseToResultFuture, ResultToResponseFuture};
+pub use impls::*;
 pub use kind::*;
 
 // --------------------------------------------------------------------------------
@@ -49,7 +50,7 @@ where
 
 // -------------------------
 
-pub trait IntoHandler<M, B = IncomingBody>: Sized {
+pub trait IntoHandler<Mark, B = IncomingBody>: Sized {
 	type Handler: Handler<B>;
 
 	fn into_handler(self) -> Self::Handler;
@@ -69,7 +70,7 @@ pub trait IntoHandler<M, B = IncomingBody>: Sized {
 	}
 }
 
-impl<H, B> IntoHandler<H, B> for H
+impl<H, B> IntoHandler<(), B> for H
 where
 	H: Handler<B>,
 {
@@ -201,21 +202,6 @@ impl Handler for ArcHandler {
 	}
 }
 
-// -------------------------
-
-pub(crate) fn wrap_arc_handler<L>(arc_handler: ArcHandler, layer: L) -> ArcHandler
-where
-	L: Layer<AdaptiveHandler>,
-	L::Handler: Handler + Send + Sync + 'static,
-	<L::Handler as Handler>::Response: IntoResponse,
-{
-	let adaptive_handler = AdaptiveHandler::from(RequestBodyAdapter::wrap(arc_handler));
-	let layered_handler = layer.wrap(adaptive_handler);
-	let ready_handler = ResponseFutureBoxer::wrap(IntoResponseAdapter::wrap(layered_handler));
-
-	ready_handler.into_arc_handler()
-}
-
 // --------------------------------------------------
 
 pub(crate) struct DummyHandler<F> {
@@ -260,10 +246,7 @@ impl Handler for DummyHandler<BoxedFuture<Response>> {
 
 // --------------------------------------------------
 
-pub struct AdaptiveHandler {
-	inner: RequestBodyAdapter<ArcHandler>,
-	// _body_mark: PhantomData<B>,
-}
+pub struct AdaptiveHandler(RequestBodyAdapter<ArcHandler>);
 
 impl<B> Service<Request<B>> for AdaptiveHandler
 where
@@ -277,19 +260,16 @@ where
 
 	#[inline]
 	fn call(&self, request: Request<B>) -> Self::Future {
-		let response_future = self.inner.handle(request);
+		let response_future = self.0.handle(request);
 
 		ResponseToResultFuture::from(response_future)
 	}
 }
 
-impl From<RequestBodyAdapter<ArcHandler>> for AdaptiveHandler {
+impl From<ArcHandler> for AdaptiveHandler {
 	#[inline]
-	fn from(handler: RequestBodyAdapter<ArcHandler>) -> Self {
-		Self {
-			inner: handler,
-			// _body_mark: PhantomData,
-		}
+	fn from(arc_handler: ArcHandler) -> Self {
+		Self(RequestBodyAdapter::wrap(arc_handler))
 	}
 }
 
