@@ -7,8 +7,9 @@ use tokio::runtime::Builder;
 
 use argan::{
 	body::{Bytes, Empty},
+	handler::get,
 	request::Request,
-	resource::Resource, handler::get,
+	resource::Resource,
 };
 
 // --------------------------------------------------------------------------------

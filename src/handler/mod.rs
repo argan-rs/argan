@@ -80,12 +80,6 @@ where
 	}
 }
 
-// -------------------------
-
-pub trait IntoHandlerKindList<const N: usize> {
-	fn into_hanlder_list(self) -> [HandlerKind; N];
-}
-
 // --------------------------------------------------------------------------------
 
 pub struct HandlerService<H> {
