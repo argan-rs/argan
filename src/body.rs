@@ -7,6 +7,8 @@ use std::{
 use hyper::HeaderMap;
 use pin_project::pin_project;
 
+use crate::utils::SCOPE_VALIDITY;
+
 use super::utils::BoxedError;
 
 // ----------
@@ -41,6 +43,10 @@ impl IncomingBody {
 		Self(InnerBody::Incoming { incoming })
 	}
 
+	fn from_boxed(boxed: BoxedBody) -> Self {
+		Self(InnerBody::Boxed { boxed })
+	}
+
 	#[inline]
 	pub fn new<B: Sized>(body: B) -> Self
 	where
@@ -52,16 +58,17 @@ impl IncomingBody {
 		if let Some(some_incoming_body) =
 			<dyn Any>::downcast_mut::<Option<IncomingBody>>(&mut some_body)
 		{
-			if let Some(incoming_body) = some_incoming_body.take() {
-				return incoming_body;
-			} else {
-				panic!("Option should have been created from a valid value in a local scope")
-			}
+			return some_incoming_body.take().expect(SCOPE_VALIDITY);
 		}
 
-		let Some(body) = some_body else {
-			panic!("Option should have been created from a valid value in a local scope")
-		};
+		if let Some(some_boxed_body) = <dyn Any>::downcast_mut::<Option<BoxedBody>>(&mut some_body) {
+			return some_boxed_body
+				.take()
+				.map(|boxed_body| IncomingBody::from_boxed(boxed_body))
+				.expect(SCOPE_VALIDITY);
+		}
+
+		let body = some_body.expect(SCOPE_VALIDITY);
 
 		Self(InnerBody::Boxed {
 			boxed: BoxedBody::new(BodyAdapter::new(body)),
@@ -134,3 +141,5 @@ where
 			.map_err(Into::into)
 	}
 }
+
+// --------------------------------------------------------------------------------

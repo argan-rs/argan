@@ -4,7 +4,7 @@ use http::response::Parts;
 
 use crate::{
 	body::{Body, BodyExt, BoxedBody, Bytes},
-	utils::BoxedError,
+	utils::{BoxedError, SCOPE_VALIDITY},
 };
 
 // ----------
@@ -47,15 +47,12 @@ where
 		let mut some_body = Some(body);
 
 		if let Some(some_boxed_body) = <dyn Any>::downcast_mut::<Option<BoxedBody>>(&mut some_body) {
-			let boxed_body = some_boxed_body
-				.take()
-				.expect("Option should have been created from a valid value in a local scope");
+			let boxed_body = some_boxed_body.take().expect(SCOPE_VALIDITY);
 
 			return Response::from_parts(head, boxed_body);
 		}
 
-		let body =
-			some_body.expect("Option should have been created from a valid value in a local scope");
+		let body = some_body.expect(SCOPE_VALIDITY);
 		let boxed_body = BoxedBody::new(body.map_err(Into::into));
 
 		Response::from_parts(head, boxed_body)
