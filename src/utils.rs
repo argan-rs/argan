@@ -26,15 +26,12 @@ pub trait IntoArray<T, const N: usize> {
 	fn into_array(self) -> [T; N];
 }
 
-impl<T, const N: usize> IntoArray<T, N> for [T; N] {
+impl<T, const N: usize> IntoArray<T, N> for [T; N]
+where
+	T: IntoArray<T, 1>,
+{
 	fn into_array(self) -> [T; N] {
 		self
-	}
-}
-
-impl<T> IntoArray<T, 1> for T {
-	fn into_array(self) -> [T; 1] {
-		[self]
 	}
 }
 

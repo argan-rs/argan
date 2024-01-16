@@ -59,7 +59,12 @@ pub struct Resource {
 // -------------------------
 
 impl Resource {
-	pub fn new(path_patterns: &str) -> Resource {
+	pub fn new<P>(path_patterns: P) -> Resource
+	where
+		P: AsRef<str>
+	{
+		let path_patterns = path_patterns.as_ref();
+
 		if path_patterns.is_empty() {
 			panic!("empty path patterns")
 		}
@@ -166,7 +171,18 @@ impl Resource {
 
 	// -------------------------
 
-	pub fn add_subresource(&mut self, mut new_resource: Resource) {
+	pub fn add_subresource<R, const N: usize>(&mut self, new_resources: R)
+	where
+		R: IntoArray<Resource, N>,
+	{
+		let new_resources = new_resources.into_array();
+
+		for new_resource in new_resources {
+			self.add_single_subresource(new_resource);
+		}
+	}
+
+	fn add_single_subresource(&mut self, mut new_resource: Resource) {
 		if !new_resource.prefix_segment_patterns.is_empty() {
 			let mut prefix_segment_patterns =
 				std::mem::take(&mut new_resource.prefix_segment_patterns).into_iter();
@@ -533,7 +549,20 @@ impl Resource {
 		prefix_patterns
 	}
 
-	pub fn add_subresource_under(&mut self, route: &str, mut new_resource: Resource) {
+	pub fn add_subresource_under<P, R, const N: usize>(&mut self, relative_path: P, new_resources: R)
+	where
+		P: AsRef<str>,
+		R: IntoArray<Resource, N>,
+	{
+		let relative_path = relative_path.as_ref();
+		let new_resources = new_resources.into_array();
+
+		for new_resource in new_resources {
+			self.add_single_subresource_under(relative_path, new_resource);
+		}
+	}
+
+	fn add_single_subresource_under(&mut self, relative_path: &str, mut new_resource: Resource) {
 		if !new_resource.prefix_segment_patterns.is_empty() {
 			let mut prefix_segment_patterns =
 				std::mem::take(&mut new_resource.prefix_segment_patterns).into_iter();
@@ -541,7 +570,7 @@ impl Resource {
 			// Prefix segments start from the root. They must be the same as the path segments of self.
 			self.check_path_segments_are_the_same(&mut prefix_segment_patterns);
 
-			if route.is_empty() {
+			if relative_path.is_empty() {
 				if prefix_segment_patterns.len() > 0 {
 					// There are remaining segments that we need to create corresponding subresources.
 					let subresource_to_be_parent = self.by_patterns_subresource_mut(prefix_segment_patterns);
@@ -557,7 +586,7 @@ impl Resource {
 			// Keeps the prefix route patterns
 			let mut prefix_route_patterns = Vec::new();
 
-			let prefix_route_segments = RouteSegments::new(route);
+			let prefix_route_segments = RouteSegments::new(relative_path);
 			for (prefix_route_segment, _) in prefix_route_segments {
 				let Some(prefix_segment_pattern) = prefix_segment_patterns.next() else {
 					panic!(
@@ -622,28 +651,33 @@ impl Resource {
 			return;
 		}
 
-		if route.is_empty() {
+		if relative_path.is_empty() {
 			self.add_subresource(new_resource);
 		} else {
-			let subresource_to_be_parent = self.subresource_mut(route);
+			let subresource_to_be_parent = self.subresource_mut(relative_path);
 			subresource_to_be_parent.add_subresource(new_resource);
 		}
 	}
 
-	pub fn subresource_mut(&mut self, route: &str) -> &mut Resource {
-		if route.is_empty() {
+	pub fn subresource_mut<P>(&mut self, relative_path: P) -> &mut Resource
+	where
+		P: AsRef<str>,
+	{
+		let relative_path = relative_path.as_ref();
+
+		if relative_path.is_empty() {
 			panic!("empty route")
 		}
 
-		if route == "/" {
+		if relative_path == "/" {
 			panic!("root cannot be a sub-resource")
 		}
 
-		if !route.starts_with('/') {
-			panic!("{} route must start with '/'", route)
+		if !relative_path.starts_with('/') {
+			panic!("{} route must start with '/'", relative_path)
 		}
 
-		let segments = RouteSegments::new(route);
+		let segments = RouteSegments::new(relative_path);
 		let (leaf_resource_in_the_path, segments) = self.leaf_resource_mut(segments);
 
 		leaf_resource_in_the_path.new_subresource_mut(segments)
@@ -1102,6 +1136,12 @@ impl Debug for Resource {
 			self.states.len(),
 			self.is_subtree_handler,
 		)
+	}
+}
+
+impl IntoArray<Resource, 1> for Resource {
+	fn into_array(self) -> [Resource; 1] {
+		[self]
 	}
 }
 
