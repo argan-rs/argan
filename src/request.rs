@@ -3,7 +3,7 @@ use std::{
 	future::{ready, Future, Ready},
 };
 
-use http::request::Parts;
+use http::{header::CONTENT_TYPE, request::Parts, StatusCode};
 use serde::{de::DeserializeOwned, Deserializer};
 
 use crate::{
@@ -21,57 +21,72 @@ pub use http::{Method, Uri, Version};
 // --------------------------------------------------------------------------------
 
 pub type Request<B = IncomingBody> = http::Request<B>;
-pub type Head = Parts;
+pub type RequestHead = Parts;
 
-// --------------------------------------------------
+// --------------------------------------------------------------------------------
 // FromRequestHead trait
 
 pub trait FromRequestHead: Sized {
 	type Error: IntoResponse;
-	type Future: Future<Output = Result<Self, Self::Error>>;
 
-	fn from_request_head(head: &mut Head) -> Self::Future;
+	fn from_request_head(
+		head: &mut RequestHead,
+	) -> impl Future<Output = Result<Self, Self::Error>> + Send;
 }
 
-// --------------------------------------------------
+// --------------------------------------------------------------------------------
 // FromRequest<B> trait
 
 pub trait FromRequest<B>: Sized {
 	type Error: IntoResponse;
-	type Future: Future<Output = Result<Self, Self::Error>>;
 
-	fn from_request(request: Request<B>) -> Self::Future;
+	fn from_request(request: Request<B>) -> impl Future<Output = Result<Self, Self::Error>> + Send;
 }
 
-impl<B> FromRequest<B> for Request<B> {
-	type Error = Response;
-	type Future = Ready<Result<Self, Self::Error>>;
+impl<B> FromRequest<B> for Request<B>
+where
+	B: Send,
+{
+	type Error = Infallible;
 
-	fn from_request(request: Request<B>) -> Self::Future {
-		ready(Ok(request))
+	async fn from_request(request: Request<B>) -> Result<Self, Self::Error> {
+		Ok(request)
 	}
 }
 
-impl<T: FromRequestHead, B> FromRequest<B> for T {
+impl<T: FromRequestHead, B> FromRequest<B> for T
+where
+	B: Send,
+{
 	type Error = T::Error;
-	type Future = T::Future;
 
-	fn from_request(request: Request<B>) -> Self::Future {
+	async fn from_request(request: Request<B>) -> Result<Self, Self::Error> {
 		let (mut head, _) = request.into_parts();
 
-		T::from_request_head(&mut head)
+		T::from_request_head(&mut head).await
 	}
 }
 
+// --------------------------------------------------------------------------------
+
+pub(crate) fn content_type<B>(request: &Request<B>) -> Result<&str, StatusCode> {
+	let content_type = request
+		.headers()
+		.get(CONTENT_TYPE)
+		.ok_or(StatusCode::BAD_REQUEST)?;
+
+	content_type.to_str().map_err(|e| StatusCode::BAD_REQUEST)
+}
+
+// --------------------------------------------------------------------------------
 // --------------------------------------------------
 // Method
 
 impl FromRequestHead for Method {
 	type Error = Infallible;
-	type Future = Ready<Result<Self, Self::Error>>;
 
-	fn from_request_head(head: &mut Head) -> Self::Future {
-		ready(Ok(head.method.clone()))
+	async fn from_request_head(head: &mut RequestHead) -> Result<Self, Self::Error> {
+		Ok(head.method.clone())
 	}
 }
 
@@ -86,10 +101,9 @@ impl IntoArray<Method, 1> for Method {
 
 impl FromRequestHead for Uri {
 	type Error = Infallible;
-	type Future = Ready<Result<Self, Self::Error>>;
 
-	fn from_request_head(head: &mut Head) -> Self::Future {
-		ready(Ok(head.uri.clone()))
+	async fn from_request_head(head: &mut RequestHead) -> Result<Self, Self::Error> {
+		Ok(head.uri.clone())
 	}
 }
 
@@ -113,10 +127,9 @@ impl<T> FromRequestHead for PathParam<T>
 where
 	T: DeserializeOwned,
 {
-	type Error = Infallible;
-	type Future = Ready<Result<Self, Self::Error>>;
+	type Error = StatusCode; // TODO.
 
-	fn from_request_head(head: &mut Head) -> Self::Future {
+	async fn from_request_head(head: &mut RequestHead) -> Result<Self, Self::Error> {
 		let routing_state = head
 			.extensions
 			.get_mut::<Uncloneable<RoutingState>>()
@@ -126,9 +139,9 @@ where
 
 		let mut from_params_list = routing_state.path_params.deserializer();
 
-		let value = T::deserialize(&mut from_params_list).unwrap(); // TODO
-
-		ready(Ok(Self(value)))
+		T::deserialize(&mut from_params_list)
+			.map(|value| Self(value))
+			.map_err(|_| StatusCode::NOT_FOUND)
 	}
 }
 
@@ -141,15 +154,14 @@ impl<T> FromRequestHead for QueryParams<T>
 where
 	T: DeserializeOwned,
 {
-	type Error = Infallible;
-	type Future = Ready<Result<Self, Self::Error>>;
+	type Error = StatusCode; // TODO.
 
-	fn from_request_head(head: &mut Head) -> Self::Future {
-		let query_string = head.uri.query().unwrap(); // TODO
+	async fn from_request_head(head: &mut RequestHead) -> Result<Self, Self::Error> {
+		let query_string = head.uri.query().ok_or(StatusCode::BAD_REQUEST)?;
 
-		let value = serde_urlencoded::from_str::<T>(query_string).unwrap(); // TODO
-
-		ready(Ok(Self(value)))
+		serde_urlencoded::from_str::<T>(query_string)
+			.map(|value| Self(value))
+			.map_err(|_| StatusCode::BAD_REQUEST)
 	}
 }
 

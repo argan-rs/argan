@@ -19,8 +19,8 @@ use pin_project::pin_project;
 use serde::{de::DeserializeOwned, Serialize};
 
 use crate::{
-	request::{FromRequest, FromRequestHead, Head as RequestHead, Request},
-	response::{Head as ResponseHead, IntoResponse, IntoResponseHead, Response},
+	request::{content_type, FromRequest, FromRequestHead, Request, RequestHead},
+	response::{IntoResponse, IntoResponseHead, Response, ResponseHead},
 	utils::BoxedError,
 };
 
@@ -40,10 +40,9 @@ pub mod form;
 
 impl FromRequestHead for Version {
 	type Error = Infallible;
-	type Future = Ready<Result<Self, Self::Error>>;
 
-	fn from_request_head(head: &mut RequestHead) -> Self::Future {
-		ready(Ok(head.version))
+	async fn from_request_head(head: &mut RequestHead) -> Result<Self, Self::Error> {
+		Ok(head.version)
 	}
 }
 
@@ -52,10 +51,9 @@ impl FromRequestHead for Version {
 
 impl FromRequestHead for HeaderMap {
 	type Error = Infallible;
-	type Future = Ready<Result<Self, Self::Error>>;
 
-	fn from_request_head(head: &mut RequestHead) -> Self::Future {
-		ready(Ok(head.headers.clone()))
+	async fn from_request_head(head: &mut RequestHead) -> Result<Self, Self::Error> {
+		Ok(head.headers.clone())
 	}
 }
 
@@ -73,7 +71,21 @@ impl IntoResponseHead for HeaderMap<HeaderValue> {
 // --------------------------------------------------
 // Extensions
 
-// TODO: FromRequestHead implementation?
+pub struct Extention<T>(pub T);
+
+impl<T> FromRequestHead for Extention<T>
+where
+	T: Clone + Send + Sync + 'static,
+{
+	type Error = StatusCode; // TODO.
+
+	async fn from_request_head(head: &mut RequestHead) -> Result<Self, Self::Error> {
+		match head.extensions.get::<T>() {
+			Some(value) => Ok(Extention(value.clone())),
+			None => Err(StatusCode::INTERNAL_SERVER_ERROR),
+		}
+	}
+}
 
 impl IntoResponseHead for Extensions {
 	type Error = Infallible;
@@ -93,59 +105,26 @@ pub struct Json<T, const SIZE_LIMIT: usize = { 2 * 1024 * 1024 }>(pub T);
 
 impl<B, T, const SIZE_LIMIT: usize> FromRequest<B> for Json<T, SIZE_LIMIT>
 where
-	B: Body,
+	B: Body + Send,
+	B::Data: Send,
 	B::Error: Into<BoxedError>,
 	T: DeserializeOwned,
 {
-	type Error = Response;
-	type Future = JsonFuture<B, T, SIZE_LIMIT>;
+	type Error = StatusCode; // TODO.
 
-	fn from_request(request: Request<B>) -> Self::Future {
-		JsonFuture {
-			request,
-			_mark: PhantomData,
-		}
-	}
-}
-
-#[pin_project]
-pub struct JsonFuture<B, T, const SIZE_LIMIT: usize> {
-	#[pin]
-	request: Request<B>,
-	_mark: PhantomData<T>,
-}
-
-impl<B, T, const SIZE_LIMIT: usize> Future for JsonFuture<B, T, SIZE_LIMIT>
-where
-	B: Body,
-	B::Error: Into<BoxedError>,
-	T: DeserializeOwned,
-{
-	type Output = Result<Json<T, SIZE_LIMIT>, Response>;
-
-	fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-		let self_projection = self.project();
-
-		let content_type = self_projection
-			.request
-			.headers()
-			.get(CONTENT_TYPE)
-			.unwrap()
-			.to_str()
-			.unwrap();
+	async fn from_request(request: Request<B>) -> Result<Self, Self::Error> {
+		let content_type = content_type(&request)?;
 
 		if content_type == mime::APPLICATION_JSON {
-			let limited_body = Limited::new(self_projection.request, SIZE_LIMIT);
-			if let Poll::Ready(result) = pin!(limited_body.collect()).poll(cx) {
-				let body = result.unwrap().to_bytes();
-				let value = serde_json::from_slice::<T>(&body).unwrap();
-
-				return Poll::Ready(Ok(Json(value)));
+			match Limited::new(request, SIZE_LIMIT).collect().await {
+				Ok(body) => match serde_json::from_slice::<T>(&body.to_bytes()) {
+					Ok(value) => Ok(Json(value)),
+					Err(_) => Err(StatusCode::BAD_REQUEST),
+				},
+				Err(_) => Err(StatusCode::INTERNAL_SERVER_ERROR),
 			}
-
-			Poll::Pending
 		} else {
-			Poll::Ready(Err(StatusCode::UNSUPPORTED_MEDIA_TYPE.into_response()))
+			Err(StatusCode::UNSUPPORTED_MEDIA_TYPE)
 		}
 	}
 }
@@ -172,9 +151,8 @@ pub struct Cookies(CookieJar);
 
 impl FromRequestHead for Cookies {
 	type Error = Infallible;
-	type Future = Ready<Result<Self, Self::Error>>;
 
-	fn from_request_head(head: &mut RequestHead) -> Self::Future {
+	async fn from_request_head(head: &mut RequestHead) -> Result<Self, Self::Error> {
 		let cookie_jar = head
 			.headers
 			.get_all(COOKIE)
@@ -184,13 +162,13 @@ impl FromRequestHead for Cookies {
 			.fold(CookieJar::new(), |mut jar, result| {
 				match result {
 					Ok(cookie) => jar.add_original(cookie.into_owned()),
-					Err(_) => todo!(),
+					Err(_) => {} // TODO.
 				}
 
 				jar
 			});
 
-		ready(Ok(Cookies(cookie_jar)))
+		Ok(Cookies(cookie_jar))
 	}
 }
 
@@ -224,49 +202,25 @@ impl IntoResponse for &'static str {
 
 impl<B> FromRequest<B> for String
 where
-	B: Body,
+	B: Body + Send,
+	B::Data: Send,
 	B::Error: Debug,
 {
-	type Error = Response;
-	type Future = StringFuture<B>;
+	type Error = StatusCode; // TODO.
 
-	fn from_request(request: Request<B>) -> Self::Future {
-		StringFuture(request)
-	}
-}
-
-#[pin_project]
-pub struct StringFuture<B>(#[pin] Request<B>);
-
-impl<B> Future for StringFuture<B>
-where
-	B: Body,
-	B::Error: Debug,
-{
-	type Output = Result<String, Response>;
-
-	fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-		let self_projection = self.project();
-
-		let content_type = self_projection
-			.0
-			.headers()
-			.get(CONTENT_TYPE)
-			.unwrap()
-			.to_str()
-			.unwrap();
+	async fn from_request(request: Request<B>) -> Result<Self, Self::Error> {
+		let content_type = content_type(&request)?;
 
 		if content_type == mime::TEXT_PLAIN_UTF_8 {
-			if let Poll::Ready(result) = pin!(self_projection.0.collect()).poll(cx) {
-				let body = result.unwrap().to_bytes();
-				let value = String::from_utf8(body.to_vec()).unwrap();
-
-				return Poll::Ready(Ok(value));
+			match request.collect().await {
+				Ok(body) => match String::from_utf8(body.to_bytes().into()) {
+					Ok(text) => Ok(text),
+					Err(error) => Err(StatusCode::BAD_REQUEST),
+				},
+				Err(error) => Err(StatusCode::INTERNAL_SERVER_ERROR),
 			}
-
-			Poll::Pending
 		} else {
-			Poll::Ready(Err(StatusCode::UNSUPPORTED_MEDIA_TYPE.into_response()))
+			Err(StatusCode::UNSUPPORTED_MEDIA_TYPE)
 		}
 	}
 }
@@ -307,54 +261,6 @@ impl IntoResponse for &'static [u8] {
 // --------------------------------------------------
 // Vec<u8>
 
-impl<B> FromRequest<B> for Vec<u8>
-where
-	B: Body,
-	B::Error: Debug,
-{
-	type Error = Response;
-	type Future = VecFuture<B>;
-
-	fn from_request(request: Request<B>) -> Self::Future {
-		VecFuture(request)
-	}
-}
-
-#[pin_project]
-pub struct VecFuture<B>(#[pin] Request<B>);
-
-impl<B> Future for VecFuture<B>
-where
-	B: Body,
-	B::Error: Debug,
-{
-	type Output = Result<Vec<u8>, Response>;
-
-	fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-		let self_projection = self.project();
-
-		let content_type = self_projection
-			.0
-			.headers()
-			.get(CONTENT_TYPE)
-			.unwrap()
-			.to_str()
-			.unwrap();
-
-		if content_type == mime::APPLICATION_OCTET_STREAM {
-			if let Poll::Ready(result) = pin!(self_projection.0.collect()).poll(cx) {
-				let value = result.unwrap().to_bytes().to_vec();
-
-				return Poll::Ready(Ok(value));
-			}
-
-			Poll::Pending
-		} else {
-			Poll::Ready(Err(StatusCode::UNSUPPORTED_MEDIA_TYPE.into_response()))
-		}
-	}
-}
-
 impl IntoResponse for Vec<u8> {
 	#[inline]
 	fn into_response(self) -> Response {
@@ -383,46 +289,22 @@ impl IntoResponse for Cow<'static, [u8]> {
 
 impl<B> FromRequest<B> for Bytes
 where
-	B: Body,
+	B: Body + Send,
+	B::Data: Send,
 	B::Error: Debug,
 {
-	type Error = Response;
-	type Future = BytesFuture<B>;
+	type Error = StatusCode; // TODO.
 
-	fn from_request(request: Request<B>) -> Self::Future {
-		BytesFuture(request)
-	}
-}
+	async fn from_request(request: Request<B>) -> Result<Self, Self::Error> {
+		let content_type_str = content_type(&request)?;
 
-#[pin_project]
-pub struct BytesFuture<B>(#[pin] Request<B>);
-
-impl<B> Future for BytesFuture<B>
-where
-	B: Body,
-	B::Error: Debug,
-{
-	type Output = Result<Bytes, Response>;
-
-	fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-		let self_projection = self.project();
-
-		let content_type = self_projection
-			.0
-			.headers()
-			.get(CONTENT_TYPE)
-			.unwrap()
-			.to_str()
-			.unwrap();
-
-		if content_type == mime::APPLICATION_OCTET_STREAM {
-			if let Poll::Ready(result) = pin!(self_projection.0.collect()).poll(cx) {
-				return Poll::Ready(Ok(result.unwrap().to_bytes()));
+		if content_type_str == mime::APPLICATION_OCTET_STREAM {
+			match request.collect().await {
+				Ok(body) => Ok(body.to_bytes()),
+				Err(error) => Err(StatusCode::INTERNAL_SERVER_ERROR),
 			}
-
-			Poll::Pending
 		} else {
-			Poll::Ready(Err(StatusCode::UNSUPPORTED_MEDIA_TYPE.into_response()))
+			Err(StatusCode::UNSUPPORTED_MEDIA_TYPE)
 		}
 	}
 }
