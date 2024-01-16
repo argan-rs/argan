@@ -10,7 +10,7 @@ use crate::{
 	body::IncomingBody,
 	response::{IntoResponse, Response},
 	routing::RoutingState,
-	utils::Uncloneable,
+	utils::{IntoArray, Uncloneable},
 };
 
 // ----------
@@ -72,6 +72,12 @@ impl FromRequestHead for Method {
 
 	fn from_request_head(head: &mut Head) -> Self::Future {
 		ready(Ok(head.method.clone()))
+	}
+}
+
+impl IntoArray<Method, 1> for Method {
+	fn into_array(self) -> [Method; 1] {
+		[self]
 	}
 }
 
