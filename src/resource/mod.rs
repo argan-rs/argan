@@ -61,7 +61,7 @@ pub struct Resource {
 impl Resource {
 	pub fn new<P>(path_patterns: P) -> Resource
 	where
-		P: AsRef<str>
+		P: AsRef<str>,
 	{
 		let path_patterns = path_patterns.as_ref();
 
