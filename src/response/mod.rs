@@ -4,6 +4,7 @@ use http::response::Parts;
 
 use crate::{
 	body::{Body, BodyExt, BoxedBody, Bytes},
+	request::FromRequestHead,
 	utils::{BoxedError, SCOPE_VALIDITY},
 };
 
@@ -19,7 +20,7 @@ pub mod stream;
 // --------------------------------------------------------------------------------
 
 pub type Response<B = BoxedBody> = http::response::Response<B>;
-pub type Head = Parts;
+pub type ResponseHead = Parts;
 
 // --------------------------------------------------
 // IntoResponseHead trait
@@ -27,7 +28,7 @@ pub type Head = Parts;
 pub trait IntoResponseHead {
 	type Error: IntoResponse;
 
-	fn into_response_head(self, head: Head) -> Result<Head, Self::Error>;
+	fn into_response_head(self, head: ResponseHead) -> Result<ResponseHead, Self::Error>;
 }
 
 // --------------------------------------------------
@@ -74,14 +75,13 @@ impl<T: IntoResponseHead> IntoResponse for T {
 // --------------------------------------------------
 // StatusCode
 
-impl IntoResponseHead for StatusCode {
-	type Error = Infallible;
-
+impl IntoResponse for StatusCode {
 	#[inline]
-	fn into_response_head(self, mut head: Head) -> Result<Head, Self::Error> {
-		head.status = self;
+	fn into_response(self) -> Response {
+		let mut response = Response::default();
+		*response.status_mut() = self;
 
-		Ok(head)
+		response
 	}
 }
 
@@ -140,4 +140,8 @@ where
 	}
 }
 
-// --------------------------------------------------
+// --------------------------------------------------------------------------------
+
+// impl<T1, T2> FromRequestHead for (T1, T2) {
+// 	type Error = ;
+// }

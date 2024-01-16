@@ -3,7 +3,7 @@ use http_body_util::{BodyStream, Limited};
 use mime::Mime;
 use multer::parse_boundary;
 
-use crate::{body::IncomingBody, utils::BoxedError};
+use crate::{body::IncomingBody, request::content_type, utils::BoxedError};
 
 use super::*;
 
@@ -17,59 +17,26 @@ pub struct Form<T, const SIZE_LIMIT: usize = { 2 * 1024 * 1024 }>(pub T);
 
 impl<B, T, const SIZE_LIMIT: usize> FromRequest<B> for Form<T, SIZE_LIMIT>
 where
-	B: Body,
+	B: Body + Send,
+	B::Data: Send,
 	B::Error: Into<BoxedError>,
 	T: DeserializeOwned,
 {
-	type Error = Response;
-	type Future = FormFuture<B, T, SIZE_LIMIT>;
+	type Error = StatusCode; // TODO.
 
-	fn from_request(request: Request<B>) -> Self::Future {
-		FormFuture {
-			request,
-			_mark: PhantomData,
-		}
-	}
-}
+	async fn from_request(request: Request<B>) -> Result<Self, Self::Error> {
+		let content_type_str = content_type(&request)?;
 
-#[pin_project]
-pub struct FormFuture<B, T, const SIZE_LIMIT: usize> {
-	#[pin]
-	request: Request<B>,
-	_mark: PhantomData<T>,
-}
-
-impl<B, T, const SIZE_LIMIT: usize> Future for FormFuture<B, T, SIZE_LIMIT>
-where
-	B: Body,
-	B::Error: Into<BoxedError>,
-	T: DeserializeOwned,
-{
-	type Output = Result<Form<T, SIZE_LIMIT>, Response>;
-
-	fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-		let self_projection = self.project();
-
-		let content_type = self_projection
-			.request
-			.headers()
-			.get(CONTENT_TYPE)
-			.unwrap()
-			.to_str()
-			.unwrap();
-
-		if content_type == mime::APPLICATION_WWW_FORM_URLENCODED {
-			let limited_body = Limited::new(self_projection.request, SIZE_LIMIT);
-			if let Poll::Ready(result) = pin!(limited_body.collect()).poll(cx) {
-				let body = result.unwrap().to_bytes();
-				let value = serde_urlencoded::from_bytes::<T>(&body).unwrap();
-
-				return Poll::Ready(Ok(Form(value)));
+		if content_type_str == mime::APPLICATION_WWW_FORM_URLENCODED {
+			let limited_body = Limited::new(request, SIZE_LIMIT);
+			match limited_body.collect().await {
+				Ok(body) => serde_urlencoded::from_bytes::<T>(&body.to_bytes())
+					.map(|value| Self(value))
+					.map_err(|_| StatusCode::BAD_REQUEST),
+				Err(_) => Err(StatusCode::INTERNAL_SERVER_ERROR),
 			}
-
-			Poll::Pending
 		} else {
-			Poll::Ready(Err(StatusCode::UNSUPPORTED_MEDIA_TYPE.into_response()))
+			Err(StatusCode::UNSUPPORTED_MEDIA_TYPE)
 		}
 	}
 }
@@ -136,18 +103,12 @@ where
 	B: Body + Send + Sync + 'static,
 	B::Error: Into<BoxedError>,
 {
-	type Error = Response;
-	type Future = Ready<Result<Multipart<SIZE_LIMIT>, Self::Error>>;
+	type Error = StatusCode; // TODO.
 
-	fn from_request(request: Request<B>) -> Self::Future {
-		let content_type = request
-			.headers()
-			.get(CONTENT_TYPE)
-			.unwrap()
-			.to_str()
-			.unwrap();
+	async fn from_request(request: Request<B>) -> Result<Self, Self::Error> {
+		let content_type_str = content_type(&request)?;
 
-		if let Ok(boundary) = parse_boundary(content_type) {
+		if let Ok(boundary) = parse_boundary(content_type_str) {
 			let body = request.into_body();
 			let limited_incoming_body = Limited::new(IncomingBody::new(body), SIZE_LIMIT);
 
@@ -158,9 +119,9 @@ where
 				constraints: None,
 			};
 
-			ready(Ok(multipart_form))
+			Ok(multipart_form)
 		} else {
-			ready(Err(StatusCode::UNSUPPORTED_MEDIA_TYPE.into_response()))
+			Err(StatusCode::UNSUPPORTED_MEDIA_TYPE)
 		}
 	}
 }
@@ -296,3 +257,5 @@ impl Part {
 // ----------
 
 pub struct Error(multer::Error); // TODO: Implement std Error, Display, Debug, IntoResponse, Eq.
+
+// --------------------------------------------------------------------------------
