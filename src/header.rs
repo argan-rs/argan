@@ -3,6 +3,7 @@ use std::convert::Infallible;
 use crate::{
 	request::{FromRequest, FromRequestHead, Request, RequestHead},
 	response::{IntoResponse, IntoResponseHead, Response, ResponseHead},
+	ImplError,
 };
 
 // ----------
@@ -53,6 +54,16 @@ impl IntoResponse for HeaderMap {
 
 		response
 	}
+}
+
+// --------------------------------------------------
+
+#[derive(Debug, ImplError)]
+pub(crate) enum HeaderError {
+	#[error("missing {0} header")]
+	MissingHeader(HeaderName),
+	#[error(transparent)]
+	InvalidValue(#[from] ToStrError),
 }
 
 // --------------------------------------------------------------------------------

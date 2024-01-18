@@ -1,22 +1,26 @@
 use std::{
 	convert::Infallible,
+	error::Error,
 	ffi::FromBytesUntilNulError,
+	fmt::Display,
 	future::{ready, Future, Ready},
 };
 
 use futures_util::TryFutureExt;
 use http::{
-	header::CONTENT_TYPE,
+	header::{ToStrError, CONTENT_TYPE},
 	request::{self, Parts},
-	StatusCode,
+	HeaderName, StatusCode,
 };
 use serde::{de::DeserializeOwned, Deserializer};
 
 use crate::{
 	body::IncomingBody,
+	header::HeaderError,
 	response::{IntoResponse, IntoResponseHead, Response},
 	routing::RoutingState,
 	utils::{IntoArray, Uncloneable},
+	ImplError, StdError,
 };
 
 // ----------
@@ -62,13 +66,13 @@ where
 
 // --------------------------------------------------------------------------------
 
-pub(crate) fn content_type<B>(request: &Request<B>) -> Result<&str, StatusCode> {
+pub(crate) fn content_type<B>(request: &Request<B>) -> Result<&str, HeaderError> {
 	let content_type = request
 		.headers()
 		.get(CONTENT_TYPE)
-		.ok_or(StatusCode::BAD_REQUEST)?;
+		.ok_or(HeaderError::MissingHeader(CONTENT_TYPE))?;
 
-	content_type.to_str().map_err(|e| StatusCode::BAD_REQUEST)
+	content_type.to_str().map_err(Into::into)
 }
 
 // --------------------------------------------------------------------------------

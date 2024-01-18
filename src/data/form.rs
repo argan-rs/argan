@@ -25,7 +25,7 @@ where
 	type Error = StatusCode; // TODO.
 
 	async fn from_request(request: Request<B>) -> Result<Self, Self::Error> {
-		let content_type_str = content_type(&request)?;
+		let content_type_str = content_type(&request).map_err(|_| StatusCode::BAD_REQUEST)?;
 
 		if content_type_str == mime::APPLICATION_WWW_FORM_URLENCODED {
 			let limited_body = Limited::new(request, SIZE_LIMIT);
@@ -106,7 +106,7 @@ where
 	type Error = StatusCode; // TODO.
 
 	async fn from_request(request: Request<B>) -> Result<Self, Self::Error> {
-		let content_type_str = content_type(&request)?;
+		let content_type_str = content_type(&request).map_err(|_| StatusCode::BAD_REQUEST)?;
 
 		if let Ok(boundary) = parse_boundary(content_type_str) {
 			let body = request.into_body();
