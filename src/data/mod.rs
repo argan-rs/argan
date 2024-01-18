@@ -57,10 +57,11 @@ where
 
 		if content_type == mime::APPLICATION_JSON {
 			match Limited::new(request, SIZE_LIMIT).collect().await {
-				Ok(body) => match serde_json::from_slice::<T>(&body.to_bytes()) {
-					Ok(value) => Ok(Json(value)),
-					Err(error) => Err(error.into()),
-				},
+				Ok(body) => Ok(
+					serde_json::from_slice::<T>(&body.to_bytes())
+						.map(|value| Self(value))
+						.map_err(Into::<JsonError>::into)?,
+				),
 				Err(error) => Err(
 					error
 						.downcast_ref::<LengthLimitError>()
@@ -78,12 +79,12 @@ where
 	T: Serialize,
 {
 	fn into_response(self) -> Response {
-		let json = match serde_json::to_string(&self.0).map_err(Into::<JsonError>::into) {
-			Ok(json) => json,
+		let json_string = match serde_json::to_string(&self.0).map_err(Into::<JsonError>::into) {
+			Ok(json_string) => json_string,
 			Err(error) => return error.into_response(),
 		};
 
-		let mut response = json.into_response();
+		let mut response = json_string.into_response();
 		response.headers_mut().insert(
 			CONTENT_TYPE,
 			HeaderValue::from_static(mime::APPLICATION_JSON.as_ref()),
