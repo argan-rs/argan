@@ -60,18 +60,6 @@ where
 	}
 }
 
-impl<T: IntoResponseHead> IntoResponse for T {
-	#[inline]
-	fn into_response(self) -> Response {
-		let (head, body) = Response::default().into_parts();
-
-		match self.into_response_head(head) {
-			Ok(head) => Response::from_parts(head, body),
-			Err(error) => error.into_response(),
-		}
-	}
-}
-
 // --------------------------------------------------
 // StatusCode
 
@@ -142,6 +130,85 @@ where
 
 // --------------------------------------------------------------------------------
 
-// impl<T1, T2> FromRequestHead for (T1, T2) {
-// 	type Error = ;
-// }
+macro_rules! impl_into_response_for_tuples {
+	($t1:ident, $(($($t:ident),*),)? $tl:ident) => {
+		#[allow(non_snake_case)]
+		impl<$t1, $($($t,)*)? $tl> IntoResponseHead for ($t1, $($($t,)*)? $tl)
+		where
+			$t1: IntoResponseHead,
+			$($($t: IntoResponseHead,)*)?
+			$tl: IntoResponseHead,
+		{
+			type Error = Response;
+
+			fn into_response_head(self, mut head: ResponseHead) -> Result<ResponseHead, Self::Error> {
+				let ($t1, $($($t,)*)? $tl) = self;
+
+				head = $t1.into_response_head(head).map_err(|error| error.into_response())?;
+
+				$($(head = $t.into_response_head(head).map_err(|error| error.into_response())?;)*)?
+
+				head = $tl.into_response_head(head).map_err(|error| error.into_response())?;
+
+				Ok(head)
+			}
+		}
+
+		#[allow(non_snake_case)]
+		impl<$($($t,)*)? $tl> IntoResponse for (StatusCode, $($($t,)*)? $tl)
+		where
+			$($($t: IntoResponseHead,)*)?
+			$tl: IntoResponse,
+		{
+			fn into_response(self) -> Response {
+				let (status_code, $($($t,)*)? $tl) = self;
+
+				let (head, body) = $tl.into_response().into_parts();
+
+				$($(
+					let head = match $t.into_response_head(head) {
+						Ok(head) => head,
+						Err(error) => return error.into_response(),
+					};
+				)*)?
+
+				let mut response = Response::from_parts(head, body);
+				*response.status_mut() = status_code;
+
+				response
+			}
+		}
+
+		#[allow(non_snake_case)]
+		impl<$t1, $($($t,)*)? $tl> IntoResponse for ($t1, $($($t,)*)? $tl)
+		where
+			$t1: IntoResponseHead,
+			$($($t: IntoResponseHead,)*)?
+			$tl: IntoResponse,
+		{
+			fn into_response(self) -> Response {
+				let ($t1, $($($t,)*)? $tl) = self;
+
+				let (head, body) = $tl.into_response().into_parts();
+
+				let head = match $t1.into_response_head(head) {
+					Ok(head) => head,
+					Err(error) => return error.into_response(),
+				};
+
+				$($(
+					let head = match $t.into_response_head(head) {
+						Ok(head) => head,
+						Err(error) => return error.into_response(),
+					};
+				)*)?
+
+				Response::from_parts(head, body)
+			}
+		}
+	};
+}
+
+call_for_tuples!(impl_into_response_for_tuples!);
+
+// --------------------------------------------------------------------------------

@@ -6,7 +6,9 @@ pub(crate) mod macros;
 
 pub mod body;
 mod data;
+pub mod extension;
 pub mod handler;
+pub mod header;
 mod middleware;
 mod pattern;
 pub mod request;

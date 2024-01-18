@@ -1,14 +1,20 @@
 use std::{
 	convert::Infallible,
+	ffi::FromBytesUntilNulError,
 	future::{ready, Future, Ready},
 };
 
-use http::{header::CONTENT_TYPE, request::Parts, StatusCode};
+use futures_util::TryFutureExt;
+use http::{
+	header::CONTENT_TYPE,
+	request::{self, Parts},
+	StatusCode,
+};
 use serde::{de::DeserializeOwned, Deserializer};
 
 use crate::{
 	body::IncomingBody,
-	response::{IntoResponse, Response},
+	response::{IntoResponse, IntoResponseHead, Response},
 	routing::RoutingState,
 	utils::{IntoArray, Uncloneable},
 };
@@ -54,19 +60,6 @@ where
 	}
 }
 
-impl<T: FromRequestHead, B> FromRequest<B> for T
-where
-	B: Send,
-{
-	type Error = T::Error;
-
-	async fn from_request(request: Request<B>) -> Result<Self, Self::Error> {
-		let (mut head, _) = request.into_parts();
-
-		T::from_request_head(&mut head).await
-	}
-}
-
 // --------------------------------------------------------------------------------
 
 pub(crate) fn content_type<B>(request: &Request<B>) -> Result<&str, StatusCode> {
@@ -90,6 +83,21 @@ impl FromRequestHead for Method {
 	}
 }
 
+impl<B> FromRequest<B> for Method
+where
+	B: Send,
+{
+	type Error = Infallible;
+
+	async fn from_request(request: Request<B>) -> Result<Self, Self::Error> {
+		let (head, _) = request.into_parts();
+
+		Ok(head.method)
+	}
+}
+
+// ----------
+
 impl IntoArray<Method, 1> for Method {
 	fn into_array(self) -> [Method; 1] {
 		[self]
@@ -104,6 +112,43 @@ impl FromRequestHead for Uri {
 
 	async fn from_request_head(head: &mut RequestHead) -> Result<Self, Self::Error> {
 		Ok(head.uri.clone())
+	}
+}
+
+impl<B> FromRequest<B> for Uri
+where
+	B: Send,
+{
+	type Error = Infallible;
+
+	async fn from_request(request: Request<B>) -> Result<Self, Self::Error> {
+		let (head, _) = request.into_parts();
+
+		Ok(head.uri)
+	}
+}
+
+// --------------------------------------------------
+// Version
+
+impl FromRequestHead for Version {
+	type Error = Infallible;
+
+	async fn from_request_head(head: &mut RequestHead) -> Result<Self, Self::Error> {
+		Ok(head.version)
+	}
+}
+
+impl<B> FromRequest<B> for Version
+where
+	B: Send,
+{
+	type Error = Infallible;
+
+	async fn from_request(request: Request<B>) -> Result<Self, Self::Error> {
+		let (head, _) = request.into_parts();
+
+		Ok(head.version)
 	}
 }
 
@@ -145,6 +190,20 @@ where
 	}
 }
 
+impl<B, T> FromRequest<B> for PathParam<T>
+where
+	B: Send,
+	T: DeserializeOwned,
+{
+	type Error = StatusCode; // TODO.
+
+	async fn from_request(request: Request<B>) -> Result<Self, Self::Error> {
+		let (mut head, _) = request.into_parts();
+
+		Self::from_request_head(&mut head).await
+	}
+}
+
 // --------------------------------------------------
 // QueryParams
 
@@ -165,4 +224,73 @@ where
 	}
 }
 
-// --------------------------------------------------
+impl<B, T> FromRequest<B> for QueryParams<T>
+where
+	B: Send,
+	T: DeserializeOwned,
+{
+	type Error = StatusCode; // TODO.
+
+	async fn from_request(request: Request<B>) -> Result<Self, Self::Error> {
+		let (mut head, _) = request.into_parts();
+
+		Self::from_request_head(&mut head).await
+	}
+}
+
+// --------------------------------------------------------------------------------
+
+macro_rules! impl_extractions_for_tuples {
+	($t1:ident, $(($($t:ident),*),)? $tl:ident) => {
+		#[allow(non_snake_case)]
+		impl<$t1, $($($t,)*)? $tl> FromRequestHead for ($t1, $($($t,)*)? $tl)
+		where
+			$t1: FromRequestHead + Send,
+			$($($t: FromRequestHead + Send,)*)?
+			$tl: FromRequestHead + Send,
+		{
+			type Error = Response;
+
+			async fn from_request_head(head: &mut RequestHead) -> Result<Self, Self::Error> {
+				let $t1 = $t1::from_request_head(head).await.map_err(|error| error.into_response())?;
+
+				$($(let $t = $t::from_request_head(head).await.map_err(|error| error.into_response())?;)*)?
+
+				let $tl = $tl::from_request_head(head).await.map_err(|error| error.into_response())?;
+
+				Ok(($t1, $($($t,)*)? $tl))
+			}
+		}
+
+		#[allow(non_snake_case)]
+		impl<$t1, $($($t,)*)? $tl, B> FromRequest<B> for ($t1, $($($t,)*)? $tl)
+		where
+			$t1: FromRequestHead + Send,
+			$($($t: FromRequestHead + Send,)*)?
+			$tl: FromRequest<B> + Send,
+			B: Send,
+		{
+			type Error = Response;
+
+			async fn from_request(request: Request<B>) -> Result<Self, Self::Error> {
+				let (mut head, body) = request.into_parts();
+
+				let $t1 = $t1::from_request_head(&mut head).await.map_err(|error| error.into_response())?;
+
+				$($(
+					let $t = $t::from_request_head(&mut head).await.map_err(|error| error.into_response())?;
+				)*)?
+
+				let request = Request::from_parts(head, body);
+
+				let $tl = $tl::from_request(request).await.map_err(|error| error.into_response())?;
+
+				Ok(($t1, $($($t,)*)? $tl))
+			}
+		}
+	};
+}
+
+call_for_tuples!(impl_extractions_for_tuples!);
+
+// --------------------------------------------------------------------------------

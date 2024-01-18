@@ -36,69 +36,6 @@ pub mod form;
 // --------------------------------------------------------------------------------
 
 // --------------------------------------------------
-// Version
-
-impl FromRequestHead for Version {
-	type Error = Infallible;
-
-	async fn from_request_head(head: &mut RequestHead) -> Result<Self, Self::Error> {
-		Ok(head.version)
-	}
-}
-
-// --------------------------------------------------
-// HeaderMap
-
-impl FromRequestHead for HeaderMap {
-	type Error = Infallible;
-
-	async fn from_request_head(head: &mut RequestHead) -> Result<Self, Self::Error> {
-		Ok(head.headers.clone())
-	}
-}
-
-impl IntoResponseHead for HeaderMap<HeaderValue> {
-	type Error = Infallible;
-
-	#[inline]
-	fn into_response_head(self, mut head: ResponseHead) -> Result<ResponseHead, Self::Error> {
-		head.headers.extend(self);
-
-		Ok(head)
-	}
-}
-
-// --------------------------------------------------
-// Extensions
-
-pub struct Extention<T>(pub T);
-
-impl<T> FromRequestHead for Extention<T>
-where
-	T: Clone + Send + Sync + 'static,
-{
-	type Error = StatusCode; // TODO.
-
-	async fn from_request_head(head: &mut RequestHead) -> Result<Self, Self::Error> {
-		match head.extensions.get::<T>() {
-			Some(value) => Ok(Extention(value.clone())),
-			None => Err(StatusCode::INTERNAL_SERVER_ERROR),
-		}
-	}
-}
-
-impl IntoResponseHead for Extensions {
-	type Error = Infallible;
-
-	#[inline]
-	fn into_response_head(self, mut head: ResponseHead) -> Result<ResponseHead, Self::Error> {
-		head.extensions.extend(self);
-
-		Ok(head)
-	}
-}
-
-// --------------------------------------------------
 // Json
 
 pub struct Json<T, const SIZE_LIMIT: usize = { 2 * 1024 * 1024 }>(pub T);
@@ -342,4 +279,4 @@ impl IntoResponse for Full<Bytes> {
 	}
 }
 
-// --------------------------------------------------
+// --------------------------------------------------------------------------------
