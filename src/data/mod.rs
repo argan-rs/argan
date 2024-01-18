@@ -10,18 +10,21 @@ use std::{
 
 use cookie::{Cookie, CookieJar};
 use http::{
-	header::{CONTENT_TYPE, COOKIE, SET_COOKIE},
+	header::{ToStrError, CONTENT_TYPE, COOKIE, SET_COOKIE},
 	StatusCode, Version,
 };
-use http_body_util::{BodyExt, Empty, Full, Limited};
+use http_body_util::{BodyExt, Empty, Full, LengthLimitError, Limited};
 use hyper::body::{Body, Bytes};
 use pin_project::pin_project;
 use serde::{de::DeserializeOwned, Serialize};
+use serde_json::error::Category;
 
 use crate::{
+	header::HeaderError,
 	request::{content_type, FromRequest, FromRequestHead, Request, RequestHead},
 	response::{IntoResponse, IntoResponseHead, Response, ResponseHead},
 	utils::BoxedError,
+	ImplError,
 };
 
 // ----------
@@ -47,7 +50,7 @@ where
 	B::Error: Into<BoxedError>,
 	T: DeserializeOwned,
 {
-	type Error = StatusCode; // TODO.
+	type Error = JsonError;
 
 	async fn from_request(request: Request<B>) -> Result<Self, Self::Error> {
 		let content_type = content_type(&request)?;
@@ -56,12 +59,16 @@ where
 			match Limited::new(request, SIZE_LIMIT).collect().await {
 				Ok(body) => match serde_json::from_slice::<T>(&body.to_bytes()) {
 					Ok(value) => Ok(Json(value)),
-					Err(_) => Err(StatusCode::BAD_REQUEST),
+					Err(error) => Err(error.into()),
 				},
-				Err(_) => Err(StatusCode::INTERNAL_SERVER_ERROR),
+				Err(error) => Err(
+					error
+						.downcast_ref::<LengthLimitError>()
+						.map_or(JsonError::BufferingFailure, |_| JsonError::ContentTooLarge),
+				),
 			}
 		} else {
-			Err(StatusCode::UNSUPPORTED_MEDIA_TYPE)
+			Err(JsonError::UnsupportedMediaType)
 		}
 	}
 }
@@ -71,13 +78,74 @@ where
 	T: Serialize,
 {
 	fn into_response(self) -> Response {
-		let mut response = serde_json::to_string(&self.0).unwrap().into_response();
+		let json = match serde_json::to_string(&self.0).map_err(Into::<JsonError>::into) {
+			Ok(json) => json,
+			Err(error) => return error.into_response(),
+		};
+
+		let mut response = json.into_response();
 		response.headers_mut().insert(
 			CONTENT_TYPE,
 			HeaderValue::from_static(mime::APPLICATION_JSON.as_ref()),
 		);
 
 		response
+	}
+}
+
+// ----------
+
+#[non_exhaustive]
+#[derive(Debug, ImplError)]
+pub enum JsonError {
+	#[error(transparent)]
+	MissingContentType(HeaderError),
+	#[error(transparent)]
+	InvalidContentType(HeaderError),
+	#[error("unsupported media type")]
+	UnsupportedMediaType,
+	#[error("content too large")]
+	ContentTooLarge,
+	#[error("buffering failure")]
+	BufferingFailure,
+	#[error("invlaid JSON syntax")]
+	InvalidSyntax,
+	#[error("invalid JSON semantics")]
+	InvalidData,
+}
+
+impl From<HeaderError> for JsonError {
+	fn from(header_error: HeaderError) -> Self {
+		match header_error {
+			HeaderError::MissingHeader(_) => JsonError::MissingContentType(header_error),
+			HeaderError::InvalidValue(_) => JsonError::InvalidContentType(header_error),
+		}
+	}
+}
+
+impl From<serde_json::Error> for JsonError {
+	fn from(error: serde_json::Error) -> Self {
+		match error.classify() {
+			Category::Syntax => JsonError::InvalidSyntax,
+			Category::Data => JsonError::InvalidData,
+			_ => JsonError::BufferingFailure,
+		}
+	}
+}
+
+impl IntoResponse for JsonError {
+	fn into_response(self) -> Response {
+		use JsonError::*;
+
+		match self {
+			MissingContentType(_) | InvalidContentType(_) | InvalidSyntax => {
+				StatusCode::BAD_REQUEST.into_response()
+			}
+			UnsupportedMediaType => StatusCode::UNSUPPORTED_MEDIA_TYPE.into_response(),
+			ContentTooLarge => StatusCode::PAYLOAD_TOO_LARGE.into_response(),
+			BufferingFailure => StatusCode::INTERNAL_SERVER_ERROR.into_response(),
+			InvalidData => StatusCode::UNPROCESSABLE_ENTITY.into_response(),
+		}
 	}
 }
 
@@ -146,7 +214,7 @@ where
 	type Error = StatusCode; // TODO.
 
 	async fn from_request(request: Request<B>) -> Result<Self, Self::Error> {
-		let content_type = content_type(&request)?;
+		let content_type = content_type(&request).map_err(|_| StatusCode::BAD_REQUEST)?;
 
 		if content_type == mime::TEXT_PLAIN_UTF_8 {
 			match request.collect().await {
@@ -233,7 +301,7 @@ where
 	type Error = StatusCode; // TODO.
 
 	async fn from_request(request: Request<B>) -> Result<Self, Self::Error> {
-		let content_type_str = content_type(&request)?;
+		let content_type_str = content_type(&request).map_err(|_| StatusCode::BAD_REQUEST)?;
 
 		if content_type_str == mime::APPLICATION_OCTET_STREAM {
 			match request.collect().await {

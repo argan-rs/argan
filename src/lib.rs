@@ -1,6 +1,14 @@
 #![allow(dead_code)]
 #![allow(unused)]
 
+// --------------------------------------------------
+
+pub(crate) use std::error::Error as StdError;
+pub(crate) use thiserror::Error as ImplError;
+
+// --------------------------------------------------------------------------------
+// --------------------------------------------------------------------------------
+
 #[macro_use]
 pub(crate) mod macros;
 
