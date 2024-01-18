@@ -22,21 +22,26 @@ where
 	B::Error: Into<BoxedError>,
 	T: DeserializeOwned,
 {
-	type Error = StatusCode; // TODO.
+	type Error = FormError;
 
 	async fn from_request(request: Request<B>) -> Result<Self, Self::Error> {
-		let content_type_str = content_type(&request).map_err(|_| StatusCode::BAD_REQUEST)?;
+		let content_type_str = content_type(&request).map_err(Into::<FormError>::into)?;
 
 		if content_type_str == mime::APPLICATION_WWW_FORM_URLENCODED {
-			let limited_body = Limited::new(request, SIZE_LIMIT);
-			match limited_body.collect().await {
-				Ok(body) => serde_urlencoded::from_bytes::<T>(&body.to_bytes())
-					.map(|value| Self(value))
-					.map_err(|_| StatusCode::BAD_REQUEST),
-				Err(_) => Err(StatusCode::INTERNAL_SERVER_ERROR),
+			match Limited::new(request, SIZE_LIMIT).collect().await {
+				Ok(body) => Ok(
+					serde_urlencoded::from_bytes::<T>(&body.to_bytes())
+						.map(|value| Self(value))
+						.map_err(Into::<FormError>::into)?,
+				),
+				Err(error) => Err(
+					error
+						.downcast_ref::<LengthLimitError>()
+						.map_or(FormError::BufferingFailure, |_| FormError::ContentTooLarge),
+				),
 			}
 		} else {
-			Err(StatusCode::UNSUPPORTED_MEDIA_TYPE)
+			Err(FormError::UnsupportedMediaType)
 		}
 	}
 }
@@ -46,7 +51,12 @@ where
 	T: Serialize,
 {
 	fn into_response(self) -> Response {
-		let form_string = serde_urlencoded::to_string(self.0).unwrap();
+		let form_string =
+			match serde_urlencoded::to_string(self.0).map_err(|_| FormError::SerializationFailure) {
+				Ok(form_string) => form_string,
+				Err(error) => return error.into_response(),
+			};
+
 		let mut response = form_string.into_response();
 		response.headers_mut().insert(
 			CONTENT_TYPE,
@@ -54,6 +64,50 @@ where
 		);
 
 		response
+	}
+}
+
+// ----------
+
+#[non_exhaustive]
+#[derive(Debug, ImplError)]
+pub enum FormError {
+	#[error(transparent)]
+	MissingContentType(HeaderError),
+	#[error(transparent)]
+	InvalidContentType(HeaderError),
+	#[error("unsupported media type")]
+	UnsupportedMediaType,
+	#[error("content too large")]
+	ContentTooLarge,
+	#[error("buffering failure")]
+	BufferingFailure,
+	#[error(transparent)]
+	DeserializationFailure(#[from] serde_urlencoded::de::Error),
+	#[error("serialization failure")]
+	SerializationFailure,
+}
+
+impl From<HeaderError> for FormError {
+	fn from(header_error: HeaderError) -> Self {
+		match header_error {
+			HeaderError::MissingHeader(_) => FormError::MissingContentType(header_error),
+			HeaderError::InvalidValue(_) => FormError::InvalidContentType(header_error),
+		}
+	}
+}
+
+impl IntoResponse for FormError {
+	fn into_response(self) -> Response {
+		use FormError::*;
+
+		match self {
+			MissingContentType(_) | InvalidContentType(_) => StatusCode::BAD_REQUEST.into_response(),
+			UnsupportedMediaType => StatusCode::UNSUPPORTED_MEDIA_TYPE.into_response(),
+			ContentTooLarge => StatusCode::PAYLOAD_TOO_LARGE.into_response(),
+			BufferingFailure | SerializationFailure => StatusCode::INTERNAL_SERVER_ERROR.into_response(),
+			DeserializationFailure(_) => StatusCode::BAD_REQUEST.into_response(),
+		}
 	}
 }
 
