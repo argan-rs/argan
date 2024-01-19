@@ -7,11 +7,11 @@ use http::{
 use httpdate::HttpDate;
 
 use crate::{
+	common::{strip_double_quotes, BoxedError, Uncloneable},
 	handler::{get, request_handlers::handle_misdirected_request},
 	request::Request,
 	response::{stream::FileStream, IntoResponse, Response},
 	routing::RoutingState,
-	utils::{strip_double_quotes, BoxedError, Uncloneable},
 };
 
 use super::Resource;

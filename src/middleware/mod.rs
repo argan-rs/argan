@@ -4,9 +4,9 @@ use http::Method;
 use tower_layer::Layer as TowerLayer;
 
 use crate::{
+	common::IntoArray,
 	handler::{AdaptiveHandler, ArcHandler, Handler, HandlerService, IntoArcHandler},
 	response::IntoResponse,
-	utils::IntoArray,
 };
 
 // --------------------------------------------------

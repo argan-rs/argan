@@ -7,9 +7,7 @@ use std::{
 use hyper::HeaderMap;
 use pin_project::pin_project;
 
-use crate::utils::SCOPE_VALIDITY;
-
-use super::utils::BoxedError;
+use super::common::{BoxedError, SCOPE_VALIDITY};
 
 // ----------
 

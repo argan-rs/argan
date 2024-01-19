@@ -8,9 +8,9 @@ use std::{
 use pin_project::pin_project;
 
 use crate::{
+	common::{mark::Private, BoxedFuture},
 	request::{FromRequest, FromRequestHead, Request},
 	response::{IntoResponse, Response},
-	utils::{mark::Private, BoxedFuture},
 };
 
 use super::{Handler, IntoHandler};

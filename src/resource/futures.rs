@@ -11,13 +11,13 @@ use percent_encoding::percent_decode_str;
 use pin_project::pin_project;
 
 use crate::{
+	common::{BoxedFuture, Uncloneable},
 	handler::{
 		futures::ResponseToResultFuture, request_handlers::handle_misdirected_request, Handler,
 	},
 	request::Request,
 	response::Response,
 	routing::{RoutingState, UnusedRequest},
-	utils::{BoxedFuture, Uncloneable},
 };
 
 use super::service::{request_passer, request_receiver};

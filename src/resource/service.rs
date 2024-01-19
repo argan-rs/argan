@@ -4,6 +4,7 @@ use percent_encoding::percent_decode_str;
 
 use crate::{
 	body::{Body, IncomingBody},
+	common::{BoxedError, BoxedFuture, Uncloneable},
 	handler::{
 		request_handlers::{handle_misdirected_request, MethodHandlers},
 		ArcHandler, Handler, Service,
@@ -12,7 +13,6 @@ use crate::{
 	request::Request,
 	response::Response,
 	routing::{RouteTraversal, RoutingState},
-	utils::{BoxedError, BoxedFuture, Uncloneable},
 };
 
 use super::futures::{

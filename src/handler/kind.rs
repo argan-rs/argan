@@ -4,9 +4,9 @@ use http::Method;
 
 use crate::{
 	body::IncomingBody,
+	common::IntoArray,
 	middleware::{IntoResponseAdapter, ResponseFutureBoxer},
 	response::IntoResponse,
-	utils::IntoArray,
 };
 
 use super::{ArcHandler, Handler, IntoArcHandler, IntoHandler};
