@@ -51,11 +51,10 @@ where
 	T: Serialize,
 {
 	fn into_response(self) -> Response {
-		let form_string =
-			match serde_urlencoded::to_string(self.0).map_err(|_| FormError::SerializationFailure) {
-				Ok(form_string) => form_string,
-				Err(error) => return error.into_response(),
-			};
+		let form_string = match serde_urlencoded::to_string(self.0).map_err(Into::<FormError>::into) {
+			Ok(form_string) => form_string,
+			Err(error) => return error.into_response(),
+		};
 
 		let mut response = form_string.into_response();
 		response.headers_mut().insert(
@@ -69,45 +68,15 @@ where
 
 // ----------
 
-#[non_exhaustive]
-#[derive(Debug, ImplError)]
-pub enum FormError {
-	#[error(transparent)]
-	MissingContentType(HeaderError),
-	#[error(transparent)]
-	InvalidContentType(HeaderError),
-	#[error("unsupported media type")]
-	UnsupportedMediaType,
-	#[error("content too large")]
-	ContentTooLarge,
-	#[error("buffering failure")]
-	BufferingFailure,
-	#[error(transparent)]
-	DeserializationFailure(#[from] serde_urlencoded::de::Error),
-	#[error("serialization failure")]
-	SerializationFailure,
-}
-
-impl From<HeaderError> for FormError {
-	fn from(header_error: HeaderError) -> Self {
-		match header_error {
-			HeaderError::MissingHeader(_) => FormError::MissingContentType(header_error),
-			HeaderError::InvalidValue(_) => FormError::InvalidContentType(header_error),
-		}
-	}
-}
-
-impl IntoResponse for FormError {
-	fn into_response(self) -> Response {
-		use FormError::*;
-
-		match self {
-			MissingContentType(_) | InvalidContentType(_) => StatusCode::BAD_REQUEST.into_response(),
-			UnsupportedMediaType => StatusCode::UNSUPPORTED_MEDIA_TYPE.into_response(),
-			ContentTooLarge => StatusCode::PAYLOAD_TOO_LARGE.into_response(),
-			BufferingFailure | SerializationFailure => StatusCode::INTERNAL_SERVER_ERROR.into_response(),
-			DeserializationFailure(_) => StatusCode::BAD_REQUEST.into_response(),
-		}
+data_error! {
+	#[derive(Debug)]
+	pub FormError {
+		#[error("{0}")]
+		(DeserializationFailure(#[from] serde_urlencoded::de::Error)) [(_)];
+		StatusCode::BAD_REQUEST;
+		#[error("{0}")]
+		(SerializationFailure(#[from] serde_urlencoded::ser::Error)) [(_)];
+		StatusCode::INTERNAL_SERVER_ERROR;
 	}
 }
 

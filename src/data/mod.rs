@@ -96,56 +96,28 @@ where
 
 // ----------
 
-#[non_exhaustive]
-#[derive(Debug, ImplError)]
-pub enum JsonError {
-	#[error(transparent)]
-	MissingContentType(HeaderError),
-	#[error(transparent)]
-	InvalidContentType(HeaderError),
-	#[error("unsupported media type")]
-	UnsupportedMediaType,
-	#[error("content too large")]
-	ContentTooLarge,
-	#[error("buffering failure")]
-	BufferingFailure,
-	#[error("invlaid JSON syntax")]
-	InvalidSyntax,
-	#[error("invalid JSON semantics")]
-	InvalidData,
-}
-
-impl From<HeaderError> for JsonError {
-	fn from(header_error: HeaderError) -> Self {
-		match header_error {
-			HeaderError::MissingHeader(_) => JsonError::MissingContentType(header_error),
-			HeaderError::InvalidValue(_) => JsonError::InvalidContentType(header_error),
-		}
+data_error! {
+	#[derive(Debug)]
+	pub JsonError {
+		#[error("invlaid JSON syntax in line {line}, column {column}")]
+		(InvalidSyntax { line: usize, column: usize}) [{..}]; StatusCode::BAD_REQUEST;
+		#[error("invalid JSON semantics in line {line}, column {column}")]
+		(InvalidData { line: usize, column: usize}) [{..}]; StatusCode::UNPROCESSABLE_ENTITY;
 	}
 }
 
 impl From<serde_json::Error> for JsonError {
 	fn from(error: serde_json::Error) -> Self {
 		match error.classify() {
-			Category::Syntax => JsonError::InvalidSyntax,
-			Category::Data => JsonError::InvalidData,
+			Category::Syntax => JsonError::InvalidSyntax {
+				line: error.line(),
+				column: error.column(),
+			},
+			Category::Data => JsonError::InvalidData {
+				line: error.line(),
+				column: error.column(),
+			},
 			_ => JsonError::BufferingFailure,
-		}
-	}
-}
-
-impl IntoResponse for JsonError {
-	fn into_response(self) -> Response {
-		use JsonError::*;
-
-		match self {
-			MissingContentType(_) | InvalidContentType(_) | InvalidSyntax => {
-				StatusCode::BAD_REQUEST.into_response()
-			}
-			UnsupportedMediaType => StatusCode::UNSUPPORTED_MEDIA_TYPE.into_response(),
-			ContentTooLarge => StatusCode::PAYLOAD_TOO_LARGE.into_response(),
-			BufferingFailure => StatusCode::INTERNAL_SERVER_ERROR.into_response(),
-			InvalidData => StatusCode::UNPROCESSABLE_ENTITY.into_response(),
 		}
 	}
 }
