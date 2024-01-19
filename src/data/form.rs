@@ -1,9 +1,16 @@
+use std::io;
+
 use futures_util::{Stream, StreamExt};
 use http_body_util::{BodyStream, Limited};
 use mime::Mime;
 use multer::parse_boundary;
 
-use crate::{body::IncomingBody, common::BoxedError, request::content_type};
+use crate::{
+	body::IncomingBody,
+	common::{BoxedError, SCOPE_VALIDITY},
+	request::content_type,
+	StdError,
+};
 
 use super::*;
 
@@ -83,8 +90,8 @@ data_error! {
 // --------------------------------------------------
 // Multipart
 
-struct Multipart<const SIZE_LIMIT: usize = { 8 * 1024 * 1024 }> {
-	body_stream: BodyStream<Limited<IncomingBody>>,
+pub struct Multipart<const SIZE_LIMIT: usize = { 8 * 1024 * 1024 }> {
+	body_stream: BodyStream<IncomingBody>,
 	boundary: String,
 	some_constraints: Option<Constraints>,
 }
@@ -110,13 +117,28 @@ impl<const SIZE_LIMIT: usize> Multipart<SIZE_LIMIT> {
 		});
 
 		if let Some(constraints) = self.some_constraints.take() {
+			let Constraints {
+				inner: mut constraints,
+				mut size_limit,
+			} = constraints;
+
+			size_limit = size_limit.whole_stream(SIZE_LIMIT as u64);
+			constraints = constraints.size_limit(size_limit);
+
 			Parts(multer::Multipart::with_constraints(
 				data_stream,
 				self.boundary,
-				constraints.0,
+				constraints,
 			))
 		} else {
-			Parts(multer::Multipart::new(data_stream, self.boundary))
+			let size_limit = multer::SizeLimit::new().whole_stream(SIZE_LIMIT as u64);
+			let constraints = multer::Constraints::new().size_limit(size_limit);
+
+			Parts(multer::Multipart::with_constraints(
+				data_stream,
+				self.boundary,
+				constraints,
+			))
 		}
 	}
 }
@@ -126,65 +148,70 @@ where
 	B: Body + Send + Sync + 'static,
 	B::Error: Into<BoxedError>,
 {
-	type Error = StatusCode; // TODO.
+	type Error = MultipartFormError;
 
 	async fn from_request(request: Request<B>) -> Result<Self, Self::Error> {
-		let content_type_str = content_type(&request).map_err(|_| StatusCode::BAD_REQUEST)?;
+		let content_type_str = content_type(&request).map_err(Into::<MultipartFormError>::into)?;
 
-		if let Ok(boundary) = parse_boundary(content_type_str) {
-			let body = request.into_body();
-			let limited_incoming_body = Limited::new(IncomingBody::new(body), SIZE_LIMIT);
+		parse_boundary(content_type_str)
+			.map(|boundary| {
+				let incoming_body = IncomingBody::new(request.into_body());
+				let body_stream = BodyStream::new(incoming_body);
 
-			let body_stream = BodyStream::new(limited_incoming_body);
-			let multipart_form = Multipart {
-				body_stream,
-				boundary,
-				some_constraints: None,
-			};
+				let multipart_form = Multipart {
+					body_stream,
+					boundary,
+					some_constraints: None,
+				};
 
-			Ok(multipart_form)
-		} else {
-			Err(StatusCode::UNSUPPORTED_MEDIA_TYPE)
-		}
+				multipart_form
+			})
+			.map_err(Into::<MultipartFormError>::into)
 	}
 }
 
 // ----------
 
-struct Constraints(multer::Constraints);
+pub struct Constraints {
+	inner: multer::Constraints,
+	size_limit: multer::SizeLimit,
+}
 
 impl Constraints {
 	fn new() -> Self {
-		Self(multer::Constraints::new())
+		Self {
+			inner: multer::Constraints::new(),
+			size_limit: multer::SizeLimit::new(),
+		}
 	}
 
-	fn with_allowed_parts<S: Into<String>>(mut self, allowed_parts: Vec<S>) -> Self {
-		self.0 = self.0.allowed_fields(allowed_parts);
+	pub fn with_allowed_parts<S: Into<String>>(mut self, allowed_parts: Vec<S>) -> Self {
+		self.inner = self.inner.allowed_fields(allowed_parts);
 
 		self
 	}
 
-	fn with_size_limit(mut self, size_limit: SizeLimit) -> Self {
-		self.0 = self.0.size_limit(size_limit.0);
+	pub fn with_size_limit(mut self, size_limit: SizeLimit) -> Self {
+		self.size_limit = size_limit.0;
 
 		self
 	}
 }
 
-struct SizeLimit(multer::SizeLimit);
+pub struct SizeLimit(multer::SizeLimit);
 
 impl SizeLimit {
-	fn new() -> Self {
+	pub fn new() -> Self {
 		Self(multer::SizeLimit::new())
 	}
 
-	fn per_part(mut self, limit: usize) -> Self {
+	pub fn per_part(mut self, limit: usize) -> Self {
 		self.0 = self.0.per_field(limit as u64);
 
 		self
 	}
 
-	fn for_part<S: Into<String>>(mut self, part_name: S, limit: usize) -> Self {
+	pub fn for_part<S: Into<String>>(mut self, part_name: S, limit: usize) -> Self {
 		self.0 = self.0.for_field(part_name, limit as u64);
 
 		self
@@ -196,34 +223,34 @@ impl SizeLimit {
 pub struct Parts(multer::Multipart<'static>);
 
 impl Parts {
-	pub async fn next(&mut self) -> Result<Option<Part>, Error> {
+	pub async fn next(&mut self) -> Result<Option<Part>, MultipartFormError> {
 		self
 			.0
 			.next_field()
 			.await
 			.map(|some_field| some_field.map(|field| Part(field)))
-			.map_err(|error| Error(error))
+			.map_err(|error| error.into())
 	}
 
-	pub async fn next_with_index(&mut self) -> Result<Option<(usize, Part)>, Error> {
+	pub async fn next_with_index(&mut self) -> Result<Option<(usize, Part)>, MultipartFormError> {
 		self
 			.0
 			.next_field_with_idx()
 			.await
 			.map(|some_field_with_index| some_field_with_index.map(|(index, field)| (index, Part(field))))
-			.map_err(|error| Error(error))
+			.map_err(|error| error.into())
 	}
 }
 
 impl Stream for Parts {
-	type Item = Result<Option<Part>, Error>;
+	type Item = Result<Option<Part>, MultipartFormError>;
 
 	fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
 		pin!(self.0.next_field()).poll(cx).map(|result| {
 			Some(
 				result
 					.map(|some_filed| some_filed.map(|field| Part(field)))
-					.map_err(|error| Error(error)),
+					.map_err(|error| error.into()),
 			)
 		})
 	}
@@ -252,33 +279,122 @@ impl Part {
 		self.0.file_name()
 	}
 
-	pub async fn bytes(self) -> Result<Bytes, Error> {
-		self.0.bytes().await.map_err(|error| Error(error))
+	pub async fn bytes(self) -> Result<Bytes, MultipartFormError> {
+		self.0.bytes().await.map_err(|error| error.into())
 	}
 
-	pub async fn chunk(&mut self) -> Result<Option<Bytes>, Error> {
-		self.0.chunk().await.map_err(|error| Error(error))
+	pub async fn chunk(&mut self) -> Result<Option<Bytes>, MultipartFormError> {
+		self.0.chunk().await.map_err(|error| error.into())
 	}
 
-	pub async fn text(self) -> Result<String, Error> {
-		self.0.text().await.map_err(|error| Error(error))
+	pub async fn text(self) -> Result<String, MultipartFormError> {
+		self.0.text().await.map_err(|error| error.into())
 	}
 
-	pub async fn text_with_charset(self, default_charset: &str) -> Result<String, Error> {
+	pub async fn text_with_charset(
+		self,
+		default_charset: &str,
+	) -> Result<String, MultipartFormError> {
 		self
 			.0
 			.text_with_charset(default_charset)
 			.await
-			.map_err(|error| Error(error))
+			.map_err(|error| error.into())
 	}
 
-	pub async fn json<T: DeserializeOwned>(self) -> Result<T, Error> {
-		self.0.json().await.map_err(|error| Error(error))
+	pub async fn json<T: DeserializeOwned>(self) -> Result<T, MultipartFormError> {
+		self.0.json().await.map_err(|error| error.into())
 	}
 }
 
 // ----------
 
-pub struct Error(multer::Error); // TODO: Implement std Error, Display, Debug, IntoResponse, Eq.
+data_error! {
+	#[derive(Debug)]
+	pub MultipartFormError {
+		#[error("unkown part {part_name}")]
+		(UnknownPart { part_name: String }) [{..}]; StatusCode::BAD_REQUEST;
+		#[error("incomplete part {part_name} data")]
+		(IncompletePartData { part_name: String }) [{..}]; StatusCode::BAD_REQUEST;
+		#[error("incomplete part headers")]
+		(IncompletePartHeaders) StatusCode::BAD_REQUEST;
+		#[error("part headers read failure")]
+		(PartHeadersReadFailure(httparse::Error)) [(_)]; StatusCode::BAD_REQUEST;
+		#[error("part header name {header_name} decoding failure")]
+		(InvalidPartHeaderName { header_name: String, cause: Box<dyn StdError + Send + Sync> })  [{..}];
+			StatusCode::BAD_REQUEST;
+		#[error("part header value decoding failure")]
+		(InvalidPartHeaderValue {
+			value: Vec<u8>,
+			cause: Box<dyn StdError + Send + Sync>,
+		}) [{..}]; StatusCode::BAD_REQUEST;
+		#[error("incomplete stream")]
+		(IncompleteStream) StatusCode::BAD_REQUEST;
+		#[error("part size limit overflow")]
+		(PartSizeLimitOverflow { part_name: String }) [{..}]; StatusCode::PAYLOAD_TOO_LARGE;
+		#[error("stream read failure")]
+		(StreamReadFailure(Box<dyn StdError + Send + Sync>)) [(_)]; StatusCode::BAD_REQUEST;
+		#[error("internal state lock failure")]
+		(InternalStateLockFailure) StatusCode::INTERNAL_SERVER_ERROR;
+		#[error("part Content-Type decoding failure")]
+		(InvlaidPartContentType(mime::FromStrError)) [(_)]; StatusCode::BAD_REQUEST;
+		#[error("no boundary")]
+		(NoBoundary) StatusCode::BAD_REQUEST;
+		#[error("invlaid JSON syntax in line {line}, column {column}")]
+		(InvalidJsonSyntax { line: usize, column: usize}) [{..}]; StatusCode::BAD_REQUEST;
+		#[error("invalid JSON semantics in line {line}, column {column}")]
+		(InvalidJsonData { line: usize, column: usize}) [{..}]; StatusCode::UNPROCESSABLE_ENTITY;
+		#[error("JSON I/O stream failure")]
+		(JsonIoFailure(io::ErrorKind)) [{..}]; StatusCode::INTERNAL_SERVER_ERROR;
+		#[error("JSON unexpected end of file")]
+		(JsonUnexpectedEoF) StatusCode::BAD_REQUEST;
+		#[error("unknown failure")]
+		(UnknownFailure) StatusCode::INTERNAL_SERVER_ERROR;
+	}
+}
+
+impl From<multer::Error> for MultipartFormError {
+	fn from(error: multer::Error) -> Self {
+		use multer::Error::*;
+		match error {
+			UnknownField { field_name } => Self::UnknownPart {
+				part_name: field_name.unwrap_or(String::new()),
+			},
+			IncompleteFieldData { field_name } => Self::IncompletePartData {
+				part_name: field_name.unwrap_or(String::new()),
+			},
+			IncompleteHeaders => Self::IncompletePartHeaders,
+			ReadHeaderFailed(parse_error) => Self::PartHeadersReadFailure(parse_error),
+			DecodeHeaderName { name, cause } => Self::InvalidPartHeaderName {
+				header_name: name,
+				cause,
+			},
+			DecodeHeaderValue { value, cause } => Self::InvalidPartHeaderValue { value, cause },
+			IncompleteStream => Self::IncompleteStream,
+			FieldSizeExceeded { field_name, .. } => Self::PartSizeLimitOverflow {
+				part_name: field_name.unwrap_or(String::new()),
+			},
+			StreamSizeExceeded { .. } => Self::ContentTooLarge,
+			StreamReadFailed(error) => Self::StreamReadFailure(error),
+			LockFailure => Self::InternalStateLockFailure,
+			NoMultipart => Self::UnsupportedMediaType,
+			DecodeContentType(error) => Self::InvlaidPartContentType(error),
+			NoBoundary => Self::NoBoundary,
+			DecodeJson(error) => match error.classify() {
+				Category::Io => Self::JsonIoFailure(error.io_error_kind().expect(SCOPE_VALIDITY)),
+				Category::Syntax => Self::InvalidJsonSyntax {
+					line: error.line(),
+					column: error.column(),
+				},
+				Category::Data => Self::InvalidJsonData {
+					line: error.line(),
+					column: error.column(),
+				},
+				Category::Eof => Self::JsonUnexpectedEoF,
+			},
+			_ => Self::UnknownFailure,
+		}
+	}
+}
 
 // --------------------------------------------------------------------------------
