@@ -10,7 +10,7 @@ pub(crate) use thiserror::Error as ImplError;
 // --------------------------------------------------------------------------------
 
 #[macro_use]
-pub(crate) mod macros;
+pub mod common;
 
 pub mod body;
 mod data;
@@ -23,4 +23,3 @@ pub mod request;
 pub mod resource;
 pub mod response;
 mod routing;
-mod utils;

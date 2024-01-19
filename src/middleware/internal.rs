@@ -9,10 +9,10 @@ use pin_project::pin_project;
 
 use crate::{
 	body::{Body, IncomingBody},
+	common::{BoxedError, BoxedFuture},
 	handler::Handler,
 	request::Request,
 	response::{IntoResponse, Response},
-	utils::{BoxedError, BoxedFuture},
 };
 
 // --------------------------------------------------------------------------------

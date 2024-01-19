@@ -16,8 +16,8 @@ use pin_project::pin_project;
 use serde::Serialize;
 
 use crate::{
+	common::{BoxedError, Interval},
 	response::{IntoResponse, Response},
-	utils::{BoxedError, Interval},
 };
 
 // --------------------------------------------------------------------------------

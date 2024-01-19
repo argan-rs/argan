@@ -16,10 +16,10 @@ use serde::{de::DeserializeOwned, Deserializer};
 
 use crate::{
 	body::IncomingBody,
+	common::{IntoArray, Uncloneable},
 	header::HeaderError,
 	response::{IntoResponse, IntoResponseHead, Response},
 	routing::RoutingState,
-	utils::{IntoArray, Uncloneable},
 	ImplError, StdError,
 };
 

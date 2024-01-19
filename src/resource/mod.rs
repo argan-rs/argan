@@ -6,6 +6,7 @@ use std::{
 };
 
 use crate::{
+	common::{mark::Private, patterns_to_route, BoxedFuture, IntoArray},
 	handler::{
 		request_handlers::{handle_misdirected_request, MethodHandlers},
 		AdaptiveHandler, ArcHandler, HandlerKind, IntoArcHandler, IntoHandler,
@@ -15,7 +16,6 @@ use crate::{
 	request::Request,
 	response::Response,
 	routing::RouteSegments,
-	utils::{mark::Private, patterns_to_route, BoxedFuture, IntoArray},
 };
 
 // --------------------------------------------------
@@ -1160,8 +1160,8 @@ pub enum Iteration {
 #[cfg(test)]
 mod test {
 	use crate::{
+		common::route_to_patterns,
 		handler::{futures::DefaultResponseFuture, get, post, put, DummyHandler},
-		utils::route_to_patterns,
 	};
 
 	use super::*;

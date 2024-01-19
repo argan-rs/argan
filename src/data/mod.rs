@@ -20,10 +20,10 @@ use serde::{de::DeserializeOwned, Serialize};
 use serde_json::error::Category;
 
 use crate::{
+	common::BoxedError,
 	header::HeaderError,
 	request::{content_type, FromRequest, FromRequestHead, Request, RequestHead},
 	response::{IntoResponse, IntoResponseHead, Response, ResponseHead},
-	utils::BoxedError,
 	ImplError,
 };
 

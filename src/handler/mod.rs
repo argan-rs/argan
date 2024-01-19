@@ -3,10 +3,10 @@ use std::{convert::Infallible, fmt::Debug, future::Future, marker::PhantomData, 
 use crate::{
 	body::Body,
 	body::IncomingBody,
+	common::{BoxedError, BoxedFuture},
 	middleware::{Layer, RequestBodyAdapter},
 	request::Request,
 	response::Response,
-	utils::{BoxedError, BoxedFuture},
 };
 
 // ----------

@@ -22,8 +22,8 @@ use percent_encoding::{percent_encode, NON_ALPHANUMERIC};
 use rand::{rngs::SmallRng, Rng, SeedableRng};
 
 use crate::{
+	common::{BoxedError, SCOPE_VALIDITY},
 	response::{IntoResponse, Response},
-	utils::{BoxedError, SCOPE_VALIDITY},
 };
 
 // --------------------------------------------------------------------------------

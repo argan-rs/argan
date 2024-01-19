@@ -4,8 +4,8 @@ use http::response::Parts;
 
 use crate::{
 	body::{Body, BodyExt, BoxedBody, Bytes},
+	common::{BoxedError, SCOPE_VALIDITY},
 	request::FromRequestHead,
-	utils::{BoxedError, SCOPE_VALIDITY},
 };
 
 // ----------

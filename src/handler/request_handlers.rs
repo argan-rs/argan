@@ -6,11 +6,11 @@ use std::{
 use http::{HeaderName, HeaderValue, Method, StatusCode};
 
 use crate::{
+	common::{mark::Private, BoxedFuture, Uncloneable},
 	middleware::{ArcLayer, BoxedLayer, ResponseFutureBoxer},
 	request::Request,
 	response::Response,
 	routing::UnusedRequest,
-	utils::{mark::Private, BoxedFuture, Uncloneable},
 };
 
 use super::{AdaptiveHandler, ArcHandler, Handler, IntoArcHandler, IntoHandler};

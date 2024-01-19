@@ -3,7 +3,7 @@ use http_body_util::{BodyStream, Limited};
 use mime::Mime;
 use multer::parse_boundary;
 
-use crate::{body::IncomingBody, request::content_type, utils::BoxedError};
+use crate::{body::IncomingBody, common::BoxedError, request::content_type};
 
 use super::*;
 
@@ -117,12 +117,12 @@ impl IntoResponse for FormError {
 struct Multipart<const SIZE_LIMIT: usize = { 8 * 1024 * 1024 }> {
 	body_stream: BodyStream<Limited<IncomingBody>>,
 	boundary: String,
-	constraints: Option<Constraints>,
+	some_constraints: Option<Constraints>,
 }
 
 impl<const SIZE_LIMIT: usize> Multipart<SIZE_LIMIT> {
 	fn with_constraints(mut self, constraints: Constraints) -> Self {
-		self.constraints = Some(constraints);
+		self.some_constraints = Some(constraints);
 
 		self
 	}
@@ -133,14 +133,14 @@ impl<const SIZE_LIMIT: usize> Multipart<SIZE_LIMIT> {
 				Ok(frame) => {
 					match frame.into_data() {
 						Ok(data) => Ok(data),
-						Err(_) => Ok(Bytes::new()), // ???
+						Err(_) => Ok(Bytes::new()), // ??? Trailers are being ignored for now.
 					}
 				}
 				Err(error) => Err(error),
 			}
 		});
 
-		if let Some(constraints) = self.constraints.take() {
+		if let Some(constraints) = self.some_constraints.take() {
 			Parts(multer::Multipart::with_constraints(
 				data_stream,
 				self.boundary,
@@ -170,7 +170,7 @@ where
 			let multipart_form = Multipart {
 				body_stream,
 				boundary,
-				constraints: None,
+				some_constraints: None,
 			};
 
 			Ok(multipart_form)
