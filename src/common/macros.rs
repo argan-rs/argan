@@ -77,7 +77,7 @@ macro_rules! bit_flags {
 	)
 }
 
-// --------------------------------------------------
+// --------------------------------------------------------------------------------
 
 #[rustfmt::skip]
 macro_rules! call_for_tuples {
@@ -97,6 +97,68 @@ macro_rules! call_for_tuples {
 		$m!(T1, (T2, T3, T4, T5, T6, T7, T8, T9, T10, T11, T12, T13), TL);
 		$m!(T1, (T2, T3, T4, T5, T6, T7, T8, T9, T10, T11, T12, T13, T14), TL);
 		$m!(T1, (T2, T3, T4, T5, T6, T7, T8, T9, T10, T11, T12, T13, T14, T15), TL);
+	};
+}
+
+// --------------------------------------------------------------------------------
+
+macro_rules! data_error {
+	(
+		$(#[$enum_metas:meta])*
+		$vis:vis $error_name:ident {
+			$(
+				$(#[$variant_metas:meta])*
+				($field_name:ident $($field_contents:tt)?) $([$match_contents:tt];)? $status_code:path;
+			)*
+		}
+	) => {
+		#[non_exhaustive]
+		#[allow(non_snake_case)]
+		$(#[$enum_metas])*
+		#[derive(crate::ImplError)]
+		$vis enum $error_name {
+			#[error(transparent)]
+			MissingContentType(crate::header::HeaderError),
+			#[error(transparent)]
+			InvalidContentType(crate::header::HeaderError),
+			#[error("unsupported media type")]
+			UnsupportedMediaType,
+			#[error("content too large")]
+			ContentTooLarge,
+			#[error("buffering failure")]
+			BufferingFailure,
+			$(
+				$(#[$variant_metas])*
+				$field_name $($field_contents)?
+			),*
+		}
+
+		impl From<crate::header::HeaderError> for $error_name {
+			fn from(header_error: crate::header::HeaderError) -> Self {
+				match header_error {
+					HeaderError::MissingHeader(_) => $error_name::MissingContentType(header_error),
+					HeaderError::InvalidValue(_) => $error_name::InvalidContentType(header_error),
+				}
+			}
+		}
+
+		impl IntoResponse for $error_name {
+			fn into_response(self) -> Response {
+				use $error_name::*;
+
+				match self {
+					MissingContentType(_) | InvalidContentType(_) => {
+						StatusCode::BAD_REQUEST.into_response()
+					},
+					UnsupportedMediaType => StatusCode::UNSUPPORTED_MEDIA_TYPE.into_response(),
+					ContentTooLarge => StatusCode::PAYLOAD_TOO_LARGE.into_response(),
+					BufferingFailure => StatusCode::INTERNAL_SERVER_ERROR.into_response(),
+					$(
+						$field_name $($match_contents)? => $status_code.into_response()
+					),*
+				}
+			}
+		}
 	};
 }
 
