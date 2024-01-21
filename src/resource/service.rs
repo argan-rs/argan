@@ -23,12 +23,14 @@ use super::futures::{
 // --------------------------------------------------------------------------------
 
 #[derive(Clone)]
-pub struct ResourceService {
+pub struct ResourceService(pub(super) Arc<InnerResource>);
+
+pub(crate) struct InnerResource {
 	pub(super) pattern: Pattern,
 
-	pub(super) static_resources: Option<Arc<[ResourceService]>>,
-	pub(super) regex_resources: Option<Arc<[ResourceService]>>,
-	pub(super) wildcard_resource: Option<Arc<ResourceService>>,
+	pub(super) static_resources: Option<Box<[ResourceService]>>,
+	pub(super) regex_resources: Option<Box<[ResourceService]>>,
+	pub(super) wildcard_resource: Option<ResourceService>,
 
 	pub(super) request_receiver: Option<ArcHandler>,
 	pub(super) request_passer: Option<ArcHandler>,
@@ -45,7 +47,7 @@ pub struct ResourceService {
 impl ResourceService {
 	#[inline(always)]
 	fn is_root(&self) -> bool {
-		match self.pattern {
+		match self.0.pattern {
 			Pattern::Static(ref pattern) => pattern.as_ref() == "/",
 			_ => false,
 		}
@@ -53,12 +55,12 @@ impl ResourceService {
 
 	#[inline(always)]
 	pub(super) fn is_subtree_handler(&self) -> bool {
-		self.is_subtree_handler
+		self.0.is_subtree_handler
 	}
 
 	#[inline(always)]
 	pub(super) fn can_handle_request(&self) -> bool {
-		!self.method_handlers.is_empty()
+		!self.0.method_handlers.is_empty()
 	}
 }
 
@@ -96,7 +98,7 @@ where
 
 			// If pattern is static, we may match it without decoding the segment.
 			// Static patterns keep percent-encoded string.
-			if let Some(result) = self.pattern.is_static_match(next_segment) {
+			if let Some(result) = self.0.pattern.is_static_match(next_segment) {
 				result
 			} else {
 				let decoded_segment = Arc::<str>::from(
@@ -106,12 +108,14 @@ where
 				);
 
 				if let Some(result) = self
+					.0
 					.pattern
 					.is_regex_match(decoded_segment.clone(), &mut path_params)
 				{
 					result
 				} else {
 					self
+						.0
 						.pattern
 						.is_wildcard_match(decoded_segment, &mut path_params)
 						.expect("wildcard_resource must keep only a resource with a wilcard pattern")
@@ -126,7 +130,7 @@ where
 			.insert(Uncloneable::from(routing_state));
 
 		if matched {
-			match self.request_receiver.as_ref() {
+			match self.0.request_receiver.as_ref() {
 				Some(request_receiver) => {
 					ResourceInnerFuture::from(request_receiver.handle(request)).into()
 				}
@@ -163,7 +167,7 @@ pub(super) fn request_handler(request: Request) -> BoxedFuture<Response> {
 		"current resource should be set in the request_passer or the call method of the Service",
 	);
 
-	current_resource.method_handlers.handle(request)
+	current_resource.0.method_handlers.handle(request)
 }
 
 #[cfg(test)]
@@ -195,9 +199,9 @@ mod test {
 		assert!(root.subresource_mut("/abc").can_handle_request());
 
 		let service = root.into_service();
-		let static_resource = service.static_resources.as_ref().unwrap();
+		let static_resource = &service.0.static_resources.as_ref().unwrap();
 		assert_eq!(static_resource.len(), 1);
-		assert_eq!(static_resource[0].pattern.to_string(), "abc");
+		assert_eq!(static_resource[0].0.pattern.to_string(), "abc");
 
 		let request = Request::get("/abc").body(Empty::<Bytes>::new()).unwrap();
 		let response = service.call(request).await.unwrap();

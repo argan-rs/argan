@@ -26,7 +26,7 @@ mod static_files;
 
 use self::{
 	futures::{RequestPasserFuture, RequestReceiverFuture},
-	service::{request_handler, request_passer, request_receiver},
+	service::{request_handler, request_passer, request_receiver, InnerResource},
 };
 
 pub use service::ResourceService;
@@ -1056,8 +1056,8 @@ impl Resource {
 			Some(
 				static_resources
 					.into_iter()
-					.map(|resource| resource.into_service())
-					.collect::<Arc<[ResourceService]>>(),
+					.map(Resource::into_service)
+					.collect(),
 			)
 		};
 
@@ -1067,14 +1067,14 @@ impl Resource {
 			Some(
 				regex_resources
 					.into_iter()
-					.map(|resource| resource.into_service())
-					.collect::<Arc<[ResourceService]>>(),
+					.map(Resource::into_service)
+					.collect(),
 			)
 		};
 
-		let wildcard_resource = wildcard_resource.map(|resource| Arc::new(resource.into_service()));
+		let wildcard_resource = wildcard_resource.map(|resource| resource.into_service());
 
-		ResourceService {
+		ResourceService(Arc::new(InnerResource {
 			pattern,
 			static_resources,
 			regex_resources,
@@ -1089,7 +1089,7 @@ impl Resource {
 				Some(Arc::from(state))
 			},
 			is_subtree_handler,
-		}
+		}))
 	}
 }
 
