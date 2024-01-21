@@ -117,10 +117,10 @@ macro_rules! data_error {
 		$(#[$enum_metas])*
 		#[derive(crate::ImplError)]
 		$vis enum $error_name {
-			#[error(transparent)]
-			MissingContentType(crate::header::HeaderError),
-			#[error(transparent)]
-			InvalidContentType(crate::header::HeaderError),
+			#[error("missing Content-Type")]
+			MissingContentType,
+			#[error("invalid Content-Type: {0}")]
+			InvalidContentType(ToStrError),
 			#[error("unsupported media type")]
 			UnsupportedMediaType,
 			#[error("content too large")]
@@ -136,8 +136,8 @@ macro_rules! data_error {
 		impl From<crate::header::HeaderError> for $error_name {
 			fn from(header_error: crate::header::HeaderError) -> Self {
 				match header_error {
-					HeaderError::MissingHeader(_) => $error_name::MissingContentType(header_error),
-					HeaderError::InvalidValue(_) => $error_name::InvalidContentType(header_error),
+					HeaderError::MissingHeader(_) => $error_name::MissingContentType,
+					HeaderError::InvalidValue(error) => $error_name::InvalidContentType(error),
 				}
 			}
 		}
@@ -147,7 +147,7 @@ macro_rules! data_error {
 				use $error_name::*;
 
 				match self {
-					MissingContentType(_) | InvalidContentType(_) => {
+					MissingContentType | InvalidContentType(_) => {
 						StatusCode::BAD_REQUEST.into_response()
 					},
 					UnsupportedMediaType => StatusCode::UNSUPPORTED_MEDIA_TYPE.into_response(),

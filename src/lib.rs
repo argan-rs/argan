@@ -13,7 +13,7 @@ pub(crate) use thiserror::Error as ImplError;
 pub mod common;
 
 pub mod body;
-mod data;
+pub mod data;
 pub mod extension;
 pub mod handler;
 pub mod header;

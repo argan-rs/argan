@@ -8,7 +8,6 @@ use std::{
 	task::{Context, Poll},
 };
 
-use cookie::{Cookie, CookieJar};
 use http::{
 	header::{ToStrError, CONTENT_TYPE, COOKIE, SET_COOKIE},
 	StatusCode, Version,
@@ -33,6 +32,7 @@ pub use http::{header, Extensions, HeaderMap, HeaderName, HeaderValue};
 
 // --------------------------------------------------
 
+pub mod cookie;
 pub mod form;
 
 // --------------------------------------------------------------------------------
@@ -119,49 +119,6 @@ impl From<serde_json::Error> for JsonError {
 			},
 			_ => JsonError::BufferingFailure,
 		}
-	}
-}
-
-// --------------------------------------------------
-// Cookies
-
-pub struct Cookies(CookieJar);
-
-impl FromRequestHead for Cookies {
-	type Error = Infallible;
-
-	async fn from_request_head(head: &mut RequestHead) -> Result<Self, Self::Error> {
-		let cookie_jar = head
-			.headers
-			.get_all(COOKIE)
-			.iter()
-			.filter_map(|value| value.to_str().ok())
-			.flat_map(Cookie::split_parse_encoded)
-			.fold(CookieJar::new(), |mut jar, result| {
-				match result {
-					Ok(cookie) => jar.add_original(cookie.into_owned()),
-					Err(_) => {} // TODO.
-				}
-
-				jar
-			});
-
-		Ok(Cookies(cookie_jar))
-	}
-}
-
-impl IntoResponseHead for Cookies {
-	type Error = Infallible;
-
-	fn into_response_head(self, mut head: ResponseHead) -> Result<ResponseHead, Self::Error> {
-		for cookie in self.0.delta() {
-			match HeaderValue::try_from(cookie.encoded().to_string()) {
-				Ok(header_value) => head.headers.append(SET_COOKIE, header_value),
-				Err(_) => todo!(),
-			};
-		}
-
-		Ok(head)
 	}
 }
 
