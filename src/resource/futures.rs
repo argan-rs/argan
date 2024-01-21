@@ -70,7 +70,7 @@ impl Future for RequestReceiverFuture {
 				.extensions_mut()
 				.insert(Uncloneable::from(routing_state));
 
-			let mut response = match current_resource.request_passer.as_ref() {
+			let mut response = match current_resource.0.request_passer.as_ref() {
 				Some(request_passer) => {
 					// Current resource's request_passer was wrapped in middleware.
 					if let Poll::Ready(response) = pin!(request_passer.handle(request)).poll(cx) {
@@ -121,7 +121,7 @@ impl Future for RequestReceiverFuture {
 				.insert(Uncloneable::from(routing_state));
 		}
 
-		if let Some(request_handler) = current_resource.request_handler.as_ref() {
+		if let Some(request_handler) = current_resource.0.request_handler.as_ref() {
 			// Current resource's request_handler was wrapped in middleware.
 			return pin!(request_handler.handle(request)).poll(cx);
 		}
@@ -130,7 +130,7 @@ impl Future for RequestReceiverFuture {
 			return pin!(handle_misdirected_request(request)).poll(cx);
 		}
 
-		pin!(current_resource.method_handlers.handle(request)).poll(cx)
+		pin!(current_resource.0.method_handlers.handle(request)).poll(cx)
 	}
 }
 
@@ -178,6 +178,7 @@ impl Future for RequestPasserFuture {
 
 			if let Some(next_resource) =
 				current_resource
+					.0
 					.static_resources
 					.as_ref()
 					.and_then(|resources| {
@@ -186,6 +187,7 @@ impl Future for RequestPasserFuture {
 							// decoding the segment.
 							|resource| {
 								resource
+									.0
 									.pattern
 									.is_static_match(next_segment)
 									.expect("static_resources must keep only the resources with a static pattern")
@@ -201,32 +203,37 @@ impl Future for RequestPasserFuture {
 					.expect("decoded segment should be a valid utf8 string"), // ???
 			);
 
-			if let Some(next_resource) = current_resource
-				.regex_resources
-				.as_ref()
-				.and_then(|resources| {
-					resources.iter().find(|resource| {
-						resource
-							.pattern
-							.is_regex_match(decoded_segment.clone(), &mut path_params)
-							.expect("regex_resources must keep only the resources with a regex pattern")
-					})
-				}) {
+			if let Some(next_resource) =
+				current_resource
+					.0
+					.regex_resources
+					.as_ref()
+					.and_then(|resources| {
+						resources.iter().find(|resource| {
+							resource
+								.0
+								.pattern
+								.is_regex_match(decoded_segment.clone(), &mut path_params)
+								.expect("regex_resources must keep only the resources with a regex pattern")
+						})
+					}) {
 				break 'some_next_resource (Some(next_resource), next_segment_index);
 			}
 
 			let _ = current_resource
+				.0
 				.wildcard_resource
 				.as_ref()
 				.is_some_and(|resource| {
 					resource
+						.0
 						.pattern
 						.is_wildcard_match(decoded_segment, &mut path_params)
 						.expect("wildcard_resource must keep only a resource with a wilcard pattern")
 				});
 
 			(
-				current_resource.wildcard_resource.as_deref(),
+				current_resource.0.wildcard_resource.as_ref(),
 				next_segment_index,
 			)
 		};
@@ -241,7 +248,7 @@ impl Future for RequestPasserFuture {
 				.extensions_mut()
 				.insert(Uncloneable::from(routing_state));
 
-			let mut response = match next_resource.request_receiver.as_ref() {
+			let mut response = match next_resource.0.request_receiver.as_ref() {
 				Some(request_receiver) => {
 					// Next resource's request_receiver was wrapped in middleware.
 					if let Poll::Ready(response) = pin!(request_receiver.handle(request)).poll(cx) {
