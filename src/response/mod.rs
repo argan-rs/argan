@@ -61,6 +61,15 @@ where
 }
 
 // --------------------------------------------------
+// ResponseHead
+
+// impl IntoResponse for ResponseHead {
+// 	fn into_response(self) -> Response {
+// 		Response::from_parts(self, Bytes::default())
+// 	}
+// }
+
+// --------------------------------------------------
 // StatusCode
 
 impl IntoResponse for StatusCode {
