@@ -1,6 +1,7 @@
 use std::{
 	borrow::{Borrow, BorrowMut, Cow},
 	convert::Infallible,
+	marker::PhantomData,
 };
 
 use cookie::{prefix::Prefix, CookieJar as InnerCookieJar};
@@ -26,21 +27,32 @@ pub use cookie::{
 // --------------------------------------------------
 // Cookies
 
-pub struct CookieJar {
+pub struct CookieJar<K = Key> {
 	inner: InnerCookieJar,
 	some_key: Option<Key>,
+	_key_mark: PhantomData<K>,
 }
 
-impl CookieJar {
+impl<K> CookieJar<K>
+where
+	K: for<'k> TryFrom<&'k [u8]> + Into<Key>,
+{
 	#[inline(always)]
-	pub fn new() -> CookieJar {
+	pub fn new() -> CookieJar<K> {
 		Self {
 			inner: InnerCookieJar::new(),
 			some_key: None,
+			_key_mark: PhantomData,
 		}
 	}
 
 	#[inline(always)]
+	pub fn with_key(mut self, key: Key) -> CookieJar<K> {
+		self.some_key = Some(key);
+
+		self
+	}
+
 	pub fn add<C, const N: usize>(&mut self, cookies: C)
 	where
 		C: IntoArray<CookieKind, N>,
@@ -64,63 +76,70 @@ impl CookieJar {
 	}
 
 	#[inline(always)]
-	pub fn get<S: AsRef<str>>(&self, name: CookieNameKind<S>) -> Option<Cow<Cookie<'static>>> {
-		use CookieNameKind::*;
+	pub fn plain_cookie<S: AsRef<str>>(&self, name: S) -> Option<&Cookie<'static>> {
+		self.inner.get(name.as_ref())
+	}
 
-		match name {
-			Plain(name) => self
-				.inner
-				.get(name.as_ref())
-				.map(|cookie| Cow::Borrowed(cookie)),
-			Private(name) => self
-				.inner
-				.private(self.some_key.as_ref().expect(SCOPE_VALIDITY))
-				.get(name.as_ref())
-				.map(|cookie| Cow::Owned(cookie)),
-			Signed(name) => self
-				.inner
-				.signed(self.some_key.as_ref().expect(SCOPE_VALIDITY))
-				.get(name.as_ref())
-				.map(|cookie| Cow::Owned(cookie)),
+	#[inline(always)]
+	pub fn private_cookie<S: AsRef<str>>(&self, name: S) -> Option<Cookie<'static>> {
+		self
+			.inner
+			.private(self.some_key.as_ref().expect(SCOPE_VALIDITY))
+			.get(name.as_ref())
+	}
+
+	#[inline(always)]
+	pub fn signed_cookie<S: AsRef<str>>(&self, name: S) -> Option<Cookie<'static>> {
+		self
+			.inner
+			.signed(self.some_key.as_ref().expect(SCOPE_VALIDITY))
+			.get(name.as_ref())
+	}
+
+	pub fn remove<C, const N: usize>(&mut self, cookies: C)
+	where
+		C: IntoArray<CookieKind, N>,
+	{
+		let cookies = cookies.into_array();
+		for cookie in cookies {
+			use CookieKind::*;
+
+			let cookie = match cookie {
+				Plain(cookie) => cookie,
+				Private(cookie) => cookie,
+				Signed(cookie) => cookie,
+			};
+
+			self.inner.remove(cookie);
 		}
 	}
 
 	#[inline(always)]
-	pub fn remove<C: Into<Cookie<'static>>>(&mut self, cookie: C) {
-		self.inner.remove(cookie)
+	pub fn into_private_jar(self) -> PrivateCookieJar {
+		PrivateCookieJar {
+			inner: self.inner,
+			key: self.some_key.expect(SCOPE_VALIDITY),
+		}
+	}
+
+	#[inline(always)]
+	pub fn into_signed_jar(self) -> SignedCookieJar {
+		SignedCookieJar {
+			inner: self.inner,
+			key: self.some_key.expect(SCOPE_VALIDITY),
+		}
 	}
 
 	#[inline(always)]
 	pub fn iter(&self) -> Iter<'_> {
 		self.inner.iter()
 	}
-
-	#[inline(always)]
-	pub fn into_private_jar(self) -> Result<PrivateCookieJar, ()> {
-		if self.some_key.is_some() {
-			Ok(PrivateCookieJar {
-				inner: self.inner,
-				key: self.some_key.expect(SCOPE_VALIDITY),
-			})
-		} else {
-			Err(())
-		}
-	}
-
-	#[inline(always)]
-	pub fn into_signed_jar(self) -> Result<SignedCookieJar, ()> {
-		if self.some_key.is_some() {
-			Ok(SignedCookieJar {
-				inner: self.inner,
-				key: self.some_key.expect(SCOPE_VALIDITY),
-			})
-		} else {
-			Err(())
-		}
-	}
 }
 
-impl FromRequestHead for CookieJar {
+impl<K> FromRequestHead for CookieJar<K>
+where
+	K: for<'k> TryFrom<&'k [u8]> + Into<Key>,
+{
 	type Error = Infallible;
 
 	async fn from_request_head(head: &mut RequestHead) -> Result<Self, Self::Error> {
@@ -167,14 +186,6 @@ pub struct PrivateCookieJar {
 
 impl PrivateCookieJar {
 	#[inline(always)]
-	pub fn into_jar(self) -> CookieJar {
-		CookieJar {
-			inner: self.inner,
-			some_key: Some(self.key),
-		}
-	}
-
-	#[inline(always)]
 	pub fn get<S: AsRef<str>>(&self, name: S) -> Option<Cookie<'static>> {
 		self.inner.private(&self.key).get(name.as_ref())
 	}
@@ -193,6 +204,15 @@ impl PrivateCookieJar {
 	pub fn decrypt(&mut self, cookie: Cookie<'static>) -> Option<Cookie<'static>> {
 		self.inner.private_mut(&self.key).decrypt(cookie)
 	}
+
+	#[inline(always)]
+	pub fn into_jar(self) -> CookieJar {
+		CookieJar {
+			inner: self.inner,
+			some_key: Some(self.key),
+			_key_mark: PhantomData,
+		}
+	}
 }
 
 // -------------------------
@@ -203,14 +223,6 @@ pub struct SignedCookieJar {
 }
 
 impl SignedCookieJar {
-	#[inline(always)]
-	pub fn into_jar(self) -> CookieJar {
-		CookieJar {
-			inner: self.inner,
-			some_key: Some(self.key),
-		}
-	}
-
 	#[inline(always)]
 	pub fn get<S: AsRef<str>>(&self, name: S) -> Option<Cookie<'static>> {
 		self.inner.signed(&self.key).get(name.as_ref())
@@ -229,6 +241,15 @@ impl SignedCookieJar {
 	#[inline(always)]
 	pub fn verify(&mut self, cookie: Cookie<'static>) -> Option<Cookie<'static>> {
 		self.inner.signed_mut(&self.key).verify(cookie)
+	}
+
+	#[inline(always)]
+	pub fn into_jar(self) -> CookieJar {
+		CookieJar {
+			inner: self.inner,
+			some_key: Some(self.key),
+			_key_mark: PhantomData,
+		}
 	}
 }
 
@@ -255,36 +276,42 @@ pub fn signed<C: Into<Cookie<'static>>>(cookie: C) -> CookieKind {
 	CookieKind::Signed(cookie.into())
 }
 
+// -------------------------
+
 #[inline(always)]
-pub fn prefix<P, C>(_: P, cookie: C) -> Cookie<'static>
+pub fn prefixed_name<P, S>(_: P, name: S) -> String
+where
+	P: Prefix,
+	S: AsRef<str>,
+{
+	format!("{}{}", P::PREFIX, name.as_ref())
+}
+
+pub fn prefix<P, C>(_p: P, cookie: C) -> Cookie<'static>
 where
 	P: Prefix,
 	C: Into<Cookie<'static>>,
 {
-	<P as Prefix>::conform(cookie.into())
+	let mut cookie = cookie.into();
+	let name = prefixed_name(_p, cookie.name());
+	cookie.set_name(name);
+
+	<P as Prefix>::conform(cookie)
 }
 
-// -------------------------
+pub fn strip_prefix<P, C>(_: P, mut cookie: Cookie<'static>) -> Cookie<'static>
+where
+	P: Prefix,
+{
+	if let Some(name) = cookie
+		.name()
+		.strip_prefix(P::PREFIX)
+		.map(|name| name.to_string())
+	{
+		cookie.set_name(name);
+	}
 
-pub enum CookieNameKind<S: AsRef<str>> {
-	Plain(S),
-	Private(S),
-	Signed(S),
-}
-
-#[inline(always)]
-pub fn plain_cookie<S: AsRef<str>>(name: S) -> CookieNameKind<S> {
-	CookieNameKind::Plain(name)
-}
-
-#[inline(always)]
-pub fn private_cookie<S: AsRef<str>>(name: S) -> CookieNameKind<S> {
-	CookieNameKind::Private(name)
-}
-
-#[inline(always)]
-pub fn signed_cookie<S: AsRef<str>>(name: S) -> CookieNameKind<S> {
-	CookieNameKind::Signed(name)
+	cookie
 }
 
 // --------------------------------------------------------------------------------
