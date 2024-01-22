@@ -76,6 +76,24 @@ pub(crate) fn content_type<B>(request: &Request<B>) -> Result<&str, HeaderError>
 }
 
 // --------------------------------------------------------------------------------
+
+// --------------------------------------------------
+// RequestHead
+
+// impl<B> FromRequest<B> for RequestHead
+// where
+// 	B: Send,
+// {
+// 	type Error = Infallible;
+//
+// 	#[inline]
+// 	async fn from_request(request: Request<B>) -> Result<Self, Self::Error> {
+// 	  let (head, _) = request.into_parts();
+//
+// 		Ok(head)
+// 	}
+// }
+
 // --------------------------------------------------
 // Method
 

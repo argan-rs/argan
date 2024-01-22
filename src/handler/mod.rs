@@ -85,16 +85,12 @@ where
 
 pub struct HandlerService<H> {
 	handler: H,
-	// _body_mark: PhantomData<B>,
 }
 
 impl<H> From<H> for HandlerService<H> {
 	#[inline]
 	fn from(handler: H) -> Self {
-		Self {
-			handler,
-			// _body_mark: PhantomData,
-		}
+		Self { handler }
 	}
 }
 
@@ -155,29 +151,29 @@ pub struct HandlerState<S>(S);
 
 // --------------------------------------------------------------------------------
 
-pub(crate) trait ReadyHandler
+pub(crate) trait FinalHandler
 where
 	Self: Handler<IncomingBody, Response = Response, Future = BoxedFuture<Response>> + Send + Sync,
 {
 }
 
-impl<H> ReadyHandler for H where
+impl<H> FinalHandler for H where
 	H: Handler<IncomingBody, Response = Response, Future = BoxedFuture<Response>> + Send + Sync
 {
 }
 
-pub(crate) trait IntoArcHandler: ReadyHandler + Sized + 'static {
+pub(crate) trait IntoArcHandler: FinalHandler + Sized + 'static {
 	fn into_arc_handler(self) -> ArcHandler {
 		ArcHandler::new(self)
 	}
 }
 
-impl<H> IntoArcHandler for H where H: ReadyHandler + 'static {}
+impl<H> IntoArcHandler for H where H: FinalHandler + 'static {}
 
 // --------------------------------------------------
 
 #[derive(Clone)]
-pub(crate) struct ArcHandler(Arc<dyn ReadyHandler>);
+pub(crate) struct ArcHandler(Arc<dyn FinalHandler>);
 
 impl Default for ArcHandler {
 	#[inline]
@@ -187,7 +183,7 @@ impl Default for ArcHandler {
 }
 
 impl ArcHandler {
-	fn new<H: ReadyHandler + 'static>(handler: H) -> Self {
+	fn new<H: FinalHandler + 'static>(handler: H) -> Self {
 		ArcHandler(Arc::new(handler))
 	}
 }

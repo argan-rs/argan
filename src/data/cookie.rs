@@ -1,9 +1,11 @@
 use std::{
 	borrow::{Borrow, BorrowMut, Cow},
 	convert::Infallible,
+	future::Future,
 	marker::PhantomData,
 };
 
+use bytes::Bytes;
 use cookie::{prefix::Prefix, CookieJar as InnerCookieJar};
 use http::{
 	header::{COOKIE, SET_COOKIE},
@@ -12,8 +14,8 @@ use http::{
 
 use crate::{
 	common::{IntoArray, SCOPE_VALIDITY},
-	request::{FromRequestHead, RequestHead},
-	response::{IntoResponseHead, ResponseHead},
+	request::{FromRequest, FromRequestHead, Request, RequestHead},
+	response::{IntoResponse, IntoResponseHead, Response, ResponseHead},
 };
 
 // --------------------------------------------------------------------------------
@@ -115,18 +117,20 @@ where
 	}
 
 	#[inline(always)]
-	pub fn into_private_jar(self) -> PrivateCookieJar {
+	pub fn into_private_jar(self) -> PrivateCookieJar<K> {
 		PrivateCookieJar {
 			inner: self.inner,
 			key: self.some_key.expect(SCOPE_VALIDITY),
+			_key_mark: PhantomData,
 		}
 	}
 
 	#[inline(always)]
-	pub fn into_signed_jar(self) -> SignedCookieJar {
+	pub fn into_signed_jar(self) -> SignedCookieJar<K> {
 		SignedCookieJar {
 			inner: self.inner,
 			key: self.some_key.expect(SCOPE_VALIDITY),
+			_key_mark: PhantomData,
 		}
 	}
 
@@ -162,7 +166,21 @@ where
 	}
 }
 
-impl IntoResponseHead for CookieJar {
+impl<B, K> FromRequest<B> for CookieJar<K>
+where
+	B: Send,
+	K: for<'k> TryFrom<&'k [u8]> + Into<Key>,
+{
+	type Error = Infallible;
+
+	async fn from_request(request: Request<B>) -> Result<Self, Self::Error> {
+		let (mut head, _) = request.into_parts();
+
+		<CookieJar<K> as FromRequestHead>::from_request_head(&mut head).await
+	}
+}
+
+impl<K> IntoResponseHead for CookieJar<K> {
 	type Error = Infallible;
 
 	fn into_response_head(self, mut head: ResponseHead) -> Result<ResponseHead, Self::Error> {
@@ -177,14 +195,26 @@ impl IntoResponseHead for CookieJar {
 	}
 }
 
-// -------------------------
+impl<K> IntoResponse for CookieJar<K> {
+	fn into_response(self) -> Response {
+		let (head, body) = Response::default().into_parts();
 
-pub struct PrivateCookieJar {
-	inner: InnerCookieJar,
-	key: Key,
+		match self.into_response_head(head) {
+			Ok(head) => Response::from_parts(head, body),
+			Err(error) => error.into_response(),
+		}
+	}
 }
 
-impl PrivateCookieJar {
+// -------------------------
+
+pub struct PrivateCookieJar<K = Key> {
+	inner: InnerCookieJar,
+	key: Key,
+	_key_mark: PhantomData<K>,
+}
+
+impl<K> PrivateCookieJar<K> {
 	#[inline(always)]
 	pub fn get<S: AsRef<str>>(&self, name: S) -> Option<Cookie<'static>> {
 		self.inner.private(&self.key).get(name.as_ref())
@@ -206,7 +236,7 @@ impl PrivateCookieJar {
 	}
 
 	#[inline(always)]
-	pub fn into_jar(self) -> CookieJar {
+	pub fn into_jar(self) -> CookieJar<K> {
 		CookieJar {
 			inner: self.inner,
 			some_key: Some(self.key),
@@ -215,14 +245,61 @@ impl PrivateCookieJar {
 	}
 }
 
-// -------------------------
+impl<K> FromRequestHead for PrivateCookieJar<K>
+where
+	K: for<'k> TryFrom<&'k [u8]> + Into<Key>,
+{
+	type Error = Infallible;
 
-pub struct SignedCookieJar {
-	inner: InnerCookieJar,
-	key: Key,
+	async fn from_request_head(head: &mut RequestHead) -> Result<Self, Self::Error> {
+		<CookieJar<K> as FromRequestHead>::from_request_head(head)
+			.await
+			.map(|jar| jar.into_private_jar())
+	}
 }
 
-impl SignedCookieJar {
+impl<B, K> FromRequest<B> for PrivateCookieJar<K>
+where
+	B: Send,
+	K: for<'k> TryFrom<&'k [u8]> + Into<Key>,
+{
+	type Error = Infallible;
+
+	async fn from_request(request: Request<B>) -> Result<Self, Self::Error> {
+		let (mut head, _) = request.into_parts();
+
+		<PrivateCookieJar<K> as FromRequestHead>::from_request_head(&mut head).await
+	}
+}
+
+impl<K> IntoResponseHead for PrivateCookieJar<K> {
+	type Error = Infallible;
+
+	fn into_response_head(self, mut head: ResponseHead) -> Result<ResponseHead, Self::Error> {
+		self.into_jar().into_response_head(head)
+	}
+}
+
+impl<K> IntoResponse for PrivateCookieJar<K> {
+	fn into_response(self) -> Response {
+		let (head, body) = Response::default().into_parts();
+
+		match self.into_response_head(head) {
+			Ok(head) => Response::from_parts(head, body),
+			Err(error) => error.into_response(),
+		}
+	}
+}
+
+// -------------------------
+
+pub struct SignedCookieJar<K = Key> {
+	inner: InnerCookieJar,
+	key: Key,
+	_key_mark: PhantomData<K>,
+}
+
+impl<K> SignedCookieJar<K> {
 	#[inline(always)]
 	pub fn get<S: AsRef<str>>(&self, name: S) -> Option<Cookie<'static>> {
 		self.inner.signed(&self.key).get(name.as_ref())
@@ -244,11 +321,57 @@ impl SignedCookieJar {
 	}
 
 	#[inline(always)]
-	pub fn into_jar(self) -> CookieJar {
+	pub fn into_jar(self) -> CookieJar<K> {
 		CookieJar {
 			inner: self.inner,
 			some_key: Some(self.key),
 			_key_mark: PhantomData,
+		}
+	}
+}
+
+impl<K> FromRequestHead for SignedCookieJar<K>
+where
+	K: for<'k> TryFrom<&'k [u8]> + Into<Key>,
+{
+	type Error = Infallible;
+
+	async fn from_request_head(head: &mut RequestHead) -> Result<Self, Self::Error> {
+		<CookieJar<K> as FromRequestHead>::from_request_head(head)
+			.await
+			.map(|jar| jar.into_signed_jar())
+	}
+}
+
+impl<B, K> FromRequest<B> for SignedCookieJar<K>
+where
+	B: Send,
+	K: for<'k> TryFrom<&'k [u8]> + Into<Key>,
+{
+	type Error = Infallible;
+
+	async fn from_request(request: Request<B>) -> Result<Self, Self::Error> {
+		let (mut head, _) = request.into_parts();
+
+		<SignedCookieJar<K> as FromRequestHead>::from_request_head(&mut head).await
+	}
+}
+
+impl<K> IntoResponseHead for SignedCookieJar<K> {
+	type Error = Infallible;
+
+	fn into_response_head(self, mut head: ResponseHead) -> Result<ResponseHead, Self::Error> {
+		self.into_jar().into_response_head(head)
+	}
+}
+
+impl<K> IntoResponse for SignedCookieJar<K> {
+	fn into_response(self) -> Response {
+		let (head, body) = Response::default().into_parts();
+
+		match self.into_response_head(head) {
+			Ok(head) => Response::from_parts(head, body),
+			Err(error) => error.into_response(),
 		}
 	}
 }
