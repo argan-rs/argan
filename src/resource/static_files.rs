@@ -96,7 +96,7 @@ impl StaticFiles {
 		};
 
 		if self.flags.has(Flags::GET) {
-			resource.set_handler_for(get(get_handler));
+			resource.set_handler(get(get_handler));
 		}
 
 		resource

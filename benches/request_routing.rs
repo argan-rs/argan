@@ -63,7 +63,7 @@ pub fn request_routing(c: &mut Criterion) {
 
 		if params.0 < 10 {
 			let last_static_resource = resource.subresource_mut(params.1.static_patterns.last().unwrap());
-			last_static_resource.set_handler_for(get(handler));
+			last_static_resource.set_handler(get(handler));
 			add_static_resources(last_static_resource, (next_segment_index, params.1));
 		}
 
@@ -107,7 +107,7 @@ pub fn request_routing(c: &mut Criterion) {
 			let (name, pattern) = params.1.regex_patterns.last().unwrap();
 			let last_regex_resource =
 				resource.subresource_mut(&format!("{}{}{}", name, next_segment_index, pattern));
-			last_regex_resource.set_handler_for(get(handler));
+			last_regex_resource.set_handler(get(handler));
 			add_regex_resources(last_regex_resource, (next_segment_index, params.1));
 		}
 
@@ -144,7 +144,7 @@ pub fn request_routing(c: &mut Criterion) {
 		let pattern = format!("{}{}", params.1.wildcard_pattern, next_segment_index);
 		// println!("wildcard pattern: {}", pattern);
 		let wildcard_resource = resource.subresource_mut(&pattern);
-		wildcard_resource.set_handler_for(get(handler));
+		wildcard_resource.set_handler(get(handler));
 
 		if params.0 < 10 {
 			// println!("calling for subresources of {}", resource.pattern());

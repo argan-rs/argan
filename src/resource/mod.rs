@@ -1,21 +1,23 @@
 use std::{
 	any::{Any, TypeId},
+	convert::Infallible,
 	fmt::{Debug, Display},
 	future::Ready,
 	sync::Arc,
 };
 
 use crate::{
-	common::{mark::Private, patterns_to_route, BoxedFuture, IntoArray},
+	common::{mark::Private, patterns_to_route, BoxedFuture, IntoArray, Uncloneable},
+	extension::Extensions,
 	handler::{
 		request_handlers::{handle_misdirected_request, MethodHandlers},
 		AdaptiveHandler, ArcHandler, HandlerKind, IntoArcHandler, IntoHandler,
 	},
 	middleware::{IntoResponseAdapter, LayerTarget, ResponseFutureBoxer},
 	pattern::{Pattern, Similarity},
-	request::Request,
+	request::{FromRequestHead, Request, RequestHead, FromRequest},
 	response::Response,
-	routing::RouteSegments,
+	routing::{RouteSegments, RoutingState},
 };
 
 // --------------------------------------------------
@@ -50,7 +52,7 @@ pub struct Resource {
 	method_handlers: MethodHandlers,
 	some_misdirected_request_handler: Option<ArcHandler>,
 
-	states: Vec<Box<dyn Any + Send + Sync>>,
+	extensions: Extensions,
 
 	// TODO: configs, redirect
 	is_subtree_handler: bool,
@@ -122,7 +124,7 @@ impl Resource {
 			some_request_handler: None,
 			method_handlers: MethodHandlers::new(),
 			some_misdirected_request_handler: None,
-			states: Vec::new(),
+			extensions: Extensions::new(),
 			is_subtree_handler: false,
 		}
 	}
@@ -852,34 +854,22 @@ impl Resource {
 	// -------------------------
 
 	pub fn add_state<S: Clone + Send + Sync + 'static>(&mut self, state: S) {
-		let state_type_id = state.type_id();
-
-		if self
-			.states
-			.iter()
-			.any(|existing_state| (*(*existing_state)).type_id() == state_type_id)
-		{
+		if self.extensions.insert(state).is_some() {
 			panic!(
 				"resource already has a state of type '{:?}'",
 				TypeId::of::<S>()
 			);
 		}
-
-		self.states.push(Box::new(state));
 	}
 
 	pub fn state_ref<S: Clone + Send + Sync + 'static>(&self) -> &S {
-		self
-			.states
-			.iter()
-			.find_map(|state| state.downcast_ref::<S>())
-			.expect(&format!(
-				"resource has no state of type '{:?}'",
-				TypeId::of::<S>()
-			))
+		self.extensions.get::<S>().expect(&format!(
+			"resource should have been provided with a state of type '{:?}'",
+			TypeId::of::<S>()
+		))
 	}
 
-	pub fn set_handler_for<H, const N: usize>(&mut self, handler_kinds: H)
+	pub fn set_handler<H, const N: usize>(&mut self, handler_kinds: H)
 	where
 		H: IntoArray<HandlerKind, N>,
 	{
@@ -1045,7 +1035,7 @@ impl Resource {
 			some_request_passer: request_passer,
 			some_request_handler: request_handler,
 			method_handlers,
-			states: state,
+			extensions,
 			is_subtree_handler,
 			..
 		} = self;
@@ -1083,11 +1073,7 @@ impl Resource {
 			request_passer,
 			request_handler,
 			method_handlers,
-			state: if state.is_empty() {
-				None
-			} else {
-				Some(Arc::from(state))
-			},
+			extensions,
 			is_subtree_handler,
 		}))
 	}
@@ -1133,7 +1119,7 @@ impl Debug for Resource {
 			self.method_handlers.count(),
 			self.method_handlers.has_all_methods_handler(),
 			self.some_misdirected_request_handler.is_some(),
-			self.states.len(),
+			self.extensions.len(),
 			self.is_subtree_handler,
 		)
 	}
@@ -1152,6 +1138,54 @@ pub enum Iteration {
 	Continue,
 	SkipSubtree,
 	Stop,
+}
+
+// --------------------------------------------------
+// ResourceState
+
+pub struct ResourceState<S>(S);
+
+impl<S: Clone + Send + Sync + 'static> FromRequestHead for ResourceState<S> {
+	type Error = Infallible;
+
+	async fn from_request_head(head: &mut RequestHead) -> Result<Self, Self::Error> {
+		let routing_state = head
+			.extensions
+			.get::<Uncloneable<RoutingState>>()
+			.expect("Uncloneable<RoutingState> should have been inserted before routing started")
+			.as_ref()
+			.expect("RoutingState should always exist in Uncloneable");
+
+		let state = routing_state
+			.current_resource
+			.as_ref()
+			.expect(
+				"current resource should be set in the request_passer or the call method of the Service",
+			)
+			.0
+			.extensions
+			.get::<S>()
+			.expect(&format!(
+				"resource should have been provided with a state of type '{:?}'",
+				TypeId::of::<S>()
+			));
+
+		Ok(ResourceState(state.clone()))
+	}
+}
+
+impl<B, S> FromRequest<B> for ResourceState<S>
+where
+	B: Send,
+	S: Clone + Send + Sync + 'static,
+{
+	type Error = Infallible;
+
+	async fn from_request(request: Request<B>) -> Result<Self, Self::Error> {
+		let (mut head, _) = request.into_parts();
+
+		<ResourceState::<S> as FromRequestHead>::from_request_head(&mut head).await
+	}
 }
 
 // --------------------------------------------------------------------------------
@@ -1250,10 +1284,10 @@ mod test {
 			// Existing resources in the tree.
 
 			let (resource2_0, _) = parent.leaf_resource_mut(RouteSegments::new("/$abc2_0:@(p0)"));
-			resource2_0.set_handler_for(post(DummyHandler::<DefaultResponseFuture>::new()));
+			resource2_0.set_handler(post(DummyHandler::<DefaultResponseFuture>::new()));
 			resource2_0
 				.subresource_mut("/$abc3_1:@cn0(p0)/*abc4_0")
-				.set_handler_for(get(DummyHandler::<DefaultResponseFuture>::new()));
+				.set_handler(get(DummyHandler::<DefaultResponseFuture>::new()));
 
 			let (resource4_2, _) =
 				resource2_0.leaf_resource_mut(RouteSegments::new("/$abc3_1:@cn0(p0)/abc4_2"));
@@ -1266,14 +1300,14 @@ mod test {
 			let mut resource2_0 = Resource::new("/$abc2_0:@(p0)");
 
 			let mut resource3_1 = Resource::new("/$abc3_1:@cn0(p0)");
-			resource3_1.set_handler_for([
+			resource3_1.set_handler([
 				get(DummyHandler::<DefaultResponseFuture>::new()),
 				post(DummyHandler::<DefaultResponseFuture>::new()),
 			]);
 
 			resource3_1
 				.subresource_mut("/abc4_1")
-				.set_handler_for(post(DummyHandler::<DefaultResponseFuture>::new()));
+				.set_handler(post(DummyHandler::<DefaultResponseFuture>::new()));
 			resource3_1.new_subresource_mut(RouteSegments::new("/$abc4_3:@(p0)"));
 			resource3_1.new_subresource_mut(RouteSegments::new("/abc4_4"));
 
@@ -1317,7 +1351,7 @@ mod test {
 
 			let mut resource3_0 = Resource::new(pattern3_0);
 			resource3_0.by_patterns_new_subresource_mut(std::iter::once(Pattern::parse("abc4_2")));
-			resource3_0.set_handler_for(get(DummyHandler::<DefaultResponseFuture>::new()));
+			resource3_0.set_handler(get(DummyHandler::<DefaultResponseFuture>::new()));
 
 			parent.add_subresource(resource3_0);
 			let (resource3_0, _) = parent.leaf_resource_mut(RouteSegments::new(route3_0));
@@ -1490,7 +1524,7 @@ mod test {
 			);
 
 			if case.resource_has_handler {
-				resource.set_handler_for(get(DummyHandler::<DefaultResponseFuture>::new()));
+				resource.set_handler(get(DummyHandler::<DefaultResponseFuture>::new()));
 			}
 
 			resource.check_path_segments_are_the_same(&mut route_to_patterns(case.full_path).into_iter());
@@ -1500,7 +1534,7 @@ mod test {
 			let mut resource3_0 = Resource::new("/abc3_0");
 			resource3_0
 				.subresource_mut("/*abc4_0")
-				.set_handler_for(post(DummyHandler::<DefaultResponseFuture>::new()));
+				.set_handler(post(DummyHandler::<DefaultResponseFuture>::new()));
 
 			let resource4_1 = Resource::new("/abc4_2");
 			resource3_0.add_subresource_under("", resource4_1);
@@ -1520,16 +1554,16 @@ mod test {
 
 		{
 			let mut resource2_1 = Resource::new("/abc0_0/*abc1_0/*abc2_1");
-			resource2_1.set_handler_for(get(DummyHandler::<DefaultResponseFuture>::new()));
+			resource2_1.set_handler(get(DummyHandler::<DefaultResponseFuture>::new()));
 
 			let mut resource4_0 = Resource::new("/$abc4_0:@cn(p)");
 			resource4_0
 				.subresource_mut("/*abc5_0")
-				.set_handler_for(get(DummyHandler::<DefaultResponseFuture>::new()));
+				.set_handler(get(DummyHandler::<DefaultResponseFuture>::new()));
 			resource2_1.add_subresource_under("/abc3_0", resource4_0);
 
 			let mut resource4_1 = Resource::new("/$abc4_1:@cn(p)/");
-			resource4_1.set_handler_for(put(DummyHandler::<DefaultResponseFuture>::new()));
+			resource4_1.set_handler(put(DummyHandler::<DefaultResponseFuture>::new()));
 			resource2_1.add_subresource_under("/abc3_0", resource4_1);
 
 			let resource5_0 = Resource::new("/abc0_0/*abc1_0/*abc2_1/abc3_0/*abc4_2/$abc5_0:@(p)");
