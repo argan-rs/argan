@@ -5,6 +5,7 @@ use percent_encoding::percent_decode_str;
 use crate::{
 	body::{Body, IncomingBody},
 	common::{BoxedError, BoxedFuture, Uncloneable},
+	extension::Extensions,
 	handler::{
 		request_handlers::{handle_misdirected_request, MethodHandlers},
 		ArcHandler, Handler, Service,
@@ -38,7 +39,7 @@ pub(crate) struct InnerResource {
 
 	pub(super) method_handlers: MethodHandlers,
 
-	pub(super) state: Option<Arc<[Box<dyn Any + Send + Sync>]>>,
+	pub(super) extensions: Extensions,
 
 	// TODO: configs, redirect
 	pub(super) is_subtree_handler: bool,
@@ -194,7 +195,7 @@ mod test {
 	async fn resource_service() {
 		let mut root = Resource::new("/");
 		let handler = |_request: Request| async {};
-		root.subresource_mut("/abc").set_handler_for(get(handler));
+		root.subresource_mut("/abc").set_handler(get(handler));
 		assert_eq!(root.subresource_mut("/abc").pattern(), "abc");
 		assert!(root.subresource_mut("/abc").can_handle_request());
 
@@ -215,9 +216,9 @@ mod test {
 		//					 -> $abc1_1:@cn(abc1_1)-cba -> abc2_0
 
 		let mut resource = Resource::new("/abc0_0");
-		resource.set_handler_for(get(hello_world));
+		resource.set_handler(get(hello_world));
 
-		resource.subresource_mut("/*abc1_0").set_handler_for(method(
+		resource.subresource_mut("/*abc1_0").set_handler(method(
 			"PUT",
 			|PathParam(wildcard): PathParam<String>| async move {
 				println!("got param: {}", wildcard);
@@ -228,7 +229,7 @@ mod test {
 
 		resource
 			.subresource_mut("/*abc1_0/$abc2_0:@(abc2_0)")
-			.set_handler_for(post(
+			.set_handler(post(
 				|PathParam(path_values): PathParam<PathValues1_0_2_0>| async move {
 					println!("got path values: {:?}", path_values);
 
@@ -245,7 +246,7 @@ mod test {
 
 		resource
 			.subresource_mut("/*abc1_0/$abc2_1:@cn(abc2_1)-cba/*abc3_0")
-			.set_handler_for(get(
+			.set_handler(get(
 				|PathParam(path_values): PathParam<PathValues1_0_2_1_3_0>| async move {
 					println!("got path values: {:?}", path_values);
 
@@ -262,7 +263,7 @@ mod test {
 
 		resource
 			.subresource_mut("/$abc1_1:@cn(abc1_1)-cba")
-			.set_handler_for(get(|PathParam(value): PathParam<String>| async move {
+			.set_handler(get(|PathParam(value): PathParam<String>| async move {
 				let vector = Vec::from(value);
 				println!("got path values: {:?}", vector);
 
@@ -271,7 +272,7 @@ mod test {
 
 		resource
 			.subresource_mut("/$abc1_1:@cn(abc1_1)-cba/abc2_0")
-			.set_handler_for(get(hello_world));
+			.set_handler(get(hello_world));
 
 		dbg!();
 
