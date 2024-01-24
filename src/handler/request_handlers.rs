@@ -7,21 +7,20 @@ use http::{HeaderName, HeaderValue, Method, StatusCode};
 
 use crate::{
 	common::{mark::Private, BoxedFuture, Uncloneable},
-	middleware::{ArcLayer, BoxedLayer, ResponseFutureBoxer},
+	middleware::{BoxedLayer, ResponseFutureBoxer},
 	request::Request,
 	response::Response,
 	routing::UnusedRequest,
 };
 
-use super::{AdaptiveHandler, ArcHandler, Handler, IntoArcHandler, IntoHandler};
+use super::{AdaptiveHandler, BoxedHandler, FinalHandler, Handler, IntoHandler};
 
 // --------------------------------------------------------------------------------
 // --------------------------------------------------------------------------------
 
-#[derive(Clone)]
 pub(crate) struct MethodHandlers {
-	list: Vec<(Method, ArcHandler)>,
-	some_all_methods_handler: Option<ArcHandler>,
+	list: Vec<(Method, BoxedHandler)>,
+	some_all_methods_handler: Option<BoxedHandler>,
 }
 
 impl MethodHandlers {
@@ -50,7 +49,7 @@ impl MethodHandlers {
 	}
 
 	#[inline]
-	pub(crate) fn set_for(&mut self, method: Method, handler: ArcHandler) {
+	pub(crate) fn set_for(&mut self, method: Method, handler: BoxedHandler) {
 		if self.list.iter().any(|(m, _)| m == method) {
 			panic!("{} handler already exists", method)
 		}
@@ -59,12 +58,12 @@ impl MethodHandlers {
 	}
 
 	#[inline(always)]
-	pub(crate) fn set_for_all_methods(&mut self, handler: ArcHandler) {
+	pub(crate) fn set_for_all_methods(&mut self, handler: BoxedHandler) {
 		self.some_all_methods_handler = Some(handler);
 	}
 
 	#[inline]
-	pub(crate) fn wrap_handler_of(&mut self, method: Method, arc_layer: ArcLayer) {
+	pub(crate) fn wrap_handler_of(&mut self, method: Method, arc_layer: BoxedLayer) {
 		let Some(position) = self.list.iter().position(|(m, _)| m == method) else {
 			panic!("'{}' handler doesn't exists", method)
 		};
@@ -85,7 +84,7 @@ impl MethodHandlers {
 					Request,
 				)>>::into_handler(handle_unimplemented_method);
 
-				ResponseFutureBoxer::wrap(unimplemented_method_handler).into_arc_handler()
+				ResponseFutureBoxer::wrap(unimplemented_method_handler).into_boxed_handler()
 			}
 		};
 
@@ -153,7 +152,6 @@ impl Debug for MethodHandlers {
 
 pub(crate) struct AllowedMethods(String);
 
-#[inline(always)]
 fn handle_unimplemented_method(mut request: Request) -> Ready<Response> {
 	let allowed_methods = request
 		.extensions_mut()
@@ -175,7 +173,6 @@ fn handle_unimplemented_method(mut request: Request) -> Ready<Response> {
 	ready(response)
 }
 
-#[inline]
 pub(crate) fn handle_misdirected_request(request: Request) -> Ready<Response> {
 	let mut response = Response::default();
 	*response.status_mut() = StatusCode::NOT_FOUND;

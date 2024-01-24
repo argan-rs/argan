@@ -9,7 +9,7 @@ use crate::{
 	response::IntoResponse,
 };
 
-use super::{ArcHandler, Handler, IntoArcHandler, IntoHandler};
+use super::{BoxedHandler, FinalHandler, Handler, IntoHandler};
 
 // --------------------------------------------------------------------------------
 // --------------------------------------------------------------------------------
@@ -17,9 +17,9 @@ use super::{ArcHandler, Handler, IntoArcHandler, IntoHandler};
 pub struct HandlerKind(pub(crate) Inner);
 
 pub(crate) enum Inner {
-	Method(Method, ArcHandler),
-	AllMethods(ArcHandler),
-	MisdirectedRequest(ArcHandler),
+	Method(Method, BoxedHandler),
+	AllMethods(BoxedHandler),
+	MisdirectedRequest(BoxedHandler),
 }
 
 impl IntoArray<HandlerKind, 1> for HandlerKind {
@@ -32,10 +32,10 @@ impl IntoArray<HandlerKind, 1> for HandlerKind {
 
 macro_rules! handler_kind_by_method {
 	($func:ident, $http_method:path) => {
-		pub fn $func<H, M>(handler: H) -> HandlerKind
+		pub fn $func<H, Mark>(handler: H) -> HandlerKind
 		where
-			H: IntoHandler<M, IncomingBody>,
-			H::Handler: Handler + Send + Sync + 'static,
+			H: IntoHandler<Mark, IncomingBody>,
+			H::Handler: Handler + Clone + Send + Sync + 'static,
 			<H::Handler as Handler>::Response: IntoResponse,
 		{
 			let ready_handler =
@@ -43,7 +43,7 @@ macro_rules! handler_kind_by_method {
 
 			HandlerKind(Inner::Method(
 				$http_method,
-				ready_handler.into_arc_handler(),
+				ready_handler.into_boxed_handler(),
 			))
 		}
 	};
@@ -63,7 +63,7 @@ pub fn method<M, H, Mark>(method: M, handler: H) -> HandlerKind
 where
 	M: AsRef<str>,
 	H: IntoHandler<Mark, IncomingBody>,
-	H::Handler: Handler + Send + Sync + 'static,
+	H::Handler: Handler + Clone + Send + Sync + 'static,
 	<H::Handler as Handler>::Response: IntoResponse,
 {
 	let ready_handler = ResponseFutureBoxer::wrap(IntoResponseAdapter::wrap(handler.into_handler()));
@@ -71,29 +71,31 @@ where
 	let method = Method::from_str(method.as_ref())
 		.expect("HTTP method should be a valid token [RFC 9110, 5.6.2 Tokens]");
 
-	HandlerKind(Inner::Method(method, ready_handler.into_arc_handler()))
+	HandlerKind(Inner::Method(method, ready_handler.into_boxed_handler()))
 }
 
-pub fn all_method<H, M>(handler: H) -> HandlerKind
+pub fn all_method<H, Mark>(handler: H) -> HandlerKind
 where
-	H: IntoHandler<M, IncomingBody>,
-	H::Handler: Handler + Send + Sync + 'static,
+	H: IntoHandler<Mark, IncomingBody>,
+	H::Handler: Handler + Clone + Send + Sync + 'static,
 	<H::Handler as Handler>::Response: IntoResponse,
 {
 	let ready_handler = ResponseFutureBoxer::wrap(IntoResponseAdapter::wrap(handler.into_handler()));
 
-	HandlerKind(Inner::AllMethods(ready_handler.into_arc_handler()))
+	HandlerKind(Inner::AllMethods(ready_handler.into_boxed_handler()))
 }
 
-pub fn misdirected_request<H, M>(handler: H) -> HandlerKind
+pub fn misdirected_request<H, Mark>(handler: H) -> HandlerKind
 where
-	H: IntoHandler<M, IncomingBody>,
-	H::Handler: Handler + Send + Sync + 'static,
+	H: IntoHandler<Mark, IncomingBody>,
+	H::Handler: Handler + Clone + Send + Sync + 'static,
 	<H::Handler as Handler>::Response: IntoResponse,
 {
 	let ready_handler = ResponseFutureBoxer::wrap(IntoResponseAdapter::wrap(handler.into_handler()));
 
-	HandlerKind(Inner::MisdirectedRequest(ready_handler.into_arc_handler()))
+	HandlerKind(Inner::MisdirectedRequest(
+		ready_handler.into_boxed_handler(),
+	))
 }
 
 // --------------------------------------------------------------------------------

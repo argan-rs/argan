@@ -11,11 +11,11 @@ use crate::{
 	extension::Extensions,
 	handler::{
 		request_handlers::{handle_misdirected_request, MethodHandlers},
-		AdaptiveHandler, ArcHandler, HandlerKind, IntoArcHandler, IntoHandler,
+		AdaptiveHandler, BoxedHandler, FinalHandler, HandlerKind, IntoHandler,
 	},
 	middleware::{IntoResponseAdapter, LayerTarget, ResponseFutureBoxer},
 	pattern::{Pattern, Similarity},
-	request::{FromRequestHead, Request, RequestHead, FromRequest},
+	request::{FromRequest, FromRequestHead, Request, RequestHead},
 	response::Response,
 	routing::{RouteSegments, RoutingState},
 };
@@ -45,12 +45,12 @@ pub struct Resource {
 	regex_resources: Vec<Resource>,
 	some_wildcard_resource: Option<Box<Resource>>,
 
-	some_request_receiver: Option<ArcHandler>,
-	some_request_passer: Option<ArcHandler>,
-	some_request_handler: Option<ArcHandler>,
+	some_request_receiver: Option<BoxedHandler>,
+	some_request_passer: Option<BoxedHandler>,
+	some_request_handler: Option<BoxedHandler>,
 
 	method_handlers: MethodHandlers,
-	some_misdirected_request_handler: Option<ArcHandler>,
+	some_misdirected_request_handler: Option<BoxedHandler>,
 
 	extensions: Extensions,
 
@@ -878,28 +878,9 @@ impl Resource {
 			use crate::handler::Inner::*;
 
 			match handler_kind.0 {
-				Method(method, handler) => {
-					let ready_handler =
-						ResponseFutureBoxer::wrap(IntoResponseAdapter::wrap(handler.into_handler()));
-
-					self
-						.method_handlers
-						.set_for(method, ready_handler.into_arc_handler())
-				}
-				AllMethods(handler) => {
-					let ready_handler =
-						ResponseFutureBoxer::wrap(IntoResponseAdapter::wrap(handler.into_handler()));
-
-					self
-						.method_handlers
-						.set_for_all_methods(ready_handler.into_arc_handler())
-				}
-				MisdirectedRequest(handler) => {
-					let ready_handler =
-						ResponseFutureBoxer::wrap(IntoResponseAdapter::wrap(handler.into_handler()));
-
-					self.some_misdirected_request_handler = Some(ready_handler.into_arc_handler())
-				}
+				Method(method, handler) => self.method_handlers.set_for(method, handler),
+				AllMethods(handler) => self.method_handlers.set_for_all_methods(handler),
+				MisdirectedRequest(handler) => self.some_misdirected_request_handler = Some(handler),
 			}
 		}
 	}
@@ -914,7 +895,7 @@ impl Resource {
 
 			match layer_target.0 {
 				RequestReceiver(boxed_layer) => {
-					let arc_request_receiver = match self.some_request_receiver.take() {
+					let boxed_request_receiver = match self.some_request_receiver.take() {
 						Some(request_receiver) => request_receiver,
 						None => {
 							let request_receiver = <fn(Request) -> RequestReceiverFuture as IntoHandler<(
@@ -922,15 +903,16 @@ impl Resource {
 								Request,
 							)>>::into_handler(request_receiver);
 
-							ResponseFutureBoxer::wrap(request_receiver).into_arc_handler()
+							ResponseFutureBoxer::wrap(request_receiver).into_boxed_handler()
 						}
 					};
 
-					let arc_request_receiver = boxed_layer.wrap(AdaptiveHandler::from(arc_request_receiver));
-					self.some_request_receiver.replace(arc_request_receiver);
+					let boxed_request_receiver =
+						boxed_layer.wrap(AdaptiveHandler::from(boxed_request_receiver));
+					self.some_request_receiver.replace(boxed_request_receiver);
 				}
 				RequestPasser(boxed_layer) => {
-					let arc_request_passer = match self.some_request_passer.take() {
+					let boxed_request_passer = match self.some_request_passer.take() {
 						Some(request_passer) => request_passer,
 						None => {
 							let request_passer = <fn(Request) -> RequestPasserFuture as IntoHandler<(
@@ -938,56 +920,58 @@ impl Resource {
 								Request,
 							)>>::into_handler(request_passer);
 
-							ResponseFutureBoxer::wrap(request_passer).into_arc_handler()
+							ResponseFutureBoxer::wrap(request_passer).into_boxed_handler()
 						}
 					};
 
-					let arc_request_passer = boxed_layer.wrap(AdaptiveHandler::from(arc_request_passer));
-					self.some_request_passer.replace(arc_request_passer);
+					let boxed_request_passer = boxed_layer.wrap(AdaptiveHandler::from(boxed_request_passer));
+					self.some_request_passer.replace(boxed_request_passer);
 				}
 				RequestHandler(boxed_layer) => {
-					let arc_request_handler = match self.some_request_handler.take() {
+					let boxed_request_handler = match self.some_request_handler.take() {
 						Some(request_handler) => request_handler,
 						None => {
 							let request_handler = <fn(Request) -> BoxedFuture<Response> as IntoHandler<
 								Request,
 							>>::into_handler(request_handler);
 
-							request_handler.into_arc_handler()
+							request_handler.into_boxed_handler()
 						}
 					};
 
-					let arc_request_handler = boxed_layer.wrap(AdaptiveHandler::from(arc_request_handler));
-					self.some_request_handler.replace(arc_request_handler);
+					let boxed_request_handler =
+						boxed_layer.wrap(AdaptiveHandler::from(boxed_request_handler));
+					self.some_request_handler.replace(boxed_request_handler);
 				}
-				MethodHandler(methods, arc_layer) => {
+				MethodHandler(methods, boxed_layer) => {
 					for method in methods {
 						self
 							.method_handlers
-							.wrap_handler_of(method, arc_layer.clone());
+							.wrap_handler_of(method, boxed_layer.boxed_clone());
 					}
 				}
 				AllMethodsHandler(boxed_layer) => {
 					self.method_handlers.wrap_all_methods_handler(boxed_layer);
 				}
 				MisdirectedRequestHandler(boxed_layer) => {
-					let arc_misdirected_request_handler = match self.some_misdirected_request_handler.take() {
+					let boxed_misdirected_request_handler = match self.some_misdirected_request_handler.take()
+					{
 						Some(misdirected_request_handler) => misdirected_request_handler,
 						None => {
 							let misdirected_request_handler = <fn(Request) -> Ready<Response> as IntoHandler<
 								(Private, Request),
 							>>::into_handler(handle_misdirected_request);
 
-							ResponseFutureBoxer::wrap(misdirected_request_handler).into_arc_handler()
+							ResponseFutureBoxer::wrap(misdirected_request_handler).into_boxed_handler()
 						}
 					};
 
-					let arc_misdirected_request_handler =
-						boxed_layer.wrap(AdaptiveHandler::from(arc_misdirected_request_handler));
+					let boxed_misdirected_request_handler =
+						boxed_layer.wrap(AdaptiveHandler::from(boxed_misdirected_request_handler));
 
 					self
 						.some_misdirected_request_handler
-						.replace(arc_misdirected_request_handler);
+						.replace(boxed_misdirected_request_handler);
 				}
 			}
 		}
@@ -1184,7 +1168,7 @@ where
 	async fn from_request(request: Request<B>) -> Result<Self, Self::Error> {
 		let (mut head, _) = request.into_parts();
 
-		<ResourceState::<S> as FromRequestHead>::from_request_head(&mut head).await
+		<ResourceState<S> as FromRequestHead>::from_request_head(&mut head).await
 	}
 }
 

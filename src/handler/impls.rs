@@ -18,16 +18,28 @@ use super::{Handler, IntoHandler};
 // --------------------------------------------------------------------------------
 // --------------------------------------------------------------------------------
 
-#[derive(Debug, Clone)]
-pub struct HandlerFn<Func, M> {
+#[derive(Debug)]
+pub struct HandlerFn<Func, Mark> {
 	func: Func,
-	_mark: PhantomData<fn() -> M>,
+	_mark: PhantomData<fn() -> Mark>,
 }
 
-impl<Func, M> From<Func> for HandlerFn<Func, M> {
+impl<Func, Mark> From<Func> for HandlerFn<Func, Mark> {
 	fn from(func: Func) -> Self {
 		Self {
 			func,
+			_mark: PhantomData,
+		}
+	}
+}
+
+impl<Func, Mark> Clone for HandlerFn<Func, Mark>
+where
+	Func: Clone,
+{
+	fn clone(&self) -> Self {
+		Self {
+			func: self.func.clone(),
 			_mark: PhantomData,
 		}
 	}

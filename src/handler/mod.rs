@@ -155,40 +155,51 @@ pub(crate) trait FinalHandler
 where
 	Self: Handler<IncomingBody, Response = Response, Future = BoxedFuture<Response>> + Send + Sync,
 {
+	fn into_boxed_handler(self) -> BoxedHandler;
+	fn boxed_clone(&self) -> BoxedHandler;
 }
 
-impl<H> FinalHandler for H where
-	H: Handler<IncomingBody, Response = Response, Future = BoxedFuture<Response>> + Send + Sync
+impl<H> FinalHandler for H
+where
+	H: Handler<IncomingBody, Response = Response, Future = BoxedFuture<Response>>
+		+ Clone
+		+ Send
+		+ Sync
+		+ 'static,
 {
-}
+	fn into_boxed_handler(self) -> BoxedHandler {
+		BoxedHandler::new(self)
+	}
 
-pub(crate) trait IntoArcHandler: FinalHandler + Sized + 'static {
-	fn into_arc_handler(self) -> ArcHandler {
-		ArcHandler::new(self)
+	fn boxed_clone(&self) -> BoxedHandler {
+		BoxedHandler::new(self.clone())
 	}
 }
-
-impl<H> IntoArcHandler for H where H: FinalHandler + 'static {}
 
 // --------------------------------------------------
 
-#[derive(Clone)]
-pub(crate) struct ArcHandler(Arc<dyn FinalHandler>);
+pub(crate) struct BoxedHandler(Box<dyn FinalHandler>);
 
-impl Default for ArcHandler {
+impl BoxedHandler {
+	fn new<H: FinalHandler + 'static>(handler: H) -> Self {
+		BoxedHandler(Box::new(handler))
+	}
+}
+
+impl Default for BoxedHandler {
 	#[inline]
 	fn default() -> Self {
-		ArcHandler(Arc::new(DummyHandler::<BoxedFuture<Response>>::new()))
+		BoxedHandler(Box::new(DummyHandler::<BoxedFuture<Response>>::new()))
 	}
 }
 
-impl ArcHandler {
-	fn new<H: FinalHandler + 'static>(handler: H) -> Self {
-		ArcHandler(Arc::new(handler))
+impl Clone for BoxedHandler {
+	fn clone(&self) -> Self {
+		self.0.boxed_clone()
 	}
 }
 
-impl Handler for ArcHandler {
+impl Handler for BoxedHandler {
 	type Response = Response;
 	type Future = BoxedFuture<Self::Response>;
 
@@ -206,6 +217,14 @@ pub(crate) struct DummyHandler<F> {
 
 impl DummyHandler<DefaultResponseFuture> {
 	pub(crate) fn new() -> Self {
+		Self {
+			_future_mark: PhantomData,
+		}
+	}
+}
+
+impl Clone for DummyHandler<DefaultResponseFuture> {
+	fn clone(&self) -> Self {
 		Self {
 			_future_mark: PhantomData,
 		}
@@ -230,6 +249,14 @@ impl DummyHandler<BoxedFuture<Response>> {
 	}
 }
 
+impl Clone for DummyHandler<BoxedFuture<Response>> {
+	fn clone(&self) -> Self {
+		Self {
+			_future_mark: PhantomData,
+		}
+	}
+}
+
 impl Handler for DummyHandler<BoxedFuture<Response>> {
 	type Response = Response;
 	type Future = BoxedFuture<Response>;
@@ -242,12 +269,12 @@ impl Handler for DummyHandler<BoxedFuture<Response>> {
 
 // --------------------------------------------------
 
-pub struct AdaptiveHandler(RequestBodyAdapter<ArcHandler>);
+#[derive(Clone)]
+pub struct AdaptiveHandler(RequestBodyAdapter<BoxedHandler>);
 
 impl<B> Service<Request<B>> for AdaptiveHandler
 where
 	B: Body + Send + Sync + 'static,
-	B::Data: Debug,
 	B::Error: Into<BoxedError>,
 {
 	type Response = Response;
@@ -262,9 +289,9 @@ where
 	}
 }
 
-impl From<ArcHandler> for AdaptiveHandler {
+impl From<BoxedHandler> for AdaptiveHandler {
 	#[inline]
-	fn from(arc_handler: ArcHandler) -> Self {
+	fn from(arc_handler: BoxedHandler) -> Self {
 		Self(RequestBodyAdapter::wrap(arc_handler))
 	}
 }

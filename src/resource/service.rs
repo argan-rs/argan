@@ -8,7 +8,7 @@ use crate::{
 	extension::Extensions,
 	handler::{
 		request_handlers::{handle_misdirected_request, MethodHandlers},
-		ArcHandler, Handler, Service,
+		BoxedHandler, Handler, Service,
 	},
 	pattern::{ParamsList, Pattern},
 	request::Request,
@@ -33,9 +33,9 @@ pub(crate) struct InnerResource {
 	pub(super) regex_resources: Option<Box<[ResourceService]>>,
 	pub(super) wildcard_resource: Option<ResourceService>,
 
-	pub(super) request_receiver: Option<ArcHandler>,
-	pub(super) request_passer: Option<ArcHandler>,
-	pub(super) request_handler: Option<ArcHandler>,
+	pub(super) request_receiver: Option<BoxedHandler>,
+	pub(super) request_passer: Option<BoxedHandler>,
+	pub(super) request_handler: Option<BoxedHandler>,
 
 	pub(super) method_handlers: MethodHandlers,
 

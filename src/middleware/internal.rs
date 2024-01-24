@@ -10,7 +10,7 @@ use pin_project::pin_project;
 use crate::{
 	body::{Body, IncomingBody},
 	common::{BoxedError, BoxedFuture},
-	handler::Handler,
+	handler::{BoxedHandler, DummyHandler, FinalHandler, Handler},
 	request::Request,
 	response::{IntoResponse, Response},
 };
@@ -18,13 +18,13 @@ use crate::{
 // --------------------------------------------------------------------------------
 // --------------------------------------------------------------------------------
 
+#[derive(Clone)]
 pub(crate) struct RequestBodyAdapter<H>(H);
 
 impl<H, B> Handler<B> for RequestBodyAdapter<H>
 where
-	H: Handler<IncomingBody>,
+	H: Handler,
 	B: Body + Send + Sync + 'static,
-	B::Data: Debug,
 	B::Error: Into<BoxedError>,
 {
 	type Response = H::Response;
@@ -49,7 +49,8 @@ impl<H> RequestBodyAdapter<H> {
 
 // --------------------------------------------------------------------------------
 
-pub(crate) struct IntoResponseAdapter<H>(H); // What a creative name!
+#[derive(Clone)]
+pub(crate) struct IntoResponseAdapter<H>(H);
 
 impl<H, B> Handler<B> for IntoResponseAdapter<H>
 where
@@ -104,6 +105,7 @@ where
 
 // --------------------------------------------------------------------------------
 
+#[derive(Clone)]
 pub(crate) struct ResponseFutureBoxer<H>(H);
 
 impl<H, B> Handler<B> for ResponseFutureBoxer<H>

@@ -5,7 +5,7 @@ use tower_layer::Layer as TowerLayer;
 
 use crate::{
 	common::IntoArray,
-	handler::{AdaptiveHandler, ArcHandler, Handler, HandlerService, IntoArcHandler},
+	handler::{AdaptiveHandler, BoxedHandler, FinalHandler, Handler, HandlerService},
 	response::IntoResponse,
 };
 
@@ -58,8 +58,30 @@ where
 
 // --------------------------------------------------
 
-pub(crate) type BoxedLayer = Box<dyn Layer<AdaptiveHandler, Handler = ArcHandler>>;
-pub(crate) type ArcLayer = Arc<dyn Layer<AdaptiveHandler, Handler = ArcHandler>>;
+pub(crate) trait FinalLayer
+where
+	Self: Layer<AdaptiveHandler, Handler = BoxedHandler>,
+{
+	fn into_boxed_layer(self) -> BoxedLayer;
+	fn boxed_clone(&self) -> BoxedLayer;
+}
+
+impl<L> FinalLayer for L
+where
+	L: Layer<AdaptiveHandler, Handler = BoxedHandler> + Clone + 'static,
+{
+	fn into_boxed_layer(self) -> BoxedLayer {
+		Box::new(self)
+	}
+
+	fn boxed_clone(&self) -> BoxedLayer {
+		Box::new(self.clone())
+	}
+}
+
+// --------------------------------------------------
+
+pub(crate) type BoxedLayer = Box<dyn FinalLayer>;
 
 // -------------------------
 
@@ -69,7 +91,7 @@ pub(crate) enum Inner {
 	RequestReceiver(BoxedLayer),
 	RequestPasser(BoxedLayer),
 	RequestHandler(BoxedLayer),
-	MethodHandler(Vec<Method>, ArcLayer),
+	MethodHandler(Vec<Method>, BoxedLayer),
 	AllMethodsHandler(BoxedLayer),
 	MisdirectedRequestHandler(BoxedLayer),
 }
@@ -85,8 +107,8 @@ macro_rules! layer_target_wrapper {
 		pub fn $func<L, M>(layer: L) -> LayerTarget
 		where
 			L: IntoLayer<M, AdaptiveHandler>,
-			L::Layer: Layer<AdaptiveHandler> + 'static,
-			<L::Layer as Layer<AdaptiveHandler>>::Handler: Handler + Send + Sync + 'static,
+			L::Layer: Layer<AdaptiveHandler> + Clone + 'static,
+			<L::Layer as Layer<AdaptiveHandler>>::Handler: Handler + Clone + Send + Sync + 'static,
 			<<L::Layer as Layer<AdaptiveHandler>>::Handler as Handler>::Response: IntoResponse,
 		{
 			LayerTarget(Inner::$kind(Box::new(AdaptiveHandlerWrapper(
@@ -106,13 +128,13 @@ pub fn method_handler_of<M, const N: usize, L, Mark>(methods: M, layer: L) -> La
 where
 	M: IntoArray<Method, N>,
 	L: IntoLayer<Mark, AdaptiveHandler>,
-	L::Layer: Layer<AdaptiveHandler> + 'static,
-	<L::Layer as Layer<AdaptiveHandler>>::Handler: Handler + Send + Sync + 'static,
+	L::Layer: Layer<AdaptiveHandler> + Clone + 'static,
+	<L::Layer as Layer<AdaptiveHandler>>::Handler: Handler + Clone + Send + Sync + 'static,
 	<<L::Layer as Layer<AdaptiveHandler>>::Handler as Handler>::Response: IntoResponse,
 {
 	LayerTarget(Inner::MethodHandler(
 		methods.into_array().into(),
-		Arc::new(AdaptiveHandlerWrapper(layer.into_layer())),
+		AdaptiveHandlerWrapper(layer.into_layer()).into_boxed_layer(),
 	))
 }
 
@@ -122,20 +144,21 @@ layer_target_wrapper!(misdirected_request_handler_with, MisdirectedRequestHandle
 
 // ----------
 
+#[derive(Clone)]
 struct AdaptiveHandlerWrapper<L>(L);
 
 impl<L> Layer<AdaptiveHandler> for AdaptiveHandlerWrapper<L>
 where
-	L: Layer<AdaptiveHandler>,
-	L::Handler: Handler + Send + Sync + 'static,
+	L: Layer<AdaptiveHandler> + Clone,
+	L::Handler: Handler + Clone + Send + Sync + 'static,
 	<L::Handler as Handler>::Response: IntoResponse,
 {
-	type Handler = ArcHandler;
+	type Handler = BoxedHandler;
 
 	fn wrap(&self, handler: AdaptiveHandler) -> Self::Handler {
 		let layered_handler = self.0.wrap(handler);
 		let ready_handler = ResponseFutureBoxer::wrap(IntoResponseAdapter::wrap(layered_handler));
 
-		ready_handler.into_arc_handler()
+		ready_handler.into_boxed_handler()
 	}
 }
