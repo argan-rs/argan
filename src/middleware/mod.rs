@@ -87,13 +87,23 @@ pub(crate) type BoxedLayer = Box<dyn FinalLayer>;
 
 pub struct LayerTarget(pub(crate) Inner);
 
+#[derive(Default)]
 pub(crate) enum Inner {
+	#[default]
+	None,
 	RequestReceiver(BoxedLayer),
 	RequestPasser(BoxedLayer),
 	RequestHandler(BoxedLayer),
 	MethodHandler(Vec<Method>, BoxedLayer),
-	AllMethodsHandler(BoxedLayer),
-	MisdirectedRequestHandler(BoxedLayer),
+	WildcardMethodHandler(BoxedLayer),
+	MistargetedRequestHandler(BoxedLayer),
+}
+
+impl Inner {
+	#[inline(always)]
+	pub(crate) fn take(&mut self) -> Inner {
+		std::mem::take(self)
+	}
 }
 
 trait IntoLayerTargetList<const N: usize> {
@@ -138,9 +148,9 @@ where
 	))
 }
 
-layer_target_wrapper!(all_methods_handler_with, AllMethodsHandler);
+layer_target_wrapper!(wildcard_method_handler_with, WildcardMethodHandler);
 
-layer_target_wrapper!(misdirected_request_handler_with, MisdirectedRequestHandler);
+layer_target_wrapper!(misdirected_request_handler_with, MistargetedRequestHandler);
 
 // ----------
 

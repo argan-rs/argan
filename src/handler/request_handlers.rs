@@ -7,27 +7,37 @@ use http::{HeaderName, HeaderValue, Method, StatusCode};
 
 use crate::{
 	common::{mark::Private, BoxedFuture, Uncloneable},
-	middleware::{BoxedLayer, ResponseFutureBoxer},
+	middleware::{BoxedLayer, LayerTarget, ResponseFutureBoxer},
 	request::Request,
-	response::Response,
+	response::{IntoResponse, Response},
 	routing::UnusedRequest,
 };
 
-use super::{AdaptiveHandler, BoxedHandler, FinalHandler, Handler, IntoHandler};
+use super::{
+	futures::ResponseFuture, AdaptiveHandler, BoxedHandler, FinalHandler, Handler, IntoHandler,
+	MaybeBoxedHandler,
+};
 
 // --------------------------------------------------------------------------------
 // --------------------------------------------------------------------------------
 
+#[derive(Clone)]
 pub(crate) struct MethodHandlers {
-	list: Vec<(Method, BoxedHandler)>,
-	some_all_methods_handler: Option<BoxedHandler>,
+	pub(crate) method_handlers: Vec<(Method, BoxedHandler)>,
+	pub(crate) some_wildcard_method_handler: Option<BoxedHandler>,
+
+	pub(crate) send_allowed_methods: bool,
+	pub(crate) allowed_methods: String,
 }
 
 impl MethodHandlers {
 	pub(crate) fn new() -> Self {
 		MethodHandlers {
-			list: Vec::new(),
-			some_all_methods_handler: None,
+			method_handlers: Vec::new(),
+			some_wildcard_method_handler: None,
+
+			send_allowed_methods: true,
+			allowed_methods: String::new(),
 		}
 	}
 
