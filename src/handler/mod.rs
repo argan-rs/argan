@@ -20,7 +20,9 @@ mod impls;
 mod kind;
 pub(crate) mod request_handlers;
 
-use self::futures::{DefaultResponseFuture, ResponseToResultFuture, ResultToResponseFuture};
+use self::futures::{
+	DefaultResponseFuture, ResponseFuture, ResponseToResultFuture, ResultToResponseFuture,
+};
 pub use impls::*;
 pub use kind::*;
 
@@ -206,6 +208,42 @@ impl Handler for BoxedHandler {
 	#[inline]
 	fn handle(&self, request: Request<IncomingBody>) -> Self::Future {
 		self.0.handle(request)
+	}
+}
+
+// --------------------------------------------------------------------------------
+
+#[derive(Clone)]
+pub(crate) enum MaybeBoxedHandler<H> {
+	Boxed(BoxedHandler),
+	Unboxed(H),
+}
+
+impl<H> MaybeBoxedHandler<H> {
+	#[inline(always)]
+	pub(crate) fn from_boxed(handler: BoxedHandler) -> Self {
+		Self::Boxed(handler)
+	}
+
+	#[inline(always)]
+	pub(crate) fn from_unboxed(handler: H) -> Self {
+		Self::Unboxed(handler)
+	}
+}
+
+impl<H> Handler for MaybeBoxedHandler<H>
+where
+	H: Handler<Response = Response, Future = ResponseFuture>,
+{
+	type Response = Response;
+	type Future = ResponseFuture;
+
+	#[inline(always)]
+	fn handle(&self, request: Request<IncomingBody>) -> Self::Future {
+		match self {
+			MaybeBoxedHandler::Boxed(handler) => ResponseFuture::from(handler.handle(request)),
+			MaybeBoxedHandler::Unboxed(handler) => handler.handle(request),
+		}
 	}
 }
 

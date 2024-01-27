@@ -1,13 +1,13 @@
 use std::{
 	convert::Infallible,
-	future::Future,
-	pin::Pin,
+	future::{Future, Ready},
+	pin::{pin, Pin},
 	task::{Context, Poll},
 };
 
 use pin_project::pin_project;
 
-use crate::response::Response;
+use crate::{common::BoxedFuture, response::Response};
 
 // --------------------------------------------------------------------------------
 // --------------------------------------------------------------------------------
@@ -75,6 +75,39 @@ impl Future for DefaultResponseFuture {
 
 	fn poll(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Self::Output> {
 		Poll::Ready(Response::default())
+	}
+}
+
+// --------------------------------------------------------------------------------
+
+pub(crate) enum ResponseFuture {
+	Boxed(BoxedFuture<Response>),
+	Ready(Ready<Response>),
+}
+
+impl From<BoxedFuture<Response>> for ResponseFuture {
+	#[inline(always)]
+	fn from(boxed_future: BoxedFuture<Response>) -> Self {
+		Self::Boxed(boxed_future)
+	}
+}
+
+impl From<Ready<Response>> for ResponseFuture {
+	#[inline(always)]
+	fn from(ready_future: Ready<Response>) -> Self {
+		Self::Ready(ready_future)
+	}
+}
+
+impl Future for ResponseFuture {
+	type Output = Response;
+
+	#[inline(always)]
+	fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+		match *self {
+			ResponseFuture::Boxed(ref mut boxed) => pin!(boxed).poll(cx),
+			ResponseFuture::Ready(ref mut ready) => pin!(ready).poll(cx),
+		}
 	}
 }
 

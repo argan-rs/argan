@@ -1,7 +1,7 @@
 use std::{
 	convert::Infallible,
 	future::{Future, Ready},
-	pin::{pin, Pin},
+	pin::{self, pin, Pin},
 	sync::Arc,
 	task::{Context, Poll},
 };
