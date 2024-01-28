@@ -10,20 +10,19 @@ use crate::{pattern::ParamsList, request::Request, resource::ResourceService};
 pub(crate) struct RoutingState {
 	pub(crate) path_traversal: RouteTraversal,
 	pub(crate) path_params: ParamsList,
-	pub(crate) current_resource: Option<ResourceService>,
-
+	// pub(crate) current_resource: Option<ResourceService>,
 	pub(crate) subtree_handler_exists: bool,
 }
 
 impl RoutingState {
 	pub(crate) fn new(
 		path_traversal: RouteTraversal,
-		resource_service: ResourceService,
+		// resource_service: ResourceService,
 	) -> RoutingState {
 		Self {
 			path_traversal,
 			path_params: ParamsList::new(),
-			current_resource: Some(resource_service),
+			// current_resource: Some(resource_service),
 			subtree_handler_exists: false,
 		}
 	}
@@ -34,7 +33,7 @@ impl RoutingState {
 pub(crate) struct RouteTraversal(usize);
 
 impl RouteTraversal {
-	#[inline]
+	#[inline(always)]
 	pub(crate) fn for_route(route: &str) -> RouteTraversal {
 		if route.starts_with('/') {
 			Self(1)
@@ -43,12 +42,12 @@ impl RouteTraversal {
 		}
 	}
 
-	#[inline]
+	#[inline(always)]
 	pub(crate) fn has_remaining_segments(&self, route: &str) -> bool {
 		self.0 < route.len()
 	}
 
-	#[inline]
+	#[inline(always)]
 	pub(crate) fn remaining_segments<'req>(&self, route: &'req str) -> Option<&'req str> {
 		if self.0 < route.len() {
 			return Some(&route[self.0..]);
@@ -57,7 +56,7 @@ impl RouteTraversal {
 		None
 	}
 
-	#[inline]
+	#[inline(always)]
 	pub(crate) fn revert_to_segment(&mut self, segment_index: usize) {
 		self.0 = segment_index;
 	}
@@ -66,6 +65,10 @@ impl RouteTraversal {
 	// pub(crate) fn ends_with_trailing_slash(&self, route: &str) -> bool {
 	// 	route != "/" && route.as_bytes().last().unwrap() == &b'/'
 	// }
+
+	pub(crate) fn next_segment_index(&self) -> usize {
+		self.0
+	}
 
 	pub(crate) fn next_segment<'req>(&mut self, route: &'req str) -> Option<(&'req str, usize)> {
 		if self.0 < route.len() {

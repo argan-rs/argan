@@ -7,7 +7,7 @@ use std::{
 
 use hyper::rt::Sleep;
 
-use crate::{pattern::Pattern, routing::RouteSegments};
+use crate::{handler::BoxedHandler, pattern::Pattern, routing::RouteSegments};
 
 // --------------------------------------------------
 
@@ -74,6 +74,7 @@ pub(crate) fn route_to_patterns(patterns: &str) -> Vec<Pattern> {
 }
 
 // --------------------------------------------------------------------------------
+// Uncloneable
 
 pub(crate) struct Uncloneable<T>(Option<T>);
 
@@ -100,6 +101,27 @@ impl<T> Uncloneable<T> {
 
 	pub(crate) fn into_inner(mut self) -> Option<T> {
 		self.0.take()
+	}
+}
+
+// --------------------------------------------------------------------------------
+// MaybeBoxed
+
+#[derive(Clone)]
+pub(crate) enum MaybeBoxed<H> {
+	Boxed(BoxedHandler),
+	Unboxed(H),
+}
+
+impl<H> MaybeBoxed<H> {
+	#[inline(always)]
+	pub(crate) fn from_boxed(handler: BoxedHandler) -> Self {
+		Self::Boxed(handler)
+	}
+
+	#[inline(always)]
+	pub(crate) fn from_unboxed(handler: H) -> Self {
+		Self::Unboxed(handler)
 	}
 }
 

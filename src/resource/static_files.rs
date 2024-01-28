@@ -8,7 +8,7 @@ use httpdate::HttpDate;
 
 use crate::{
 	common::{strip_double_quotes, BoxedError, Uncloneable},
-	handler::{get, request_handlers::handle_misdirected_request},
+	handler::{get, request_handlers::handle_mistargeted_request},
 	request::Request,
 	response::{stream::FileStream, IntoResponse, Response},
 	routing::RoutingState,
@@ -139,29 +139,29 @@ impl From<IoError> for FileServiceError {
 
 #[inline(always)]
 async fn get_handler(
-	request: Request,
+	mut request: Request,
 	files_dir: Arc<Path>,
 	some_hash_storage: Option<Arc<dyn Tagger>>,
 	attachments: bool,
 ) -> Result<Response, Response> {
-	let request_path = request.uri().path();
-
 	let routing_state = request
-		.extensions()
-		.get::<Uncloneable<RoutingState>>()
+		.extensions_mut()
+		.remove::<Uncloneable<RoutingState>>()
 		.expect("Uncloneable<RoutingState> should be inserted before routing starts")
-		.as_ref()
+		.into_inner()
 		.expect("RoutingState should always exist in Uncloneable");
+
+	let request_path = request.uri().path();
 
 	let Some(remaining_segments) = routing_state
 		.path_traversal
 		.remaining_segments(request_path)
 	else {
-		return Err(handle_misdirected_request(request).await); // ???
+		return Err(handle_mistargeted_request(request, routing_state, None).await); // ???
 	};
 
 	let Ok(path) = files_dir.join(remaining_segments).canonicalize() else {
-		return Err(handle_misdirected_request(request).await); // ???
+		return Err(handle_mistargeted_request(request, routing_state, None).await); // ???
 	};
 
 	// TODO: Test canonicalize.
@@ -171,11 +171,12 @@ async fn get_handler(
 
 	let path_metadata = match path.metadata() {
 		Ok(metadata) => metadata,
-		Err(error) => return Err(handle_misdirected_request(request).await), // ???
+		Err(error) => return Err(handle_mistargeted_request(request, routing_state, None).await), // ???
 	};
 
 	if !path_metadata.is_file() {
-		return Err(handle_misdirected_request(request).await); // ???
+		return Err(handle_mistargeted_request(request, routing_state, None).await);
+		// ???
 	}
 
 	match evaluate_preconditions(
