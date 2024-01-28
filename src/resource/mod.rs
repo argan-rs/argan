@@ -10,7 +10,9 @@ use crate::{
 	common::{mark::Private, patterns_to_route, BoxedFuture, IntoArray, Uncloneable},
 	extension::Extensions,
 	handler::{
-		request_handlers::{handle_misdirected_request, MethodHandlers},
+		request_handlers::{
+			handle_mistargeted_request, wrap_mistargeted_request_handler, MethodHandlers,
+		},
 		AdaptiveHandler, BoxedHandler, FinalHandler, HandlerKind, IntoHandler,
 	},
 	middleware::{IntoResponseAdapter, LayerTarget, ResponseFutureBoxer},
@@ -22,13 +24,12 @@ use crate::{
 
 // --------------------------------------------------
 
-mod futures;
 mod service;
 mod static_files;
 
 use self::{
-	futures::{RequestPasserFuture, RequestReceiverFuture},
-	service::{request_handler, request_passer, request_receiver, InnerResource},
+	// futures::{RequestPasserFuture, RequestReceiverFuture},
+	service::{RequestHandler, RequestPasser, RequestReceiver},
 };
 
 pub use service::ResourceService;
@@ -45,12 +46,10 @@ pub struct Resource {
 	regex_resources: Vec<Resource>,
 	some_wildcard_resource: Option<Box<Resource>>,
 
-	some_request_receiver: Option<BoxedHandler>,
-	some_request_passer: Option<BoxedHandler>,
-	some_request_handler: Option<BoxedHandler>,
+	middleware: Vec<LayerTarget>,
 
 	method_handlers: MethodHandlers,
-	some_misdirected_request_handler: Option<BoxedHandler>,
+	some_mistargeted_request_handler: Option<BoxedHandler>,
 
 	extensions: Extensions,
 
@@ -119,11 +118,9 @@ impl Resource {
 			static_resources: Vec::new(),
 			regex_resources: Vec::new(),
 			some_wildcard_resource: None,
-			some_request_receiver: None,
-			some_request_passer: None,
-			some_request_handler: None,
+			middleware: Vec::new(),
 			method_handlers: MethodHandlers::new(),
-			some_misdirected_request_handler: None,
+			some_mistargeted_request_handler: None,
 			extensions: Extensions::new(),
 			is_subtree_handler: false,
 		}
@@ -165,10 +162,7 @@ impl Resource {
 
 	#[inline(always)]
 	fn has_some_effect(&self) -> bool {
-		self.method_handlers.has_some_effect()
-			|| self.some_request_handler.is_some()
-			|| self.some_request_passer.is_some()
-			|| self.some_request_receiver.is_some()
+		self.method_handlers.has_some_effect() && !self.middleware.is_empty()
 	}
 
 	// -------------------------
@@ -878,103 +872,104 @@ impl Resource {
 			use crate::handler::Inner::*;
 
 			match handler_kind.0 {
-				Method(method, handler) => self.method_handlers.set_for(method, handler),
-				AllMethods(handler) => self.method_handlers.set_for_all_methods(handler),
-				MisdirectedRequest(handler) => self.some_misdirected_request_handler = Some(handler),
+				Method(method, handler) => self.method_handlers.set_handler(method, handler),
+				WildcardMethod(handler) => self.method_handlers.set_wildcard_method_handler(handler),
+				MistargetedRequest(handler) => self.some_mistargeted_request_handler = Some(handler),
 			}
 		}
 	}
 
-	pub fn wrap<L, const N: usize>(&mut self, layer_targets: L)
+	pub fn add_layer<L, const N: usize>(&mut self, layer_targets: L)
 	where
 		L: IntoArray<LayerTarget, N>,
 	{
-		let layer_targets = layer_targets.into_array();
-		for layer_target in layer_targets {
-			use crate::middleware::Inner::*;
+		self.middleware.extend(layer_targets.into_array());
 
-			match layer_target.0 {
-				RequestReceiver(boxed_layer) => {
-					let boxed_request_receiver = match self.some_request_receiver.take() {
-						Some(request_receiver) => request_receiver,
-						None => {
-							let request_receiver = <fn(Request) -> RequestReceiverFuture as IntoHandler<(
-								Private,
-								Request,
-							)>>::into_handler(request_receiver);
-
-							ResponseFutureBoxer::wrap(request_receiver).into_boxed_handler()
-						}
-					};
-
-					let boxed_request_receiver =
-						boxed_layer.wrap(AdaptiveHandler::from(boxed_request_receiver));
-					self.some_request_receiver.replace(boxed_request_receiver);
-				}
-				RequestPasser(boxed_layer) => {
-					let boxed_request_passer = match self.some_request_passer.take() {
-						Some(request_passer) => request_passer,
-						None => {
-							let request_passer = <fn(Request) -> RequestPasserFuture as IntoHandler<(
-								Private,
-								Request,
-							)>>::into_handler(request_passer);
-
-							ResponseFutureBoxer::wrap(request_passer).into_boxed_handler()
-						}
-					};
-
-					let boxed_request_passer = boxed_layer.wrap(AdaptiveHandler::from(boxed_request_passer));
-					self.some_request_passer.replace(boxed_request_passer);
-				}
-				RequestHandler(boxed_layer) => {
-					let boxed_request_handler = match self.some_request_handler.take() {
-						Some(request_handler) => request_handler,
-						None => {
-							let request_handler = <fn(Request) -> BoxedFuture<Response> as IntoHandler<
-								Request,
-							>>::into_handler(request_handler);
-
-							request_handler.into_boxed_handler()
-						}
-					};
-
-					let boxed_request_handler =
-						boxed_layer.wrap(AdaptiveHandler::from(boxed_request_handler));
-					self.some_request_handler.replace(boxed_request_handler);
-				}
-				MethodHandler(methods, boxed_layer) => {
-					for method in methods {
-						self
-							.method_handlers
-							.wrap_handler_of(method, boxed_layer.boxed_clone());
-					}
-				}
-				AllMethodsHandler(boxed_layer) => {
-					self.method_handlers.wrap_all_methods_handler(boxed_layer);
-				}
-				MisdirectedRequestHandler(boxed_layer) => {
-					let boxed_misdirected_request_handler = match self.some_misdirected_request_handler.take()
-					{
-						Some(misdirected_request_handler) => misdirected_request_handler,
-						None => {
-							let misdirected_request_handler = <fn(Request) -> Ready<Response> as IntoHandler<
-								(Private, Request),
-							>>::into_handler(handle_misdirected_request);
-
-							ResponseFutureBoxer::wrap(misdirected_request_handler).into_boxed_handler()
-						}
-					};
-
-					let boxed_misdirected_request_handler =
-						boxed_layer.wrap(AdaptiveHandler::from(boxed_misdirected_request_handler));
-
-					self
-						.some_misdirected_request_handler
-						.replace(boxed_misdirected_request_handler);
-				}
-			}
-		}
+		// for layer_target in layer_targets {
+		// 	use crate::middleware::Inner::*;
+		//
+		// 	match layer_target.0 {
+		// 		RequestReceiver(boxed_layer) => {
+		// 			let boxed_request_receiver = match self.some_request_receiver.take() {
+		// 				Some(request_receiver) => request_receiver,
+		// 				None => {
+		// 					let request_receiver = <fn(Request) -> RequestReceiverFuture as IntoHandler<(
+		// 						Private,
+		// 						Request,
+		// 					)>>::into_handler(request_receiver);
+		//
+		// 					ResponseFutureBoxer::wrap(request_receiver).into_boxed_handler()
+		// 				}
+		// 			};
+		//
+		// 			let boxed_request_receiver =
+		// 				boxed_layer.wrap(AdaptiveHandler::from(boxed_request_receiver));
+		// 			self.some_request_receiver.replace(boxed_request_receiver);
+		// 		}
+		// 		RequestPasser(boxed_layer) => {
+		// 			let boxed_request_passer = match self.some_request_passer.take() {
+		// 				Some(request_passer) => request_passer,
+		// 				None => {
+		// 					let request_passer = <fn(Request) -> RequestPasserFuture as IntoHandler<(
+		// 						Private,
+		// 						Request,
+		// 					)>>::into_handler(request_passer);
+		//
+		// 					ResponseFutureBoxer::wrap(request_passer).into_boxed_handler()
+		// 				}
+		// 			};
+		//
+		// 			let boxed_request_passer = boxed_layer.wrap(AdaptiveHandler::from(boxed_request_passer));
+		// 			self.some_request_passer.replace(boxed_request_passer);
+		// 		}
+		// 		RequestHandler(boxed_layer) => {
+		// 			let boxed_request_handler = match self.some_request_handler.take() {
+		// 				Some(request_handler) => request_handler,
+		// 				None => {
+		// 					let request_handler = <fn(Request) -> BoxedFuture<Response> as IntoHandler<
+		// 						Request,
+		// 					>>::into_handler(request_handler);
+		//
+		// 					request_handler.into_boxed_handler()
+		// 				}
+		// 			};
+		//
+		// 			let boxed_request_handler =
+		// 				boxed_layer.wrap(AdaptiveHandler::from(boxed_request_handler));
+		// 			self.some_request_handler.replace(boxed_request_handler);
+		// 		}
+		// 		MethodHandler(methods, boxed_layer) => {
+		// 			for method in methods {
+		// 				self
+		// 					.method_handlers
+		// 					.wrap_handler_of(method, boxed_layer.boxed_clone());
+		// 			}
+		// 		}
+		// 		AllMethodsHandler(boxed_layer) => {
+		// 			self.method_handlers.wrap_all_methods_handler(boxed_layer);
+		// 		}
+		// 		MisdirectedRequestHandler(boxed_layer) => {
+		// 			let boxed_misdirected_request_handler = match self.some_misdirected_request_handler.take()
+		// 			{
+		// 				Some(misdirected_request_handler) => misdirected_request_handler,
+		// 				None => {
+		// 					let misdirected_request_handler = <fn(Request) -> Ready<Response> as IntoHandler<
+		// 						(Private, Request),
+		// 					>>::into_handler(handle_misdirected_request);
+		//
+		// 					ResponseFutureBoxer::wrap(misdirected_request_handler).into_boxed_handler()
+		// 				}
+		// 			};
+		//
+		// 			let boxed_misdirected_request_handler =
+		// 				boxed_layer.wrap(AdaptiveHandler::from(boxed_misdirected_request_handler));
+		//
+		// 			self
+		// 				.some_misdirected_request_handler
+		// 				.replace(boxed_misdirected_request_handler);
+		// 		}
+		// 	}
+		// }
 	}
 
 	// -------------------------
@@ -1015,16 +1010,17 @@ impl Resource {
 			static_resources,
 			regex_resources,
 			some_wildcard_resource: wildcard_resource,
-			some_request_receiver: request_receiver,
-			some_request_passer: request_passer,
-			some_request_handler: request_handler,
+			mut middleware,
 			method_handlers,
+			mut some_mistargeted_request_handler,
 			extensions,
 			is_subtree_handler,
 			..
 		} = self;
 
-		let static_resources = if static_resources.is_empty() {
+		// ----------
+
+		let some_static_resources = if static_resources.is_empty() {
 			None
 		} else {
 			Some(
@@ -1035,7 +1031,7 @@ impl Resource {
 			)
 		};
 
-		let regex_resources = if regex_resources.is_empty() {
+		let some_regex_resources = if regex_resources.is_empty() {
 			None
 		} else {
 			Some(
@@ -1046,20 +1042,69 @@ impl Resource {
 			)
 		};
 
-		let wildcard_resource = wildcard_resource.map(|resource| resource.into_service());
+		let some_wildcard_resource =
+			wildcard_resource.map(|resource| Arc::new(resource.into_service()));
 
-		ResourceService(Arc::new(InnerResource {
+		// -------------------------
+		// RequestHandler
+
+		let some_request_handler = if method_handlers.is_empty() {
+			None
+		} else {
+			match RequestHandler::new(method_handlers, &mut middleware) {
+				Ok(request_handler) => Some(Arc::new(request_handler)),
+				Err(method) => panic!(
+					"{} resource has no {} method handler to wrap",
+					pattern, method
+				),
+			}
+		};
+
+		// -------------------------
+		// MistargetedRequestHandller
+
+		some_mistargeted_request_handler =
+			wrap_mistargeted_request_handler(some_mistargeted_request_handler, &mut middleware);
+
+		// -------------------------
+		// RequestPasser
+
+		let some_request_passer = if some_static_resources.is_some()
+			|| some_regex_resources.is_some()
+			|| some_wildcard_resource.is_some()
+		{
+			Some(RequestPasser::new(
+				some_static_resources,
+				some_regex_resources,
+				some_wildcard_resource,
+				some_mistargeted_request_handler.clone(),
+				&mut middleware,
+			))
+		} else {
+			None
+		};
+
+		// -------------------------
+		// RequestReceiver
+
+		let boxed_request_receiver = RequestReceiver::new(
+			some_request_passer,
+			some_request_handler,
+			some_mistargeted_request_handler.clone(),
+			is_subtree_handler,
+			middleware,
+		);
+
+		// -------------------------
+		// ResourceService
+
+		ResourceService::new(
 			pattern,
-			static_resources,
-			regex_resources,
-			wildcard_resource,
-			request_receiver,
-			request_passer,
-			request_handler,
-			method_handlers,
 			extensions,
 			is_subtree_handler,
-		}))
+			boxed_request_receiver,
+			some_mistargeted_request_handler,
+		)
 	}
 }
 
@@ -1084,11 +1129,9 @@ impl Debug for Resource {
 				static_resources count: {},
 				regex_resources count: {},
 				wildcard_resource exists: {},
-				layered request_receiver exists: {},
-				layered request_passer exists: {},
-				layered request_handler exists: {},
-				method_handlers: {{ count: {}, unsupported_method_handler_exists: {} }},
-				misdirected_request_handler exists: {},
+				middleware count: {},
+				method_handlers: {{ count: {}, wildcard_method_handler_exists: {} }},
+				mistargeted_request_handler exists: {},
 				states count: {},
 				is_subtree_handler: {},
 			}}",
@@ -1097,12 +1140,10 @@ impl Debug for Resource {
 			self.static_resources.len(),
 			self.regex_resources.len(),
 			self.some_wildcard_resource.is_some(),
-			self.some_request_receiver.is_some(),
-			self.some_request_passer.is_some(),
-			self.some_request_handler.is_some(),
+			self.middleware.len(),
 			self.method_handlers.count(),
-			self.method_handlers.has_all_methods_handler(),
-			self.some_misdirected_request_handler.is_some(),
+			self.method_handlers.has_wildcard_method_handler(),
+			self.some_mistargeted_request_handler.is_some(),
 			self.extensions.len(),
 			self.is_subtree_handler,
 		)
@@ -1127,50 +1168,50 @@ pub enum Iteration {
 // --------------------------------------------------
 // ResourceState
 
-pub struct ResourceState<S>(S);
-
-impl<S: Clone + Send + Sync + 'static> FromRequestHead for ResourceState<S> {
-	type Error = Infallible;
-
-	async fn from_request_head(head: &mut RequestHead) -> Result<Self, Self::Error> {
-		let routing_state = head
-			.extensions
-			.get::<Uncloneable<RoutingState>>()
-			.expect("Uncloneable<RoutingState> should have been inserted before routing started")
-			.as_ref()
-			.expect("RoutingState should always exist in Uncloneable");
-
-		let state = routing_state
-			.current_resource
-			.as_ref()
-			.expect(
-				"current resource should be set in the request_passer or the call method of the Service",
-			)
-			.0
-			.extensions
-			.get::<S>()
-			.expect(&format!(
-				"resource should have been provided with a state of type '{:?}'",
-				TypeId::of::<S>()
-			));
-
-		Ok(ResourceState(state.clone()))
-	}
-}
-
-impl<B, S> FromRequest<B> for ResourceState<S>
-where
-	B: Send,
-	S: Clone + Send + Sync + 'static,
-{
-	type Error = Infallible;
-
-	async fn from_request(request: Request<B>) -> Result<Self, Self::Error> {
-		let (mut head, _) = request.into_parts();
-
-		<ResourceState<S> as FromRequestHead>::from_request_head(&mut head).await
-	}
-}
+// pub struct ResourceState<S>(S);
+//
+// impl<S: Clone + Send + Sync + 'static> FromRequestHead for ResourceState<S> {
+// 	type Error = Infallible;
+//
+// 	async fn from_request_head(head: &mut RequestHead) -> Result<Self, Self::Error> {
+// 		let routing_state = head
+// 			.extensions
+// 			.get::<Uncloneable<RoutingState>>()
+// 			.expect("Uncloneable<RoutingState> should have been inserted before routing started")
+// 			.as_ref()
+// 			.expect("RoutingState should always exist in Uncloneable");
+//
+// 		let state = routing_state
+// 			.current_resource
+// 			.as_ref()
+// 			.expect(
+// 				"current resource should be set in the request_passer or the call method of the Service",
+// 			)
+// 			.0
+// 			.extensions
+// 			.get::<S>()
+// 			.expect(&format!(
+// 				"resource should have been provided with a state of type '{:?}'",
+// 				TypeId::of::<S>()
+// 			));
+//
+// 		Ok(ResourceState(state.clone()))
+// 	}
+// }
+//
+// impl<B, S> FromRequest<B> for ResourceState<S>
+// where
+// 	B: Send,
+// 	S: Clone + Send + Sync + 'static,
+// {
+// 	type Error = Infallible;
+//
+// 	async fn from_request(request: Request<B>) -> Result<Self, Self::Error> {
+// 		let (mut head, _) = request.into_parts();
+//
+// 		<ResourceState<S> as FromRequestHead>::from_request_head(&mut head).await
+// 	}
+// }
 
 // --------------------------------------------------------------------------------
 // --------------------------------------------------------------------------------

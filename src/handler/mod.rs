@@ -3,10 +3,11 @@ use std::{convert::Infallible, fmt::Debug, future::Future, marker::PhantomData, 
 use crate::{
 	body::Body,
 	body::IncomingBody,
-	common::{BoxedError, BoxedFuture},
+	common::{BoxedError, BoxedFuture, Uncloneable},
 	middleware::{Layer, RequestBodyAdapter},
 	request::Request,
 	response::Response,
+	routing::RoutingState,
 };
 
 // ----------
@@ -21,7 +22,7 @@ mod kind;
 pub(crate) mod request_handlers;
 
 use self::futures::{
-	DefaultResponseFuture, ResponseFuture, ResponseToResultFuture, ResultToResponseFuture,
+	DefaultResponseFuture, ResponseToResultFuture, ResultToResponseFuture,
 };
 pub use impls::*;
 pub use kind::*;
@@ -152,6 +153,7 @@ where
 pub struct HandlerState<S>(S);
 
 // --------------------------------------------------------------------------------
+// FinalHandler
 
 pub(crate) trait FinalHandler
 where
@@ -179,6 +181,7 @@ where
 }
 
 // --------------------------------------------------
+// BoxedHandler
 
 pub(crate) struct BoxedHandler(Box<dyn FinalHandler>);
 
@@ -212,42 +215,6 @@ impl Handler for BoxedHandler {
 }
 
 // --------------------------------------------------------------------------------
-
-#[derive(Clone)]
-pub(crate) enum MaybeBoxedHandler<H> {
-	Boxed(BoxedHandler),
-	Unboxed(H),
-}
-
-impl<H> MaybeBoxedHandler<H> {
-	#[inline(always)]
-	pub(crate) fn from_boxed(handler: BoxedHandler) -> Self {
-		Self::Boxed(handler)
-	}
-
-	#[inline(always)]
-	pub(crate) fn from_unboxed(handler: H) -> Self {
-		Self::Unboxed(handler)
-	}
-}
-
-impl<H> Handler for MaybeBoxedHandler<H>
-where
-	H: Handler<Response = Response, Future = ResponseFuture>,
-{
-	type Response = Response;
-	type Future = ResponseFuture;
-
-	#[inline(always)]
-	fn handle(&self, request: Request<IncomingBody>) -> Self::Future {
-		match self {
-			MaybeBoxedHandler::Boxed(handler) => ResponseFuture::from(handler.handle(request)),
-			MaybeBoxedHandler::Unboxed(handler) => handler.handle(request),
-		}
-	}
-}
-
-// --------------------------------------------------
 
 pub(crate) struct DummyHandler<F> {
 	_future_mark: PhantomData<fn() -> F>,
