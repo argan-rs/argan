@@ -104,22 +104,20 @@ where
 		} else {
 			let (next_segment, _) = route_traversal
 				.next_segment(route)
-				.expect("route should contain a path segment");
+				.expect(SCOPE_VALIDITY);
 
 			// If pattern is static, we may match it without decoding the segment.
 			// Static patterns keep percent-encoded string.
 			if let Some(result) = self.pattern.is_static_match(next_segment) {
 				result
 			} else {
-				let decoded_segment = Arc::<str>::from(
-					percent_decode_str(next_segment)
-						.decode_utf8()
-						.expect("decoded segment should be a valid utf8 string"), // ???
-				);
+				let Ok(decoded_segment) = percent_decode_str(next_segment).decode_utf8() else {
+					return Box::pin(ready(Ok(StatusCode::BAD_REQUEST.into_response()))); // ???
+				};
 
 				if let Some(result) = self
 					.pattern
-					.is_regex_match(decoded_segment.clone(), &mut path_params)
+					.is_regex_match(decoded_segment.as_ref(), &mut path_params)
 				{
 					result
 				} else {
@@ -412,17 +410,15 @@ impl RequestPasser {
 				break 'some_next_resource Some(next_resource);
 			}
 
-			let decoded_segment = Arc::<str>::from(
-				percent_decode_str(next_segment)
-					.decode_utf8()
-					.expect("decoded segment should be a valid utf8 string"), // ???
-			);
+			let Ok(decoded_segment) = percent_decode_str(next_segment).decode_utf8() else {
+				return Box::pin(ready(StatusCode::BAD_REQUEST.into_response()));
+			};
 
 			if let Some(next_resource) = self.some_regex_resources.as_ref().and_then(|resources| {
 				resources.iter().find(|resource| {
 					resource
 						.pattern
-						.is_regex_match(decoded_segment.clone(), &mut routing_state.path_params)
+						.is_regex_match(decoded_segment.as_ref(), &mut routing_state.path_params)
 						.expect("regex_resources must keep only the resources with a regex pattern")
 				})
 			}) {
