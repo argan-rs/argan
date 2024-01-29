@@ -1,4 +1,5 @@
 use std::{
+	borrow::Cow,
 	fmt::Display,
 	iter::Peekable,
 	slice,
@@ -6,6 +7,7 @@ use std::{
 	sync::{Arc, OnceLock},
 };
 
+use percent_encoding::{percent_encode, NON_ALPHANUMERIC};
 use regex::{CaptureLocations, CaptureNames, Regex};
 
 // --------------------------------------------------
@@ -157,13 +159,19 @@ impl Pattern {
 			}
 
 			buf.extend(chars);
-			return Pattern::Static(buf.into());
+			let encoded_static_pattern =
+				Cow::<str>::from(percent_encode(buf.as_bytes(), NON_ALPHANUMERIC));
+
+			return Pattern::Static(encoded_static_pattern.into());
 		}
 
-		Pattern::Static(pattern.into())
+		let encoded_static_pattern =
+			Cow::<str>::from(percent_encode(pattern.as_bytes(), NON_ALPHANUMERIC));
+
+		Pattern::Static(encoded_static_pattern.into())
 	}
 
-	#[inline]
+	#[inline(always)]
 	pub(crate) fn name(&self) -> Option<&str> {
 		match self {
 			Pattern::Static(_) => None,
@@ -172,7 +180,7 @@ impl Pattern {
 		}
 	}
 
-	#[inline]
+	#[inline(always)]
 	pub(crate) fn is_static(&self) -> bool {
 		if let Pattern::Static(_) = self {
 			return true;
@@ -181,7 +189,7 @@ impl Pattern {
 		false
 	}
 
-	#[inline]
+	#[inline(always)]
 	pub(crate) fn is_regex(&self) -> bool {
 		if let Pattern::Regex(_, _) = self {
 			return true;
@@ -190,7 +198,7 @@ impl Pattern {
 		false
 	}
 
-	#[inline]
+	#[inline(always)]
 	pub(crate) fn is_wildcard(&self) -> bool {
 		if let Pattern::Wildcard(_) = self {
 			return true;
@@ -199,6 +207,7 @@ impl Pattern {
 		false
 	}
 
+	#[inline(always)]
 	pub(crate) fn is_static_match(&self, text: &str) -> Option<bool> {
 		if let Self::Static(pattern) = self {
 			if pattern.as_ref() == text {
@@ -211,18 +220,15 @@ impl Pattern {
 		None
 	}
 
-	pub(crate) fn is_regex_match(
-		&self,
-		text: Arc<str>,
-		params_list: &mut ParamsList,
-	) -> Option<bool> {
+	#[inline]
+	pub(crate) fn is_regex_match(&self, text: &str, params_list: &mut ParamsList) -> Option<bool> {
 		if let Self::Regex(names, Some(regex)) = self {
 			let mut capture_locations = regex.capture_locations();
-			if regex.captures_read(&mut capture_locations, &text).is_some() {
+			if regex.captures_read(&mut capture_locations, text).is_some() {
 				params_list.push(Params::with_regex_captures(
 					names.clone(),
 					capture_locations,
-					text,
+					text.into(),
 				));
 
 				return Some(true);
@@ -234,13 +240,14 @@ impl Pattern {
 		None
 	}
 
+	#[inline(always)]
 	pub(crate) fn is_wildcard_match(
 		&self,
-		text: Arc<str>,
+		text: Cow<str>,
 		params_list: &mut ParamsList,
 	) -> Option<bool> {
 		if let Self::Wildcard(name) = self {
-			params_list.push(Params::with_wildcard_value(name.clone(), text));
+			params_list.push(Params::with_wildcard_value(name.clone(), text.into()));
 
 			return Some(true);
 		} else {
@@ -392,8 +399,8 @@ impl ParamsList {
 
 #[derive(Debug)]
 pub(crate) enum Params {
-	Regex(RegexNames, CaptureLocations, Arc<str>),
-	Wildcard(Arc<str>, Arc<str>),
+	Regex(RegexNames, CaptureLocations, Box<str>),
+	Wildcard(Arc<str>, Box<str>),
 }
 
 impl Params {
@@ -401,13 +408,13 @@ impl Params {
 	fn with_regex_captures(
 		regex_names: RegexNames,
 		capture_locations: CaptureLocations,
-		values: Arc<str>,
+		values: Box<str>,
 	) -> Self {
 		Self::Regex(regex_names, capture_locations, values)
 	}
 
 	#[inline]
-	fn with_wildcard_value(name: Arc<str>, value: Arc<str>) -> Self {
+	fn with_wildcard_value(name: Arc<str>, value: Box<str>) -> Self {
 		Self::Wildcard(name, value)
 	}
 }
@@ -833,22 +840,22 @@ mod test {
 	#[test]
 	fn parse() {
 		let cases = [
-			("", Pattern::Static(Arc::from(""))),
-			("static", Pattern::Static(Arc::from("static"))),
+			("", Pattern::Static("".into())),
+			("static", Pattern::Static("static".into())),
 			(
 				"@capture_name(pattern)",
-				Pattern::Static(Arc::from("@capture_name(pattern)")),
+				Pattern::Static("@capture_name(pattern)".into()),
 			),
 			(
 				r"\$name:@(pattern)",
-				Pattern::Static(Arc::from("$name:@(pattern)")),
+				Pattern::Static("$name:@(pattern)".into()),
 			),
 			(
 				r"\\$name:@(pattern)",
-				Pattern::Static(Arc::from(r"\$name:@(pattern)")),
+				Pattern::Static(r"\$name:@(pattern)".into()),
 			),
-			(r"\*wildcard", Pattern::Static(Arc::from("*wildcard"))),
-			(r"\\*wildcard", Pattern::Static(Arc::from(r"\*wildcard"))),
+			(r"\*wildcard", Pattern::Static("*wildcard".into())),
+			(r"\\*wildcard", Pattern::Static(r"\*wildcard".into())),
 			(
 				"$name:@capture_name(pattern)",
 				Pattern::Regex(
@@ -1029,16 +1036,14 @@ mod test {
 				match case.kind {
 					Kind::Static => assert!(pattern.is_static_match(text).unwrap()),
 					Kind::Regex => {
-						assert!(pattern
-							.is_regex_match(Arc::from(*text), &mut params_list)
-							.unwrap());
+						assert!(pattern.is_regex_match(*text, &mut params_list).unwrap());
 
 						let params = params_list.iter().next().unwrap();
 						assert_eq!(params.to_string(), expected_params.unwrap())
 					}
 					Kind::Wildcard => {
 						assert!(pattern
-							.is_wildcard_match(Arc::from(*text), &mut params_list)
+							.is_wildcard_match(Cow::from(*text), &mut params_list)
 							.unwrap());
 
 						let params = params_list.iter().next().unwrap();
@@ -1052,13 +1057,11 @@ mod test {
 				match case.kind {
 					Kind::Static => assert!(!pattern.is_static_match(*text).unwrap()),
 					Kind::Regex => {
-						assert!(!pattern
-							.is_regex_match(Arc::from(*text), &mut params_list)
-							.unwrap());
+						assert!(!pattern.is_regex_match(*text, &mut params_list).unwrap());
 					}
 					Kind::Wildcard => {
 						assert!(!pattern
-							.is_wildcard_match(Arc::from(*text), &mut params_list)
+							.is_wildcard_match(Cow::from(*text), &mut params_list)
 							.unwrap());
 					}
 				}
