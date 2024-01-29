@@ -3,7 +3,7 @@ use std::{any::Any, convert::Infallible};
 use http::response::Parts;
 
 use crate::{
-	body::{Body, BodyExt, BoxedBody, Bytes},
+	body::{Body, BodyExt, Bytes, HttpBody},
 	common::{BoxedError, SCOPE_VALIDITY},
 	request::FromRequestHead,
 };
@@ -19,7 +19,7 @@ pub mod stream;
 // --------------------------------------------------------------------------------
 // --------------------------------------------------------------------------------
 
-pub type Response<B = BoxedBody> = http::response::Response<B>;
+pub type Response<B = Body> = http::response::Response<B>;
 pub type ResponseHead = Parts;
 
 // --------------------------------------------------
@@ -40,21 +40,12 @@ pub trait IntoResponse {
 
 impl<B> IntoResponse for Response<B>
 where
-	B: Body<Data = Bytes> + Send + Sync + 'static,
+	B: HttpBody<Data = Bytes> + Send + Sync + 'static,
 	B::Error: Into<BoxedError>,
 {
 	fn into_response(self) -> Response {
 		let (head, body) = self.into_parts();
-		let mut some_body = Some(body);
-
-		if let Some(some_boxed_body) = <dyn Any>::downcast_mut::<Option<BoxedBody>>(&mut some_body) {
-			let boxed_body = some_boxed_body.take().expect(SCOPE_VALIDITY);
-
-			return Response::from_parts(head, boxed_body);
-		}
-
-		let body = some_body.expect(SCOPE_VALIDITY);
-		let boxed_body = BoxedBody::new(body.map_err(Into::into));
+		let boxed_body = Body::new(body);
 
 		Response::from_parts(head, boxed_body)
 	}

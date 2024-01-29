@@ -1,13 +1,20 @@
 use std::{
-	any::Any, convert::Infallible, fmt::Debug, future::IntoFuture, process::Output, sync::Arc,
+	any::Any,
+	convert::Infallible,
+	fmt::Debug,
+	future::{ready, IntoFuture},
+	process::Output,
+	sync::Arc,
 };
 
+use bytes::Bytes;
 use http::{Method, StatusCode};
+use http_body_util::BodyExt;
 use percent_encoding::percent_decode_str;
 
 use crate::{
-	body::{Body, IncomingBody},
-	common::{mark::Private, BoxedError, BoxedFuture, MaybeBoxed, Uncloneable},
+	body::{Body, HttpBody},
+	common::{mark::Private, BoxedError, BoxedFuture, MaybeBoxed, Uncloneable, SCOPE_VALIDITY},
 	extension::Extensions,
 	handler::{
 		futures::ResponseToResultFuture,
@@ -20,7 +27,7 @@ use crate::{
 	middleware::{BoxedLayer, LayerTarget, ResponseFutureBoxer},
 	pattern::{ParamsList, Pattern},
 	request::Request,
-	response::Response,
+	response::{IntoResponse, Response},
 	routing::{RouteTraversal, RoutingState, UnusedRequest},
 };
 
@@ -73,19 +80,17 @@ impl ResourceService {
 
 impl<B> Service<Request<B>> for ResourceService
 where
-	B: Body + Send + Sync + 'static,
-	B::Data: Debug,
+	B: HttpBody<Data = Bytes> + Send + Sync + 'static,
 	B::Error: Into<BoxedError>,
 {
 	type Response = Response;
 	type Error = Infallible;
 	type Future = BoxedFuture<Result<Response, Infallible>>;
 
-	#[inline]
 	fn call(&self, request: Request<B>) -> Self::Future {
 		let (head, body) = request.into_parts();
-		let incoming_body = IncomingBody::new(body);
-		let mut request = Request::<IncomingBody>::from_parts(head, incoming_body);
+		let incoming_body = Body::new(body);
+		let mut request = Request::<Body>::from_parts(head, incoming_body);
 
 		let route = request.uri().path();
 		let mut route_traversal = RouteTraversal::for_route(route);
@@ -310,7 +315,8 @@ impl Handler for RequestReceiver {
 	type Response = Response;
 	type Future = BoxedFuture<Response>;
 
-	fn handle(&self, mut request: Request<IncomingBody>) -> Self::Future {
+	#[inline]
+	fn handle(&self, mut request: Request) -> Self::Future {
 		let mut routing_state = request
 			.extensions_mut()
 			.remove::<Uncloneable<RoutingState>>()
@@ -463,7 +469,8 @@ impl Handler for RequestPasser {
 	type Response = Response;
 	type Future = BoxedFuture<Response>;
 
-	fn handle(&self, mut request: Request<IncomingBody>) -> Self::Future {
+	#[inline]
+	fn handle(&self, mut request: Request) -> Self::Future {
 		let mut routing_state = request
 			.extensions_mut()
 			.remove::<Uncloneable<RoutingState>>()
@@ -596,7 +603,7 @@ impl Handler for RequestHandler {
 	type Response = Response;
 	type Future = BoxedFuture<Response>;
 
-	fn handle(&self, request: Request<IncomingBody>) -> Self::Future {
+	fn handle(&self, request: Request) -> Self::Future {
 		let method = request.method().clone();
 		let some_method_handler = self.method_handlers.iter().find(|(m, _)| m == method);
 

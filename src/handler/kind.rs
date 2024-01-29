@@ -3,7 +3,7 @@ use std::str::FromStr;
 use http::Method;
 
 use crate::{
-	body::IncomingBody,
+	body::Body,
 	common::IntoArray,
 	middleware::{IntoResponseAdapter, ResponseFutureBoxer},
 	response::IntoResponse,
@@ -34,7 +34,7 @@ macro_rules! handler_kind_by_method {
 	($func:ident, $http_method:path) => {
 		pub fn $func<H, Mark>(handler: H) -> HandlerKind
 		where
-			H: IntoHandler<Mark, IncomingBody>,
+			H: IntoHandler<Mark, Body>,
 			H::Handler: Handler + Clone + Send + Sync + 'static,
 			<H::Handler as Handler>::Response: IntoResponse,
 		{
@@ -62,7 +62,7 @@ handler_kind_by_method!(trace, Method::TRACE);
 pub fn method<M, H, Mark>(method: M, handler: H) -> HandlerKind
 where
 	M: AsRef<str>,
-	H: IntoHandler<Mark, IncomingBody>,
+	H: IntoHandler<Mark, Body>,
 	H::Handler: Handler + Clone + Send + Sync + 'static,
 	<H::Handler as Handler>::Response: IntoResponse,
 {
@@ -76,7 +76,7 @@ where
 
 pub fn wildcard_method<H, Mark>(handler: H) -> HandlerKind
 where
-	H: IntoHandler<Mark, IncomingBody>,
+	H: IntoHandler<Mark, Body>,
 	H::Handler: Handler + Clone + Send + Sync + 'static,
 	<H::Handler as Handler>::Response: IntoResponse,
 {
@@ -87,7 +87,7 @@ where
 
 pub fn mistargeted_request<H, Mark>(handler: H) -> HandlerKind
 where
-	H: IntoHandler<Mark, IncomingBody>,
+	H: IntoHandler<Mark, Body>,
 	H::Handler: Handler + Clone + Send + Sync + 'static,
 	<H::Handler as Handler>::Response: IntoResponse,
 {

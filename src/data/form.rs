@@ -6,7 +6,7 @@ use mime::Mime;
 use multer::parse_boundary;
 
 use crate::{
-	body::IncomingBody,
+	body::{Body, HttpBody},
 	common::{BoxedError, SCOPE_VALIDITY},
 	request::content_type,
 	StdError,
@@ -24,7 +24,7 @@ pub struct Form<T, const SIZE_LIMIT: usize = { 2 * 1024 * 1024 }>(pub T);
 
 impl<B, T, const SIZE_LIMIT: usize> FromRequest<B> for Form<T, SIZE_LIMIT>
 where
-	B: Body + Send,
+	B: HttpBody + Send,
 	B::Data: Send,
 	B::Error: Into<BoxedError>,
 	T: DeserializeOwned,
@@ -91,7 +91,7 @@ data_error! {
 // Multipart
 
 pub struct Multipart<const SIZE_LIMIT: usize = { 8 * 1024 * 1024 }> {
-	body_stream: BodyStream<IncomingBody>,
+	body_stream: BodyStream<Body>,
 	boundary: String,
 	some_constraints: Option<Constraints>,
 }
@@ -145,7 +145,7 @@ impl<const SIZE_LIMIT: usize> Multipart<SIZE_LIMIT> {
 
 impl<B, const SIZE_LIMIT: usize> FromRequest<B> for Multipart<SIZE_LIMIT>
 where
-	B: Body + Send + Sync + 'static,
+	B: HttpBody<Data = Bytes> + Send + Sync + 'static,
 	B::Error: Into<BoxedError>,
 {
 	type Error = MultipartFormError;
@@ -155,7 +155,7 @@ where
 
 		parse_boundary(content_type_str)
 			.map(|boundary| {
-				let incoming_body = IncomingBody::new(request.into_body());
+				let incoming_body = Body::new(request.into_body());
 				let body_stream = BodyStream::new(incoming_body);
 
 				let multipart_form = Multipart {

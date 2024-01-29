@@ -17,11 +17,11 @@ use http::{
 	HeaderValue, StatusCode,
 };
 use http_body_util::BodyExt;
-use hyper::body::{Body, Frame};
 use percent_encoding::{percent_encode, NON_ALPHANUMERIC};
 use rand::{rngs::SmallRng, Rng, SeedableRng};
 
 use crate::{
+	body::{Body, Frame, HttpBody},
 	common::{BoxedError, SCOPE_VALIDITY},
 	response::{IntoResponse, Response},
 };
@@ -277,7 +277,7 @@ fn single_range_response(mut file_stream: FileStream) -> Response {
 		&file_stream.current_range_remaining_size.to_string()
 	);
 
-	*response.body_mut() = file_stream.boxed();
+	*response.body_mut() = Body::new(file_stream);
 
 	response
 }
@@ -330,7 +330,7 @@ fn multipart_ranges_response(file_stream: FileStream) -> Response {
 
 	insert_header!(response, CONTENT_LENGTH, &body_size.to_string());
 
-	*response.body_mut() = file_stream.boxed();
+	*response.body_mut() = Body::new(file_stream);
 
 	response
 }
@@ -371,7 +371,7 @@ fn part_header_size(
 
 // ----------
 
-impl Body for FileStream {
+impl HttpBody for FileStream {
 	type Data = Bytes;
 	type Error = BoxedError;
 
