@@ -13,9 +13,7 @@ use crate::{
 	routing::{RoutingState, UnusedRequest},
 };
 
-use super::{
-	AdaptiveHandler, BoxedHandler, FinalHandler, Handler, IntoHandler,
-};
+use super::{AdaptiveHandler, BoxedHandler, FinalHandler, Handler, IntoHandler};
 
 // --------------------------------------------------------------------------------
 // --------------------------------------------------------------------------------

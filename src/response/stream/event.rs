@@ -11,11 +11,11 @@ use http::{
 	HeaderValue,
 };
 use http_body_util::BodyExt;
-use hyper::body::{Body, Frame};
 use pin_project::pin_project;
 use serde::Serialize;
 
 use crate::{
+	body::{Body, Frame, HttpBody},
 	common::{BoxedError, Interval},
 	response::{IntoResponse, Response},
 };
@@ -54,7 +54,7 @@ where
 	E: Into<BoxedError> + Send + Sync,
 {
 	fn into_response(self) -> Response {
-		let mut response = Response::new(self.into_body().boxed());
+		let mut response = Response::new(Body::new(self.into_body()));
 		response.headers_mut().insert(
 			CONTENT_TYPE,
 			HeaderValue::from_static(mime::TEXT_EVENT_STREAM.as_ref()),
@@ -77,7 +77,7 @@ struct EventStreamBody<S> {
 	keep_alive_interval: Option<Interval>,
 }
 
-impl<S, E> Body for EventStreamBody<S>
+impl<S, E> HttpBody for EventStreamBody<S>
 where
 	S: Stream<Item = Result<Event, E>>,
 	E: Into<BoxedError>,

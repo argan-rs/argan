@@ -13,12 +13,12 @@ use http::{
 	StatusCode, Version,
 };
 use http_body_util::{BodyExt, Empty, Full, LengthLimitError, Limited};
-use hyper::body::{Body, Bytes};
 use pin_project::pin_project;
 use serde::{de::DeserializeOwned, Serialize};
 use serde_json::error::Category;
 
 use crate::{
+	body::{Body, Bytes, HttpBody},
 	common::BoxedError,
 	header::HeaderError,
 	request::{content_type, FromRequest, FromRequestHead, Request, RequestHead},
@@ -45,7 +45,7 @@ pub struct Json<T, const SIZE_LIMIT: usize = { 2 * 1024 * 1024 }>(pub T);
 
 impl<B, T, const SIZE_LIMIT: usize> FromRequest<B> for Json<T, SIZE_LIMIT>
 where
-	B: Body + Send,
+	B: HttpBody + Send,
 	B::Data: Send,
 	B::Error: Into<BoxedError>,
 	T: DeserializeOwned,
@@ -137,7 +137,7 @@ impl IntoResponse for &'static str {
 
 impl<B> FromRequest<B> for String
 where
-	B: Body + Send,
+	B: HttpBody + Send,
 	B::Data: Send,
 	B::Error: Debug,
 {
@@ -224,7 +224,7 @@ impl IntoResponse for Cow<'static, [u8]> {
 
 impl<B> FromRequest<B> for Bytes
 where
-	B: Body + Send,
+	B: HttpBody + Send,
 	B::Data: Send,
 	B::Error: Debug,
 {
@@ -263,7 +263,7 @@ impl IntoResponse for Bytes {
 impl IntoResponse for Empty<Bytes> {
 	#[inline]
 	fn into_response(self) -> Response {
-		Response::new(self.map_err(Into::into).boxed())
+		Response::new(Body::new(self))
 	}
 }
 
@@ -273,7 +273,7 @@ impl IntoResponse for Empty<Bytes> {
 impl IntoResponse for Full<Bytes> {
 	#[inline]
 	fn into_response(self) -> Response {
-		Response::new(self.map_err(Into::into).boxed())
+		Response::new(Body::new(self))
 	}
 }
 

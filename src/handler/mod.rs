@@ -1,8 +1,7 @@
 use std::{convert::Infallible, fmt::Debug, future::Future, marker::PhantomData, sync::Arc};
 
 use crate::{
-	body::Body,
-	body::IncomingBody,
+	body::{Body, HttpBody},
 	common::{BoxedError, BoxedFuture, Uncloneable},
 	middleware::{Layer, RequestBodyAdapter},
 	request::Request,
@@ -12,6 +11,7 @@ use crate::{
 
 // ----------
 
+use bytes::Bytes;
 pub use hyper::service::Service;
 
 // --------------------------------------------------
@@ -21,16 +21,14 @@ mod impls;
 mod kind;
 pub(crate) mod request_handlers;
 
-use self::futures::{
-	DefaultResponseFuture, ResponseToResultFuture, ResultToResponseFuture,
-};
+use self::futures::{DefaultResponseFuture, ResponseToResultFuture, ResultToResponseFuture};
 pub use impls::*;
 pub use kind::*;
 
 // --------------------------------------------------------------------------------
 // --------------------------------------------------------------------------------
 
-pub trait Handler<B = IncomingBody> {
+pub trait Handler<B = Body> {
 	type Response;
 	type Future: Future<Output = Self::Response>;
 
@@ -53,7 +51,7 @@ where
 
 // -------------------------
 
-pub trait IntoHandler<Mark, B = IncomingBody>: Sized {
+pub trait IntoHandler<Mark, B = Body>: Sized {
 	type Handler: Handler<B>;
 
 	fn into_handler(self) -> Self::Handler;
@@ -157,7 +155,7 @@ pub struct HandlerState<S>(S);
 
 pub(crate) trait FinalHandler
 where
-	Self: Handler<IncomingBody, Response = Response, Future = BoxedFuture<Response>> + Send + Sync,
+	Self: Handler<Body, Response = Response, Future = BoxedFuture<Response>> + Send + Sync,
 {
 	fn into_boxed_handler(self) -> BoxedHandler;
 	fn boxed_clone(&self) -> BoxedHandler;
@@ -165,7 +163,7 @@ where
 
 impl<H> FinalHandler for H
 where
-	H: Handler<IncomingBody, Response = Response, Future = BoxedFuture<Response>>
+	H: Handler<Body, Response = Response, Future = BoxedFuture<Response>>
 		+ Clone
 		+ Send
 		+ Sync
@@ -209,7 +207,7 @@ impl Handler for BoxedHandler {
 	type Future = BoxedFuture<Self::Response>;
 
 	#[inline]
-	fn handle(&self, request: Request<IncomingBody>) -> Self::Future {
+	fn handle(&self, request: Request) -> Self::Future {
 		self.0.handle(request)
 	}
 }
@@ -241,7 +239,7 @@ impl Handler for DummyHandler<DefaultResponseFuture> {
 	type Future = DefaultResponseFuture;
 
 	#[inline]
-	fn handle(&self, _req: Request<IncomingBody>) -> Self::Future {
+	fn handle(&self, _req: Request) -> Self::Future {
 		DefaultResponseFuture::new()
 	}
 }
@@ -267,7 +265,7 @@ impl Handler for DummyHandler<BoxedFuture<Response>> {
 	type Future = BoxedFuture<Response>;
 
 	#[inline]
-	fn handle(&self, _req: Request<IncomingBody>) -> Self::Future {
+	fn handle(&self, _req: Request) -> Self::Future {
 		Box::pin(DefaultResponseFuture::new())
 	}
 }
@@ -279,7 +277,7 @@ pub struct AdaptiveHandler(RequestBodyAdapter<BoxedHandler>);
 
 impl<B> Service<Request<B>> for AdaptiveHandler
 where
-	B: Body + Send + Sync + 'static,
+	B: HttpBody<Data = Bytes> + Send + Sync + 'static,
 	B::Error: Into<BoxedError>,
 {
 	type Response = Response;

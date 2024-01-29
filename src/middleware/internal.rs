@@ -5,10 +5,12 @@ use std::{
 	task::{Context, Poll},
 };
 
+use bytes::Bytes;
+use http_body_util::BodyExt;
 use pin_project::pin_project;
 
 use crate::{
-	body::{Body, IncomingBody},
+	body::{Body, HttpBody},
 	common::{BoxedError, BoxedFuture},
 	handler::{BoxedHandler, DummyHandler, FinalHandler, Handler},
 	request::Request,
@@ -24,7 +26,7 @@ pub(crate) struct RequestBodyAdapter<H>(H);
 impl<H, B> Handler<B> for RequestBodyAdapter<H>
 where
 	H: Handler,
-	B: Body + Send + Sync + 'static,
+	B: HttpBody<Data = Bytes> + Send + Sync + 'static,
 	B::Error: Into<BoxedError>,
 {
 	type Response = H::Response;
@@ -33,7 +35,7 @@ where
 	#[inline]
 	fn handle(&self, request: Request<B>) -> Self::Future {
 		let (parts, body) = request.into_parts();
-		let body = IncomingBody::new(body);
+		let body = Body::new(body);
 		let request = Request::from_parts(parts, body);
 
 		self.0.handle(request)

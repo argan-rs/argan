@@ -15,7 +15,7 @@ use http::{
 use serde::{de::DeserializeOwned, Deserializer};
 
 use crate::{
-	body::IncomingBody,
+	body::Body,
 	common::{IntoArray, Uncloneable},
 	header::HeaderError,
 	response::{IntoResponse, IntoResponseHead, Response},
@@ -30,7 +30,7 @@ pub use http::{Method, Uri, Version};
 // --------------------------------------------------------------------------------
 // --------------------------------------------------------------------------------
 
-pub type Request<B = IncomingBody> = http::Request<B>;
+pub type Request<B = Body> = http::Request<B>;
 pub type RequestHead = Parts;
 
 // --------------------------------------------------------------------------------
