@@ -1,16 +1,13 @@
+use bytes::Bytes;
 use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion};
 
-use hyper::service::Service;
+use http_body_util::Empty;
+use hyper::service::Service as HyperService;
 use tokio::runtime::Builder;
 
 // ----------
 
-use argan::{
-	body::{Bytes, Empty},
-	handler::get,
-	request::Request,
-	resource::Resource,
-};
+use argan::{handler::get, request::Request, resource::Resource};
 
 // --------------------------------------------------------------------------------
 // --------------------------------------------------------------------------------
@@ -69,17 +66,17 @@ pub fn request_routing(c: &mut Criterion) {
 
 		// -----
 
-		params.1.regex_patterns.iter().for_each(|(name, pattern)| {
-			let pattern = format!("{}{}{}", name, next_segment_index, pattern);
-			// println!("regex pattern: {}", pattern);
-			resource.subresource_mut(&pattern);
-		});
+		// params.1.regex_patterns.iter().for_each(|(name, pattern)| {
+		// 	let pattern = format!("{}{}{}", name, next_segment_index, pattern);
+		// 	// println!("regex pattern: {}", pattern);
+		// 	resource.subresource_mut(&pattern);
+		// });
 
 		// -----
 
-		let pattern = format!("{}{}", params.1.wildcard_pattern, next_segment_index);
-		// println!("wildcard pattern: {}", pattern);
-		resource.subresource_mut(&pattern);
+		// let pattern = format!("{}{}", params.1.wildcard_pattern, next_segment_index);
+		// // println!("wildcard pattern: {}", pattern);
+		// resource.subresource_mut(&pattern);
 	}
 
 	// Last regex resource will have a handler and subresources.
@@ -90,10 +87,10 @@ pub fn request_routing(c: &mut Criterion) {
 
 		// -----
 
-		params.1.static_patterns.iter().for_each(|pattern| {
-			// println!("static pattern: {}", pattern);
-			resource.subresource_mut(pattern);
-		});
+		// params.1.static_patterns.iter().for_each(|pattern| {
+		// 	// println!("static pattern: {}", pattern);
+		// 	resource.subresource_mut(pattern);
+		// });
 
 		// -----
 
@@ -113,9 +110,9 @@ pub fn request_routing(c: &mut Criterion) {
 
 		// -----
 
-		let pattern = format!("{}{}", params.1.wildcard_pattern, next_segment_index);
-		// println!("wildcard pattern: {}", pattern);
-		resource.subresource_mut(&pattern);
+		// let pattern = format!("{}{}", params.1.wildcard_pattern, next_segment_index);
+		// // println!("wildcard pattern: {}", pattern);
+		// resource.subresource_mut(&pattern);
 	}
 
 	// Each wildcard resource will have a handler and subresources.
@@ -126,18 +123,18 @@ pub fn request_routing(c: &mut Criterion) {
 
 		// -----
 
-		params.1.static_patterns.iter().for_each(|pattern| {
-			// println!("static pattern: {}", pattern);
-			resource.subresource_mut(pattern);
-		});
+		// params.1.static_patterns.iter().for_each(|pattern| {
+		// 	// println!("static pattern: {}", pattern);
+		// 	resource.subresource_mut(pattern);
+		// });
 
 		// -----
 
-		params.1.regex_patterns.iter().for_each(|(name, pattern)| {
-			let pattern = format!("{}{}{}", name, next_segment_index, pattern);
-			// println!("regex pattern: {}", pattern);
-			resource.subresource_mut(&pattern);
-		});
+		// params.1.regex_patterns.iter().for_each(|(name, pattern)| {
+		// 	let pattern = format!("{}{}{}", name, next_segment_index, pattern);
+		// 	// println!("regex pattern: {}", pattern);
+		// 	resource.subresource_mut(&pattern);
+		// });
 
 		// -----
 
@@ -152,21 +149,23 @@ pub fn request_routing(c: &mut Criterion) {
 		}
 	}
 
-	let mut root = Resource::new("/");
-	add_static_resources(&mut root, (0, &param));
-	add_regex_resources(&mut root, (0, &param));
-	add_wildcard_resources(&mut root, (0, &param));
+	// -------------------------
 
-	let service = root.into_service();
 	let runtime = Builder::new_multi_thread()
 		.worker_threads(1)
 		.build()
 		.unwrap();
 
 	let mut bench_group = c.benchmark_group("request_routing");
-	bench_group.sample_size(500);
+	bench_group.sample_size(1000);
 
-	// -----
+	// -------------------------
+	// static resources
+
+	let mut root = Resource::new("/");
+	add_static_resources(&mut root, (0, &param));
+
+	let service = root.into_service();
 
 	bench_group.bench_function(BenchmarkId::new("static segments", 1), |b| {
 		b.to_async(&runtime).iter(|| async {
@@ -204,7 +203,13 @@ pub fn request_routing(c: &mut Criterion) {
 		)
 	});
 
-	// -----
+	// -------------------------
+	// regex resources
+
+	let mut root = Resource::new("/");
+	add_regex_resources(&mut root, (0, &param));
+
+	let service = root.into_service();
 
 	bench_group.bench_function(BenchmarkId::new("regex segments", 1), |b| {
 		b.to_async(&runtime).iter(|| async {
@@ -243,7 +248,13 @@ pub fn request_routing(c: &mut Criterion) {
 		)
 	});
 
-	// -----
+	// -------------------------
+	// wildcard resources
+
+	let mut root = Resource::new("/");
+	add_wildcard_resources(&mut root, (0, &param));
+
+	let service = root.into_service();
 
 	bench_group.bench_function(BenchmarkId::new("wildcard segments", 1), |b| {
 		b.to_async(&runtime).iter(|| async {
