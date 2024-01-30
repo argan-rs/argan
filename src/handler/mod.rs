@@ -43,8 +43,8 @@ where
 	type Response = S::Response;
 	type Future = ResultToResponseFuture<S::Future>;
 
-	fn handle(&self, request: Request<B>, resource_extensions: ResourceExtensions) -> Self::Future {
-		// TODO: Insert ResourceExtensions into the request extensions.
+	fn handle(&self, mut request: Request<B>, resource_extensions: ResourceExtensions) -> Self::Future {
+		request.extensions_mut().insert(resource_extensions.into_owned());
 
 		let result_future = self.call(request);
 
