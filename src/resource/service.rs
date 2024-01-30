@@ -198,8 +198,7 @@ impl RequestReceiver {
 							MaybeBoxed::Boxed(boxed_layer.wrap(boxed_request_receiver.into()));
 					}
 					MaybeBoxed::Unboxed(request_receiver) => {
-						let mut boxed_request_receiver =
-							ResponseFutureBoxer::wrap(request_receiver).into_boxed_handler();
+						let mut boxed_request_receiver = request_receiver.into_boxed_handler();
 
 						maybe_boxed_request_receiver =
 							MaybeBoxed::Boxed(boxed_layer.wrap(boxed_request_receiver.into()));
@@ -397,8 +396,7 @@ impl RequestPasser {
 								MaybeBoxed::from_boxed(boxed_layer.wrap(boxed_request_passer.into()))
 						}
 						MaybeBoxed::Unboxed(request_passer) => {
-							let boxed_request_passer =
-								ResponseFutureBoxer::wrap(request_passer).into_boxed_handler();
+							let boxed_request_passer = request_passer.into_boxed_handler();
 
 							maybe_boxed_request_passer =
 								MaybeBoxed::from_boxed(boxed_layer.wrap(boxed_request_passer.into()));
@@ -578,8 +576,7 @@ impl RequestHandler {
 		}
 
 		if request_handler_middleware_exists {
-			let mut boxed_request_handler =
-				ResponseFutureBoxer::wrap(request_handler).into_boxed_handler();
+			let mut boxed_request_handler = request_handler.into_boxed_handler();
 
 			for layer in middleware.iter_mut().rev() {
 				if let Inner::RequestHandler(_) = &mut layer.0 {
