@@ -5,7 +5,9 @@ use tower_layer::Layer as TowerLayer;
 
 use crate::{
 	common::IntoArray,
-	handler::{AdaptiveHandler, BoxedHandler, FinalHandler, Handler, HandlerService},
+	handler::{
+		AdaptiveHandler, BoxedHandler, FinalHandler, Handler, HandlerService, /* HandlerService */
+	},
 	response::IntoResponse,
 };
 
@@ -167,8 +169,8 @@ where
 
 	fn wrap(&self, handler: AdaptiveHandler) -> Self::Handler {
 		let layered_handler = self.0.wrap(handler);
-		let ready_handler = ResponseFutureBoxer::wrap(IntoResponseAdapter::wrap(layered_handler));
+		let final_handler = ResponseFutureBoxer::wrap(IntoResponseAdapter::wrap(layered_handler));
 
-		ready_handler.into_boxed_handler()
+		final_handler.into_boxed_handler()
 	}
 }

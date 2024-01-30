@@ -24,14 +24,13 @@ use crate::{
 
 // --------------------------------------------------
 
+mod extension;
 mod service;
 mod static_files;
 
-use self::{
-	// futures::{RequestPasserFuture, RequestReceiverFuture},
-	service::{RequestHandler, RequestPasser, RequestReceiver},
-};
+use self::service::{RequestHandler, RequestPasser, RequestReceiver};
 
+pub use extension::ResourceExtensions;
 pub use service::ResourceService;
 pub use static_files::{StaticFiles, Tagger};
 

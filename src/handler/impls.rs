@@ -10,6 +10,7 @@ use pin_project::pin_project;
 use crate::{
 	common::{mark::Private, BoxedFuture},
 	request::{FromRequest, FromRequestHead, Request},
+	resource::ResourceExtensions,
 	response::{IntoResponse, Response},
 };
 
@@ -66,7 +67,7 @@ where
 	type Response = Response;
 	type Future = BoxedFuture<Self::Response>;
 
-	fn handle(&self, request: Request) -> Self::Future {
+	fn handle(&self, request: Request, resource_extensions: ResourceExtensions) -> Self::Future {
 		(self.func)(request)
 	}
 }
@@ -106,7 +107,7 @@ macro_rules! impl_handler_fn {
 			type Response = Response;
 			type Future = HandlerFnFuture<Func, (Private, $($($ps,)*)? $($lp)?), B>;
 
-			fn handle(&self, request: Request<B>) -> Self::Future {
+			fn handle(&self, request: Request<B>, resource_extensions: ResourceExtensions) -> Self::Future {
 				let func_clone = self.func.clone();
 
 				HandlerFnFuture::new(func_clone, request)

@@ -9,6 +9,7 @@ use crate::{
 	common::{mark::Private, BoxedFuture, Uncloneable},
 	middleware::{BoxedLayer, LayerTarget, ResponseFutureBoxer},
 	request::Request,
+	resource::ResourceExtensions,
 	response::{IntoResponse, Response},
 	routing::{RoutingState, UnusedRequest},
 };
@@ -116,7 +117,7 @@ impl Handler for UnimplementedMethodHandler {
 	type Response = Response;
 	type Future = Ready<Response>;
 
-	fn handle(&self, request: Request) -> Self::Future {
+	fn handle(&self, request: Request, _resource_extensions: ResourceExtensions) -> Self::Future {
 		match HeaderValue::from_str(&self.0) {
 			Ok(header_value) => {
 				let mut response = Response::default();
@@ -176,7 +177,7 @@ impl Handler for MistargetedRequestHandler {
 	type Response = Response;
 	type Future = Ready<Response>;
 
-	fn handle(&self, _request: Request) -> Self::Future {
+	fn handle(&self, _request: Request, _resource_extensions: ResourceExtensions) -> Self::Future {
 		let mut response = Response::default();
 		*response.status_mut() = StatusCode::NOT_FOUND;
 
@@ -219,15 +220,17 @@ pub(crate) fn wrap_mistargeted_request_handler(
 pub(crate) fn handle_mistargeted_request(
 	mut request: Request,
 	routing_state: RoutingState,
-	some_mistargeted_request_handler: Option<&BoxedHandler>,
+	mut some_custom_handler_with_extensions: Option<(&BoxedHandler, ResourceExtensions)>,
 ) -> BoxedFuture<Response> {
-	if let Some(mistargeted_request_handler) = some_mistargeted_request_handler.as_ref() {
+	if let Some((mistargeted_request_handler, resource_extensions)) =
+		some_custom_handler_with_extensions.take()
+	{
 		request
 			.extensions_mut()
 			.insert(Uncloneable::from(routing_state));
 
 		// Custom handler with a custom 404 Not Found respnose.
-		return mistargeted_request_handler.handle(request);
+		return mistargeted_request_handler.handle(request, resource_extensions);
 	}
 
 	let mut response = Response::default();
