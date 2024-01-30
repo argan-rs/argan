@@ -14,6 +14,7 @@ use crate::{
 	common::{BoxedError, BoxedFuture},
 	handler::{BoxedHandler, DummyHandler, FinalHandler, Handler},
 	request::Request,
+	resource::ResourceExtensions,
 	response::{IntoResponse, Response},
 };
 
@@ -33,12 +34,12 @@ where
 	type Future = H::Future;
 
 	#[inline]
-	fn handle(&self, request: Request<B>) -> Self::Future {
+	fn handle(&self, request: Request<B>, resource_extensions: ResourceExtensions) -> Self::Future {
 		let (parts, body) = request.into_parts();
 		let body = Body::new(body);
 		let request = Request::from_parts(parts, body);
 
-		self.0.handle(request)
+		self.0.handle(request, resource_extensions)
 	}
 }
 
@@ -63,8 +64,8 @@ where
 	type Future = IntoResponseFuture<H::Future>;
 
 	#[inline]
-	fn handle(&self, request: Request<B>) -> Self::Future {
-		let response_future = self.0.handle(request);
+	fn handle(&self, request: Request<B>, resource_extensions: ResourceExtensions) -> Self::Future {
+		let response_future = self.0.handle(request, resource_extensions);
 
 		IntoResponseFuture::from(response_future)
 	}
@@ -118,8 +119,8 @@ where
 	type Response = Response;
 	type Future = BoxedFuture<Response>;
 
-	fn handle(&self, request: Request<B>) -> Self::Future {
-		let response_future = self.0.handle(request);
+	fn handle(&self, request: Request<B>, resource_extensions: ResourceExtensions) -> Self::Future {
+		let response_future = self.0.handle(request, resource_extensions);
 
 		Box::pin(response_future)
 	}

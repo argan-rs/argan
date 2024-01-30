@@ -175,8 +175,7 @@ async fn get_handler(
 	};
 
 	if !path_metadata.is_file() {
-		return Err(handle_mistargeted_request(request, routing_state, None).await);
-		// ???
+		return Err(handle_mistargeted_request(request, routing_state, None).await); // ???
 	}
 
 	match evaluate_preconditions(

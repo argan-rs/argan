@@ -5,6 +5,7 @@ use crate::{
 	common::{BoxedError, BoxedFuture, Uncloneable},
 	middleware::{Layer, RequestBodyAdapter},
 	request::Request,
+	resource::ResourceExtensions,
 	response::Response,
 	routing::RoutingState,
 };
@@ -32,7 +33,7 @@ pub trait Handler<B = Body> {
 	type Response;
 	type Future: Future<Output = Self::Response>;
 
-	fn handle(&self, request: Request<B>) -> Self::Future;
+	fn handle(&self, request: Request<B>, resource_extensions: ResourceExtensions) -> Self::Future;
 }
 
 impl<S, B> Handler<B> for S
@@ -42,7 +43,9 @@ where
 	type Response = S::Response;
 	type Future = ResultToResponseFuture<S::Future>;
 
-	fn handle(&self, request: Request<B>) -> Self::Future {
+	fn handle(&self, request: Request<B>, resource_extensions: ResourceExtensions) -> Self::Future {
+		// TODO: Insert ResourceExtensions into the request extensions.
+
 		let result_future = self.call(request);
 
 		ResultToResponseFuture::from(result_future)
@@ -104,8 +107,13 @@ where
 	type Future = ResponseToResultFuture<H::Future>;
 
 	#[inline]
-	fn call(&self, request: Request<B>) -> Self::Future {
-		let response_future = self.handler.handle(request);
+	fn call(&self, mut request: Request<B>) -> Self::Future {
+		let resource_extensions = request
+			.extensions_mut()
+			.remove::<ResourceExtensions>()
+			.expect("when layered, resource extensions must be inserted into the request");
+
+		let response_future = self.handler.handle(request, resource_extensions);
 
 		ResponseToResultFuture::from(response_future)
 	}
@@ -133,7 +141,11 @@ where
 	type Future = H::Future;
 
 	#[inline]
-	fn handle(&self, mut request: Request<B>) -> Self::Future {
+	fn handle(
+		&self,
+		mut request: Request<B>,
+		resource_extensions: ResourceExtensions,
+	) -> Self::Future {
 		if let Some(_previous_state_with_the_same_type) = request
 			.extensions_mut()
 			.insert(HandlerState(self.state.clone()))
@@ -141,7 +153,7 @@ where
 			panic!("state with the same type exists")
 		}
 
-		self.inner.handle(request)
+		self.inner.handle(request, resource_extensions)
 	}
 }
 
@@ -207,8 +219,8 @@ impl Handler for BoxedHandler {
 	type Future = BoxedFuture<Self::Response>;
 
 	#[inline]
-	fn handle(&self, request: Request) -> Self::Future {
-		self.0.handle(request)
+	fn handle(&self, request: Request, resource_extensions: ResourceExtensions) -> Self::Future {
+		self.0.handle(request, resource_extensions)
 	}
 }
 
@@ -239,7 +251,7 @@ impl Handler for DummyHandler<DefaultResponseFuture> {
 	type Future = DefaultResponseFuture;
 
 	#[inline]
-	fn handle(&self, _req: Request) -> Self::Future {
+	fn handle(&self, _req: Request, _resource_extensions: ResourceExtensions) -> Self::Future {
 		DefaultResponseFuture::new()
 	}
 }
@@ -265,7 +277,7 @@ impl Handler for DummyHandler<BoxedFuture<Response>> {
 	type Future = BoxedFuture<Response>;
 
 	#[inline]
-	fn handle(&self, _req: Request) -> Self::Future {
+	fn handle(&self, _req: Request, _resource_extensions: ResourceExtensions) -> Self::Future {
 		Box::pin(DefaultResponseFuture::new())
 	}
 }
@@ -285,8 +297,13 @@ where
 	type Future = ResponseToResultFuture<BoxedFuture<Response>>;
 
 	#[inline]
-	fn call(&self, request: Request<B>) -> Self::Future {
-		let response_future = self.0.handle(request);
+	fn call(&self, mut request: Request<B>) -> Self::Future {
+		let resource_extensions = request
+			.extensions_mut()
+			.remove::<ResourceExtensions>()
+			.expect("when layered, resource extensions must be inserted into the request");
+
+		let response_future = self.0.handle(request, resource_extensions);
 
 		ResponseToResultFuture::from(response_future)
 	}
@@ -294,8 +311,8 @@ where
 
 impl From<BoxedHandler> for AdaptiveHandler {
 	#[inline]
-	fn from(arc_handler: BoxedHandler) -> Self {
-		Self(RequestBodyAdapter::wrap(arc_handler))
+	fn from(boxed_handler: BoxedHandler) -> Self {
+		Self(RequestBodyAdapter::wrap(boxed_handler))
 	}
 }
 
