@@ -1,6 +1,11 @@
-use std::borrow::Cow;
+use std::{borrow::Cow, convert::Infallible};
 
-use http::Extensions;
+use http::{Extensions, StatusCode};
+
+use crate::{
+	handler::Args,
+	request::{FromRequest, FromRequestHead, Request, RequestHead},
+};
 
 // --------------------------------------------------------------------------------
 // --------------------------------------------------------------------------------
@@ -30,9 +35,44 @@ impl<'r> ResourceExtensions<'r> {
 	}
 }
 
-impl AsRef<Extensions> for ResourceExtensions<'_> {
-	#[inline(always)]
-	fn as_ref(&self) -> &Extensions {
-		self.0.as_ref()
+// --------------------------------------------------
+// ResourceExtension
+
+pub struct ResourceExtension<RE>(RE);
+
+impl<HE, RE> FromRequestHead<HE> for ResourceExtension<RE>
+where
+	HE: Sync,
+	RE: Clone + Send + Sync + 'static,
+{
+	type Error = StatusCode; // ???
+
+	#[inline]
+	async fn from_request_head(
+		head: &mut RequestHead,
+		args: &Args<'_, HE>,
+	) -> Result<Self, Self::Error> {
+		match args.resource_extensions.get_ref::<RE>() {
+			Some(value) => Ok(ResourceExtension(value.clone())),
+			None => Err(StatusCode::INTERNAL_SERVER_ERROR),
+		}
 	}
 }
+
+impl<B, HE, RE> FromRequest<B, HE> for ResourceExtension<RE>
+where
+	B: Send,
+	HE: Sync,
+	RE: Clone + Send + Sync + 'static,
+{
+	type Error = StatusCode; // ???
+
+	#[inline]
+	async fn from_request(request: Request<B>, args: &Args<'_, HE>) -> Result<Self, Self::Error> {
+		let (mut head, _) = request.into_parts();
+
+		<ResourceExtension<RE> as FromRequestHead<HE>>::from_request_head(&mut head, args).await
+	}
+}
+
+// --------------------------------------------------------------------------------

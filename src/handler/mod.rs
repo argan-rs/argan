@@ -4,7 +4,7 @@ use crate::{
 	body::{Body, HttpBody},
 	common::{BoxedError, BoxedFuture, Uncloneable},
 	middleware::{Layer, RequestBodyAdapter},
-	request::Request,
+	request::{FromRequest, FromRequestHead, Request, RequestHead},
 	resource::ResourceExtensions,
 	response::Response,
 	routing::RoutingState,
@@ -13,6 +13,7 @@ use crate::{
 // ----------
 
 use bytes::Bytes;
+use http::StatusCode;
 pub use hyper::service::Service;
 
 // --------------------------------------------------
@@ -88,6 +89,7 @@ where
 }
 
 // -------------------------
+// Args
 
 #[non_exhaustive]
 #[derive(Clone)]
@@ -142,7 +144,8 @@ where
 	}
 }
 
-// -------------------------
+// --------------------------------------------------
+// ExtendedHandler
 
 pub struct ExtendedHandler<H, E> {
 	inner: H,
@@ -179,8 +182,38 @@ where
 #[derive(Clone)]
 pub struct HandlerExtension<E>(E);
 
+impl<E> FromRequestHead<E> for HandlerExtension<E>
+where
+	E: Clone + Sync,
+{
+	type Error = Infallible;
+
+	#[inline]
+	async fn from_request_head(
+		head: &mut RequestHead,
+		args: &Args<'_, E>,
+	) -> Result<Self, Self::Error> {
+		Ok(HandlerExtension(args.handler_extension.clone()))
+	}
+}
+
+impl<B, E> FromRequest<B, E> for HandlerExtension<E>
+where
+	B: Send,
+	E: Clone + Sync,
+{
+	type Error = Infallible;
+
+	#[inline]
+	async fn from_request(request: Request<B>, args: &Args<'_, E>) -> Result<Self, Self::Error> {
+		let (mut head, _) = request.into_parts();
+
+		<HandlerExtension<E> as FromRequestHead<E>>::from_request_head(&mut head, args).await
+	}
+}
+
 // --------------------------------------------------------------------------------
-// FinalHandler
+// FinalHandler trait
 
 pub(crate) trait FinalHandler
 where
@@ -240,6 +273,7 @@ impl Handler for BoxedHandler {
 }
 
 // --------------------------------------------------------------------------------
+// DummyHandler
 
 pub(crate) struct DummyHandler<F> {
 	_future_mark: PhantomData<fn() -> F>,
@@ -298,6 +332,7 @@ impl Handler for DummyHandler<BoxedFuture<Response>> {
 }
 
 // --------------------------------------------------
+// AdaptiveHandler
 
 #[derive(Clone)]
 pub struct AdaptiveHandler(RequestBodyAdapter<BoxedHandler>);

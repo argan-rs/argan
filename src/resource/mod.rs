@@ -1165,54 +1165,6 @@ pub enum Iteration {
 	Stop,
 }
 
-// --------------------------------------------------
-// ResourceState
-
-// pub struct ResourceState<S>(S);
-//
-// impl<S: Clone + Send + Sync + 'static> FromRequestHead for ResourceState<S> {
-// 	type Error = Infallible;
-//
-// 	async fn from_request_head(head: &mut RequestHead) -> Result<Self, Self::Error> {
-// 		let routing_state = head
-// 			.extensions
-// 			.get::<Uncloneable<RoutingState>>()
-// 			.expect("Uncloneable<RoutingState> should have been inserted before routing started")
-// 			.as_ref()
-// 			.expect("RoutingState should always exist in Uncloneable");
-//
-// 		let state = routing_state
-// 			.current_resource
-// 			.as_ref()
-// 			.expect(
-// 				"current resource should be set in the request_passer or the call method of the Service",
-// 			)
-// 			.0
-// 			.extensions
-// 			.get::<S>()
-// 			.expect(&format!(
-// 				"resource should have been provided with a state of type '{:?}'",
-// 				TypeId::of::<S>()
-// 			));
-//
-// 		Ok(ResourceState(state.clone()))
-// 	}
-// }
-//
-// impl<B, S> FromRequest<B> for ResourceState<S>
-// where
-// 	B: Send,
-// 	S: Clone + Send + Sync + 'static,
-// {
-// 	type Error = Infallible;
-//
-// 	async fn from_request(request: Request<B>) -> Result<Self, Self::Error> {
-// 		let (mut head, _) = request.into_parts();
-//
-// 		<ResourceState<S> as FromRequestHead>::from_request_head(&mut head).await
-// 	}
-// }
-
 // --------------------------------------------------------------------------------
 // --------------------------------------------------------------------------------
 
