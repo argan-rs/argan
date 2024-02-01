@@ -8,13 +8,14 @@ use std::{
 use pin_project::pin_project;
 
 use crate::{
+	body::Body,
 	common::{mark::Private, BoxedFuture},
 	request::{FromRequest, FromRequestHead, Request},
 	resource::ResourceExtensions,
 	response::{IntoResponse, Response},
 };
 
-use super::{Handler, IntoHandler};
+use super::{Args, Handler, IntoHandler};
 
 // --------------------------------------------------------------------------------
 // --------------------------------------------------------------------------------
@@ -60,14 +61,14 @@ where
 	}
 }
 
-impl<Func> Handler for HandlerFn<Func, Request>
+impl<Func, E> Handler<Body, E> for HandlerFn<Func, Request>
 where
 	Func: Fn(Request) -> BoxedFuture<Response>,
 {
 	type Response = Response;
 	type Future = BoxedFuture<Self::Response>;
 
-	fn handle(&self, request: Request, resource_extensions: ResourceExtensions) -> Self::Future {
+	fn handle(&self, request: Request, _args: &Args<'_, E>) -> Self::Future {
 		(self.func)(request)
 	}
 }
@@ -94,7 +95,7 @@ macro_rules! impl_handler_fn {
 		}
 
 		#[allow(non_snake_case)]
-		impl<Func, $($($ps,)*)? $($lp,)? Fut, O, B> Handler<B>
+		impl<Func, $($($ps,)*)? $($lp,)? Fut, O, B, E> Handler<B, E>
 			for HandlerFn<Func, (Private, $($($ps,)*)? $($lp)?)>
 		where
 			Func: Fn($($($ps,)*)? $($lp)?) -> Fut + Clone + 'static,
@@ -103,20 +104,28 @@ macro_rules! impl_handler_fn {
 			Fut: Future<Output = O>,
 			O: IntoResponse,
 			B: 'static,
+			E: Clone,
 		{
 			type Response = Response;
-			type Future = HandlerFnFuture<Func, (Private, $($($ps,)*)? $($lp)?), B>;
+			type Future = HandlerFnFuture<Func, (Private, $($($ps,)*)? $($lp)?), B, E>;
 
-			fn handle(&self, request: Request<B>, resource_extensions: ResourceExtensions) -> Self::Future {
+			fn handle(&self, request: Request<B>, args: &Args<'_, E>) -> Self::Future {
 				let func_clone = self.func.clone();
+				let resource_extensions = args.resource_extensions.clone().into_owned();
+				let handler_extension_clone = args.handler_extension.clone();
 
-				HandlerFnFuture::new(func_clone, request)
+				HandlerFnFuture::new(
+					func_clone,
+					request,
+					resource_extensions,
+					handler_extension_clone,
+				)
 			}
 		}
 
 		#[allow(non_snake_case)]
-		impl<Func, $($($ps,)*)? $($lp,)? Fut, O, B> Future
-			for HandlerFnFuture<Func, (Private, $($($ps,)*)? $($lp)?), B>
+		impl<Func, $($($ps,)*)? $($lp,)? Fut, O, B, E> Future
+			for HandlerFnFuture<Func, (Private, $($($ps,)*)? $($lp)?), B, E>
 		where
 			Func: Fn($($($ps,)*)? $($lp)?) -> Fut + Clone + 'static,
 			$($($ps: FromRequestHead,)*)?
@@ -197,17 +206,26 @@ impl_handler_fn!((P1, P2, P3, P4, P5, P6, P7, P8, P9, P10, P11, P12, P13, P14, P
 // --------------------------------------------------
 
 #[pin_project]
-pub struct HandlerFnFuture<Func, M, B> {
+pub struct HandlerFnFuture<Func, M, B, E> {
 	func: Func,
 	some_request: Option<Request<B>>,
+	resource_extensions: ResourceExtensions<'static>,
+	handler_extension: E,
 	_mark: PhantomData<fn() -> M>,
 }
 
-impl<Func, M, B> HandlerFnFuture<Func, M, B> {
-	fn new(func: Func, request: Request<B>) -> Self {
+impl<Func, M, B, E> HandlerFnFuture<Func, M, B, E> {
+	fn new(
+		func: Func,
+		request: Request<B>,
+		resource_extensions: ResourceExtensions<'static>,
+		handler_extension: E,
+	) -> Self {
 		Self {
 			func,
 			some_request: Some(request),
+			resource_extensions,
+			handler_extension,
 			_mark: PhantomData,
 		}
 	}

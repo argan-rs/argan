@@ -10,8 +10,13 @@ pub struct ResourceExtensions<'r>(Cow<'r, Extensions>);
 
 impl<'r> ResourceExtensions<'r> {
 	#[inline(always)]
-	pub(crate) fn new(extensions: &'r Extensions) -> Self {
+	pub(crate) fn new_borrowed(extensions: &'r Extensions) -> Self {
 		Self(Cow::Borrowed(extensions))
+	}
+
+	#[inline(always)]
+	pub(crate) fn new_owned(extensions: Extensions) -> ResourceExtensions<'static> {
+		ResourceExtensions(Cow::Owned(extensions))
 	}
 
 	#[inline(always)]
@@ -20,17 +25,14 @@ impl<'r> ResourceExtensions<'r> {
 	}
 
 	#[inline(always)]
-	pub fn is_empty(&self) -> bool {
-		self.0.is_empty()
-	}
-
-	#[inline(always)]
-	pub fn len(&self) -> usize {
-		self.0.len()
-	}
-
-	#[inline(always)]
 	pub(crate) fn into_owned(self) -> ResourceExtensions<'static> {
 		ResourceExtensions(Cow::<'static, _>::Owned(self.0.into_owned()))
+	}
+}
+
+impl AsRef<Extensions> for ResourceExtensions<'_> {
+	#[inline(always)]
+	fn as_ref(&self) -> &Extensions {
+		self.0.as_ref()
 	}
 }
