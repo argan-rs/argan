@@ -6,9 +6,10 @@ use std::{
 	sync::Arc,
 };
 
+use http::Extensions;
+
 use crate::{
 	common::{mark::Private, patterns_to_route, BoxedFuture, IntoArray, Uncloneable},
-	extension::Extensions,
 	handler::{
 		request_handlers::{
 			handle_mistargeted_request, wrap_mistargeted_request_handler, MethodHandlers,

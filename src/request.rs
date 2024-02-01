@@ -17,6 +17,7 @@ use serde::{de::DeserializeOwned, Deserializer};
 use crate::{
 	body::Body,
 	common::{IntoArray, Uncloneable},
+	handler::Args,
 	header::HeaderError,
 	response::{IntoResponse, IntoResponseHead, Response},
 	routing::RoutingState,
@@ -36,30 +37,35 @@ pub type RequestHead = Parts;
 // --------------------------------------------------------------------------------
 // FromRequestHead trait
 
-pub trait FromRequestHead: Sized {
+pub trait FromRequestHead<E>: Sized {
 	type Error: IntoResponse;
 
 	fn from_request_head(
 		head: &mut RequestHead,
+		args: &Args<'_, E>,
 	) -> impl Future<Output = Result<Self, Self::Error>> + Send;
 }
 
 // --------------------------------------------------------------------------------
 // FromRequest<B> trait
 
-pub trait FromRequest<B>: Sized {
+pub trait FromRequest<B, E>: Sized {
 	type Error: IntoResponse;
 
-	fn from_request(request: Request<B>) -> impl Future<Output = Result<Self, Self::Error>> + Send;
+	fn from_request(
+		request: Request<B>,
+		args: &Args<'_, E>,
+	) -> impl Future<Output = Result<Self, Self::Error>> + Send;
 }
 
-impl<B> FromRequest<B> for Request<B>
+impl<B, E> FromRequest<B, E> for Request<B>
 where
 	B: Send,
+	E: Sync,
 {
 	type Error = Infallible;
 
-	async fn from_request(request: Request<B>) -> Result<Self, Self::Error> {
+	async fn from_request(request: Request<B>, _args: &Args<'_, E>) -> Result<Self, Self::Error> {
 		Ok(request)
 	}
 }
@@ -97,21 +103,25 @@ pub(crate) fn content_type<B>(request: &Request<B>) -> Result<&str, HeaderError>
 // --------------------------------------------------
 // Method
 
-impl FromRequestHead for Method {
+impl<E: Sync> FromRequestHead<E> for Method {
 	type Error = Infallible;
 
-	async fn from_request_head(head: &mut RequestHead) -> Result<Self, Self::Error> {
+	async fn from_request_head(
+		head: &mut RequestHead,
+		_args: &Args<'_, E>,
+	) -> Result<Self, Self::Error> {
 		Ok(head.method.clone())
 	}
 }
 
-impl<B> FromRequest<B> for Method
+impl<B, E> FromRequest<B, E> for Method
 where
 	B: Send,
+	E: Sync,
 {
 	type Error = Infallible;
 
-	async fn from_request(request: Request<B>) -> Result<Self, Self::Error> {
+	async fn from_request(request: Request<B>, _args: &Args<'_, E>) -> Result<Self, Self::Error> {
 		let (head, _) = request.into_parts();
 
 		Ok(head.method)
@@ -129,21 +139,25 @@ impl IntoArray<Method, 1> for Method {
 // --------------------------------------------------
 // Uri
 
-impl FromRequestHead for Uri {
+impl<E: Sync> FromRequestHead<E> for Uri {
 	type Error = Infallible;
 
-	async fn from_request_head(head: &mut RequestHead) -> Result<Self, Self::Error> {
+	async fn from_request_head(
+		head: &mut RequestHead,
+		_args: &Args<'_, E>,
+	) -> Result<Self, Self::Error> {
 		Ok(head.uri.clone())
 	}
 }
 
-impl<B> FromRequest<B> for Uri
+impl<B, E> FromRequest<B, E> for Uri
 where
 	B: Send,
+	E: Sync,
 {
 	type Error = Infallible;
 
-	async fn from_request(request: Request<B>) -> Result<Self, Self::Error> {
+	async fn from_request(request: Request<B>, _args: &Args<'_, E>) -> Result<Self, Self::Error> {
 		let (head, _) = request.into_parts();
 
 		Ok(head.uri)
@@ -153,21 +167,25 @@ where
 // --------------------------------------------------
 // Version
 
-impl FromRequestHead for Version {
+impl<E: Sync> FromRequestHead<E> for Version {
 	type Error = Infallible;
 
-	async fn from_request_head(head: &mut RequestHead) -> Result<Self, Self::Error> {
+	async fn from_request_head(
+		head: &mut RequestHead,
+		_args: &Args<'_, E>,
+	) -> Result<Self, Self::Error> {
 		Ok(head.version)
 	}
 }
 
-impl<B> FromRequest<B> for Version
+impl<B, E> FromRequest<B, E> for Version
 where
 	B: Send,
+	E: Sync,
 {
 	type Error = Infallible;
 
-	async fn from_request(request: Request<B>) -> Result<Self, Self::Error> {
+	async fn from_request(request: Request<B>, _args: &Args<'_, E>) -> Result<Self, Self::Error> {
 		let (head, _) = request.into_parts();
 
 		Ok(head.version)
@@ -190,13 +208,17 @@ where
 	}
 }
 
-impl<T> FromRequestHead for PathParam<T>
+impl<E, T> FromRequestHead<E> for PathParam<T>
 where
+	E: Sync,
 	T: DeserializeOwned,
 {
 	type Error = StatusCode; // TODO.
 
-	async fn from_request_head(head: &mut RequestHead) -> Result<Self, Self::Error> {
+	async fn from_request_head(
+		head: &mut RequestHead,
+		_args: &Args<'_, E>,
+	) -> Result<Self, Self::Error> {
 		let routing_state = head
 			.extensions
 			.get_mut::<Uncloneable<RoutingState>>()
@@ -212,17 +234,18 @@ where
 	}
 }
 
-impl<B, T> FromRequest<B> for PathParam<T>
+impl<B, E, T> FromRequest<B, E> for PathParam<T>
 where
 	B: Send,
+	E: Sync,
 	T: DeserializeOwned,
 {
 	type Error = StatusCode; // TODO.
 
-	async fn from_request(request: Request<B>) -> Result<Self, Self::Error> {
+	async fn from_request(request: Request<B>, _args: &Args<'_, E>) -> Result<Self, Self::Error> {
 		let (mut head, _) = request.into_parts();
 
-		Self::from_request_head(&mut head).await
+		Self::from_request_head(&mut head, _args).await
 	}
 }
 
@@ -231,13 +254,17 @@ where
 
 pub struct QueryParams<T>(pub T);
 
-impl<T> FromRequestHead for QueryParams<T>
+impl<E, T> FromRequestHead<E> for QueryParams<T>
 where
+	E: Sync,
 	T: DeserializeOwned,
 {
 	type Error = StatusCode; // TODO.
 
-	async fn from_request_head(head: &mut RequestHead) -> Result<Self, Self::Error> {
+	async fn from_request_head(
+		head: &mut RequestHead,
+		_args: &Args<'_, E>,
+	) -> Result<Self, Self::Error> {
 		let query_string = head.uri.query().ok_or(StatusCode::BAD_REQUEST)?;
 
 		serde_urlencoded::from_str::<T>(query_string)
@@ -246,17 +273,18 @@ where
 	}
 }
 
-impl<B, T> FromRequest<B> for QueryParams<T>
+impl<B, E, T> FromRequest<B, E> for QueryParams<T>
 where
 	B: Send,
+	E: Sync,
 	T: DeserializeOwned,
 {
 	type Error = StatusCode; // TODO.
 
-	async fn from_request(request: Request<B>) -> Result<Self, Self::Error> {
+	async fn from_request(request: Request<B>, _args: &Args<'_, E>) -> Result<Self, Self::Error> {
 		let (mut head, _) = request.into_parts();
 
-		Self::from_request_head(&mut head).await
+		Self::from_request_head(&mut head, _args).await
 	}
 }
 
@@ -265,47 +293,62 @@ where
 macro_rules! impl_extractions_for_tuples {
 	($t1:ident, $(($($t:ident),*),)? $tl:ident) => {
 		#[allow(non_snake_case)]
-		impl<$t1, $($($t,)*)? $tl> FromRequestHead for ($t1, $($($t,)*)? $tl)
+		impl<$t1, $($($t,)*)? $tl, E> FromRequestHead<E> for ($t1, $($($t,)*)? $tl)
 		where
-			$t1: FromRequestHead + Send,
-			$($($t: FromRequestHead + Send,)*)?
-			$tl: FromRequestHead + Send,
+			$t1: FromRequestHead<E> + Send,
+			$($($t: FromRequestHead<E> + Send,)*)?
+			$tl: FromRequestHead<E> + Send,
+			E: Sync,
 		{
 			type Error = Response;
 
-			async fn from_request_head(head: &mut RequestHead) -> Result<Self, Self::Error> {
-				let $t1 = $t1::from_request_head(head).await.map_err(|error| error.into_response())?;
+			async fn from_request_head(
+				head: &mut RequestHead,
+				args: &Args<'_, E>,
+			) -> Result<Self, Self::Error> {
+				let $t1 = $t1::from_request_head(head, args).await.map_err(|error| error.into_response())?;
 
-				$($(let $t = $t::from_request_head(head).await.map_err(|error| error.into_response())?;)*)?
+				$(
+					$(
+						let $t = $t::from_request_head(head, args).await.map_err(
+							|error| error.into_response()
+						)?;
+					)*
+				)?
 
-				let $tl = $tl::from_request_head(head).await.map_err(|error| error.into_response())?;
+				let $tl = $tl::from_request_head(head, args).await.map_err(|error| error.into_response())?;
 
 				Ok(($t1, $($($t,)*)? $tl))
 			}
 		}
 
 		#[allow(non_snake_case)]
-		impl<$t1, $($($t,)*)? $tl, B> FromRequest<B> for ($t1, $($($t,)*)? $tl)
+		impl<$t1, $($($t,)*)? $tl, B, E> FromRequest<B, E> for ($t1, $($($t,)*)? $tl)
 		where
-			$t1: FromRequestHead + Send,
-			$($($t: FromRequestHead + Send,)*)?
-			$tl: FromRequest<B> + Send,
+			$t1: FromRequestHead<E> + Send,
+			$($($t: FromRequestHead<E> + Send,)*)?
+			$tl: FromRequest<B, E> + Send,
 			B: Send,
+			E: Sync,
 		{
 			type Error = Response;
 
-			async fn from_request(request: Request<B>) -> Result<Self, Self::Error> {
+			async fn from_request(request: Request<B>, args: &Args<'_, E>) -> Result<Self, Self::Error> {
 				let (mut head, body) = request.into_parts();
 
-				let $t1 = $t1::from_request_head(&mut head).await.map_err(|error| error.into_response())?;
+				let $t1 = $t1::from_request_head(&mut head, args).await.map_err(
+					|error| error.into_response()
+				)?;
 
 				$($(
-					let $t = $t::from_request_head(&mut head).await.map_err(|error| error.into_response())?;
+					let $t = $t::from_request_head(&mut head, args).await.map_err(
+						|error| error.into_response()
+					)?;
 				)*)?
 
 				let request = Request::from_parts(head, body);
 
-				let $tl = $tl::from_request(request).await.map_err(|error| error.into_response())?;
+				let $tl = $tl::from_request(request, args).await.map_err(|error| error.into_response())?;
 
 				Ok(($t1, $($($t,)*)? $tl))
 			}

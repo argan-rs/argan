@@ -1,4 +1,5 @@
 use std::{
+	any,
 	borrow::Cow,
 	convert::Infallible,
 	fmt::Debug,
@@ -20,6 +21,7 @@ use serde_json::error::Category;
 use crate::{
 	body::{Body, Bytes, HttpBody},
 	common::BoxedError,
+	handler::Args,
 	header::HeaderError,
 	request::{content_type, FromRequest, FromRequestHead, Request, RequestHead},
 	response::{IntoResponse, IntoResponseHead, Response, ResponseHead},
@@ -39,20 +41,100 @@ pub mod form;
 // --------------------------------------------------------------------------------
 
 // --------------------------------------------------
+// Extensions
+
+pub struct Extension<T>(pub T);
+
+impl<E, T> FromRequestHead<E> for Extension<T>
+where
+	E: Sync,
+	T: Clone + Send + Sync + 'static,
+{
+	type Error = StatusCode; // TODO.
+
+	async fn from_request_head(
+		head: &mut RequestHead,
+		_args: &Args<'_, E>,
+	) -> Result<Self, Self::Error> {
+		match head.extensions.get::<T>() {
+			Some(value) => Ok(Extension(value.clone())),
+			None => Err(StatusCode::INTERNAL_SERVER_ERROR),
+		}
+	}
+}
+
+impl<B, E, T> FromRequest<B, E> for Extension<T>
+where
+	B: Send,
+	E: Sync,
+	T: Clone + Send + Sync + 'static,
+{
+	type Error = StatusCode;
+
+	async fn from_request(request: Request<B>, _args: &Args<'_, E>) -> Result<Self, Self::Error> {
+		let (mut head, _) = request.into_parts();
+
+		Self::from_request_head(&mut head, _args).await
+	}
+}
+
+impl<T> IntoResponseHead for Extension<T>
+where
+	T: Clone + Send + Sync + 'static,
+{
+	type Error = Infallible;
+
+	#[inline(always)]
+	fn into_response_head(self, mut head: ResponseHead) -> Result<ResponseHead, Self::Error> {
+		let Extension(value) = self;
+
+		if head.extensions.insert(value).is_some() {
+			panic!(
+				"type {} has already been used as a response extension",
+				any::type_name::<T>()
+			);
+		}
+
+		Ok(head)
+	}
+}
+
+impl<T> IntoResponse for Extension<T>
+where
+	T: Clone + Send + Sync + 'static,
+{
+	#[inline(always)]
+	fn into_response(self) -> Response {
+		let Extension(value) = self;
+
+		let mut response = Response::default();
+		if response.extensions_mut().insert(value).is_some() {
+			panic!(
+				"type {} has already been used as a response extension",
+				any::type_name::<T>()
+			);
+		}
+
+		response
+	}
+}
+
+// --------------------------------------------------
 // Json
 
 pub struct Json<T, const SIZE_LIMIT: usize = { 2 * 1024 * 1024 }>(pub T);
 
-impl<B, T, const SIZE_LIMIT: usize> FromRequest<B> for Json<T, SIZE_LIMIT>
+impl<B, E, T, const SIZE_LIMIT: usize> FromRequest<B, E> for Json<T, SIZE_LIMIT>
 where
 	B: HttpBody + Send,
 	B::Data: Send,
 	B::Error: Into<BoxedError>,
+	E: Sync,
 	T: DeserializeOwned,
 {
 	type Error = JsonError;
 
-	async fn from_request(request: Request<B>) -> Result<Self, Self::Error> {
+	async fn from_request(request: Request<B>, _args: &Args<'_, E>) -> Result<Self, Self::Error> {
 		let content_type = content_type(&request)?;
 
 		if content_type == mime::APPLICATION_JSON {
@@ -135,15 +217,16 @@ impl IntoResponse for &'static str {
 // --------------------------------------------------
 // String
 
-impl<B> FromRequest<B> for String
+impl<B, E> FromRequest<B, E> for String
 where
 	B: HttpBody + Send,
 	B::Data: Send,
 	B::Error: Debug,
+	E: Sync,
 {
 	type Error = StatusCode; // TODO.
 
-	async fn from_request(request: Request<B>) -> Result<Self, Self::Error> {
+	async fn from_request(request: Request<B>, _args: &Args<'_, E>) -> Result<Self, Self::Error> {
 		let content_type = content_type(&request).map_err(|_| StatusCode::BAD_REQUEST)?;
 
 		if content_type == mime::TEXT_PLAIN_UTF_8 {
@@ -222,15 +305,16 @@ impl IntoResponse for Cow<'static, [u8]> {
 // --------------------------------------------------
 // Bytes
 
-impl<B> FromRequest<B> for Bytes
+impl<B, E> FromRequest<B, E> for Bytes
 where
 	B: HttpBody + Send,
 	B::Data: Send,
 	B::Error: Debug,
+	E: Sync,
 {
 	type Error = StatusCode; // TODO.
 
-	async fn from_request(request: Request<B>) -> Result<Self, Self::Error> {
+	async fn from_request(request: Request<B>, _args: &Args<'_, E>) -> Result<Self, Self::Error> {
 		let content_type_str = content_type(&request).map_err(|_| StatusCode::BAD_REQUEST)?;
 
 		if content_type_str == mime::APPLICATION_OCTET_STREAM {

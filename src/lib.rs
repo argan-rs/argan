@@ -14,7 +14,6 @@ pub mod common;
 
 pub mod body;
 pub mod data;
-pub mod extension;
 pub mod handler;
 pub mod header;
 mod middleware;
