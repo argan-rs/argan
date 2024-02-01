@@ -152,7 +152,7 @@ where
 
 layer_target_wrapper!(wildcard_method_handler_with, WildcardMethodHandler);
 
-layer_target_wrapper!(misdirected_request_handler_with, MistargetedRequestHandler);
+layer_target_wrapper!(mistargeted_request_handler_with, MistargetedRequestHandler);
 
 // ----------
 

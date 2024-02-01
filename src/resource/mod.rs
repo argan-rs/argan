@@ -1,5 +1,5 @@
 use std::{
-	any::{Any, TypeId},
+	any::{self, Any, TypeId},
 	convert::Infallible,
 	fmt::{Debug, Display},
 	future::Ready,
@@ -846,21 +846,21 @@ impl Resource {
 
 	// -------------------------
 
-	pub fn add_state<S: Clone + Send + Sync + 'static>(&mut self, state: S) {
-		if self.extensions.insert(state).is_some() {
+	pub fn add_extension<E: Clone + Send + Sync + 'static>(&mut self, extension: E) {
+		if self.extensions.insert(extension).is_some() {
 			panic!(
-				"resource already has a state of type '{:?}'",
-				TypeId::of::<S>()
+				"resource already has an extension of type '{}'",
+				any::type_name::<E>()
 			);
 		}
 	}
 
-	pub fn state_ref<S: Clone + Send + Sync + 'static>(&self) -> &S {
-		self.extensions.get::<S>().expect(&format!(
-			"resource should have been provided with a state of type '{:?}'",
-			TypeId::of::<S>()
-		))
-	}
+	// pub fn extension_ref<E: Clone + Send + Sync + 'static>(&self) -> &E {
+	// 	self.extensions.get::<E>().expect(&format!(
+	// 		"resource should have been provided with an extension of type '{}'",
+	// 		any::type_name::<E>()
+	// 	))
+	// }
 
 	pub fn set_handler<H, const N: usize>(&mut self, handler_kinds: H)
 	where

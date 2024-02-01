@@ -22,7 +22,7 @@ use crate::{
 			self, handle_mistargeted_request, handle_unimplemented_method, MethodHandlers,
 			MistargetedRequestHandler, UnimplementedMethodHandler,
 		},
-		AdaptiveHandler, BoxedHandler, FinalHandler, Handler, IntoHandler, Service,
+		AdaptiveHandler, Args, BoxedHandler, FinalHandler, Handler, IntoHandler, Service,
 	},
 	middleware::{BoxedLayer, LayerTarget, ResponseFutureBoxer},
 	pattern::{ParamsList, Pattern},
@@ -139,12 +139,15 @@ where
 						.extensions_mut()
 						.insert(Uncloneable::from(routing_state));
 
-					boxed_request_receiver.handle(request, ResourceExtensions::new(&self.extensions))
+					let args =
+						Args::with_resource_extensions(ResourceExtensions::new_borrowed(&self.extensions));
+
+					boxed_request_receiver.handle(request, &args)
 				}
 				MaybeBoxed::Unboxed(request_receiver) => request_receiver.handle_with_routing_state(
 					request,
 					routing_state,
-					ResourceExtensions::new(&self.extensions),
+					ResourceExtensions::new_borrowed(&self.extensions),
 				),
 			}))
 		} else {
@@ -154,7 +157,7 @@ where
 				self
 					.some_mistargeted_request_handler
 					.as_ref()
-					.map(|handler| (handler, ResourceExtensions::new(&self.extensions))),
+					.map(|handler| (handler, ResourceExtensions::new_borrowed(&self.extensions))),
 			)))
 		}
 	}
@@ -233,9 +236,9 @@ impl RequestReceiver {
 							.extensions_mut()
 							.insert(Uncloneable::from(routing_state));
 
-						boxed_request_passer
-							.handle(request, resource_extensions.clone())
-							.into()
+						let args = Args::with_resource_extensions(resource_extensions.clone());
+
+						boxed_request_passer.handle(request, &args).into()
 					}
 					MaybeBoxed::Unboxed(request_passer) => request_passer.handle_with_routing_state(
 						request,
@@ -285,15 +288,13 @@ impl RequestReceiver {
 						.path_traversal
 						.revert_to_segment(next_segment_index);
 
+					let args = Args::with_resource_extensions(resource_extensions);
+
 					match request_handler_clone.as_ref() {
 						MaybeBoxed::Boxed(boxed_request_handler) => {
-							boxed_request_handler
-								.handle(request, resource_extensions)
-								.await
+							boxed_request_handler.handle(request, &args).await
 						}
-						MaybeBoxed::Unboxed(request_handler) => {
-							request_handler.handle(request, resource_extensions).await
-						}
+						MaybeBoxed::Unboxed(request_handler) => request_handler.handle(request, &args).await,
 					}
 				});
 			}
@@ -315,13 +316,11 @@ impl RequestReceiver {
 				.extensions_mut()
 				.insert(Uncloneable::from(routing_state));
 
+			let args = Args::with_resource_extensions(resource_extensions);
+
 			return match request_handler.as_ref() {
-				MaybeBoxed::Boxed(boxed_request_handler) => {
-					boxed_request_handler.handle(request, resource_extensions)
-				}
-				MaybeBoxed::Unboxed(request_handler) => {
-					request_handler.handle(request, resource_extensions)
-				}
+				MaybeBoxed::Boxed(boxed_request_handler) => boxed_request_handler.handle(request, &args),
+				MaybeBoxed::Unboxed(request_handler) => request_handler.handle(request, &args),
 			};
 		}
 
@@ -341,7 +340,7 @@ impl Handler for RequestReceiver {
 	type Future = BoxedFuture<Response>;
 
 	#[inline]
-	fn handle(&self, mut request: Request, resource_extensions: ResourceExtensions) -> Self::Future {
+	fn handle(&self, mut request: Request, args: &Args) -> Self::Future {
 		let mut routing_state = request
 			.extensions_mut()
 			.remove::<Uncloneable<RoutingState>>()
@@ -349,7 +348,7 @@ impl Handler for RequestReceiver {
 			.into_inner()
 			.expect("RoutingState should always exist in Uncloneable");
 
-		self.handle_with_routing_state(request, routing_state, resource_extensions)
+		self.handle_with_routing_state(request, routing_state, args.resource_extensions.clone())
 	}
 }
 
@@ -472,7 +471,9 @@ impl RequestPasser {
 						.extensions_mut()
 						.insert(Uncloneable::from(routing_state));
 
-					return boxed_request_receiver.handle(request, resource_extensions);
+					let args = Args::with_resource_extensions(resource_extensions);
+
+					return boxed_request_receiver.handle(request, &args);
 				}
 				MaybeBoxed::Unboxed(request_receiver) => {
 					return request_receiver.handle_with_routing_state(
@@ -500,7 +501,7 @@ impl Handler for RequestPasser {
 	type Future = BoxedFuture<Response>;
 
 	#[inline]
-	fn handle(&self, mut request: Request, resource_extensions: ResourceExtensions) -> Self::Future {
+	fn handle(&self, mut request: Request, args: &Args) -> Self::Future {
 		let mut routing_state = request
 			.extensions_mut()
 			.remove::<Uncloneable<RoutingState>>()
@@ -508,7 +509,7 @@ impl Handler for RequestPasser {
 			.into_inner()
 			.expect("RoutingState should always exist in Uncloneable");
 
-		self.handle_with_routing_state(request, routing_state, resource_extensions)
+		self.handle_with_routing_state(request, routing_state, args.resource_extensions.clone())
 	}
 }
 
@@ -632,15 +633,15 @@ impl Handler for RequestHandler {
 	type Response = Response;
 	type Future = BoxedFuture<Response>;
 
-	fn handle(&self, request: Request, resource_extensions: ResourceExtensions) -> Self::Future {
+	fn handle(&self, request: Request, args: &Args) -> Self::Future {
 		let method = request.method().clone();
 		let some_method_handler = self.method_handlers.iter().find(|(m, _)| m == method);
 
 		if let Some((_, ref handler)) = some_method_handler {
-			handler.handle(request, resource_extensions).into()
+			handler.handle(request, args).into()
 		} else {
 			if let Some(wildcard_method_handler) = self.some_wildcard_method_handler.as_ref() {
-				wildcard_method_handler.handle(request, resource_extensions)
+				wildcard_method_handler.handle(request, args)
 			} else {
 				handle_unimplemented_method(request, &self.allowed_methods)
 			}
@@ -649,32 +650,6 @@ impl Handler for RequestHandler {
 }
 
 // --------------------------------------------------------------------------------
-
-// #[inline(always)]
-// pub(super) fn request_receiver(request: Request) -> RequestReceiverFuture {
-// 	RequestReceiverFuture::from(request)
-// }
-//
-// #[inline(always)]
-// pub(super) fn request_passer(request: Request) -> RequestPasserFuture {
-// 	RequestPasserFuture::from(request)
-// }
-//
-// #[inline(always)]
-// pub(super) fn request_handler(request: Request) -> BoxedFuture<Response> {
-// 	let routing_state = request
-// 		.extensions()
-// 		.get::<Uncloneable<RoutingState>>()
-// 		.expect("Uncloneable<RoutingState> should be inserted before request_handler is called")
-// 		.as_ref()
-// 		.expect("RoutingState should always exist in Uncloneable");
-//
-// 	let current_resource = routing_state.current_resource.clone().expect(
-// 		"current resource should be set in the request_passer or the call method of the Service",
-// 	);
-//
-// 	current_resource.0.method_handlers.handle(request)
-// }
 
 // #[cfg(test)]
 // mod test {
