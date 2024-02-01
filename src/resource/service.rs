@@ -8,14 +8,13 @@ use std::{
 };
 
 use bytes::Bytes;
-use http::{Method, StatusCode};
+use http::{Extensions, Method, StatusCode};
 use http_body_util::BodyExt;
 use percent_encoding::percent_decode_str;
 
 use crate::{
 	body::{Body, HttpBody},
 	common::{mark::Private, BoxedError, BoxedFuture, MaybeBoxed, Uncloneable, SCOPE_VALIDITY},
-	extension::Extensions,
 	handler::{
 		futures::ResponseToResultFuture,
 		request_handlers::{

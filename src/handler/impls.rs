@@ -99,12 +99,12 @@ macro_rules! impl_handler_fn {
 			for HandlerFn<Func, (Private, $($($ps,)*)? $($lp)?)>
 		where
 			Func: Fn($($($ps,)*)? $($lp)?) -> Fut + Clone + 'static,
-			$($($ps: FromRequestHead,)*)?
-			$($lp: FromRequest<B>,)?
+			$($($ps: FromRequestHead<E>,)*)?
+			$($lp: FromRequest<B, E>,)?
 			Fut: Future<Output = O>,
 			O: IntoResponse,
 			B: 'static,
-			E: Clone,
+			E: Clone + Sync,
 		{
 			type Response = Response;
 			type Future = HandlerFnFuture<Func, (Private, $($($ps,)*)? $($lp)?), B, E>;
@@ -128,16 +128,27 @@ macro_rules! impl_handler_fn {
 			for HandlerFnFuture<Func, (Private, $($($ps,)*)? $($lp)?), B, E>
 		where
 			Func: Fn($($($ps,)*)? $($lp)?) -> Fut + Clone + 'static,
-			$($($ps: FromRequestHead,)*)?
-			$($lp: FromRequest<B>,)?
+			$($($ps: FromRequestHead<E>,)*)?
+			$($lp: FromRequest<B, E>,)?
 			Fut: Future<Output = O>,
 			O: IntoResponse,
 			B: 'static,
+			E: Sync,
 		{
 			type Output = Response;
 
 			fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
 				let self_projection = self.project();
+
+				let resource_extensions = self_projection.some_resource_extensions.take().expect(
+					"HandlerFnFuture should be created with resource extensions",
+				);
+
+				let handler_extension = self_projection.some_handler_extension.take().expect(
+					"HandlerFnFuture should be created with a handler extension",
+				);
+
+				let args = Args { resource_extensions, handler_extension: &handler_extension };
 
 				$(
 					let (mut head, body) = self_projection.some_request.take().expect(
@@ -145,7 +156,7 @@ macro_rules! impl_handler_fn {
 					).into_parts();
 
 					$(
-						let $ps = match pin!($ps::from_request_head(&mut head)).poll(cx) {
+						let $ps = match pin!($ps::from_request_head(&mut head, &args)).poll(cx) {
 							Poll::Ready(result) => {
 								match result {
 									Ok(value) => value,
@@ -161,9 +172,14 @@ macro_rules! impl_handler_fn {
 
 				$(
 					let $lp =
-						match pin!($lp::from_request(self_projection.some_request.take().expect(
-							"the constructor of the HandlerFnFuture or the local scope should set the request",
-						))).poll(cx) {
+						match pin!(
+							$lp::from_request(
+								self_projection.some_request.take().expect(
+									"the constructor of the HandlerFnFuture or the local scope should set the request"
+								),
+								&args,
+							)
+						).poll(cx) {
 							Poll::Ready(result) => {
 								match result {
 									Ok(value) => value,
@@ -209,8 +225,8 @@ impl_handler_fn!((P1, P2, P3, P4, P5, P6, P7, P8, P9, P10, P11, P12, P13, P14, P
 pub struct HandlerFnFuture<Func, M, B, E> {
 	func: Func,
 	some_request: Option<Request<B>>,
-	resource_extensions: ResourceExtensions<'static>,
-	handler_extension: E,
+	some_resource_extensions: Option<ResourceExtensions<'static>>,
+	some_handler_extension: Option<E>,
 	_mark: PhantomData<fn() -> M>,
 }
 
@@ -224,8 +240,8 @@ impl<Func, M, B, E> HandlerFnFuture<Func, M, B, E> {
 		Self {
 			func,
 			some_request: Some(request),
-			resource_extensions,
-			handler_extension,
+			some_resource_extensions: Some(resource_extensions),
+			some_handler_extension: Some(handler_extension),
 			_mark: PhantomData,
 		}
 	}

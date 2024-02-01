@@ -1,6 +1,7 @@
 use std::convert::Infallible;
 
 use crate::{
+	handler::Args,
 	request::{FromRequest, FromRequestHead, Request, RequestHead},
 	response::{IntoResponse, IntoResponseHead, Response, ResponseHead},
 	ImplError,
@@ -13,21 +14,25 @@ pub use http::header::*;
 // --------------------------------------------------------------------------------
 // --------------------------------------------------------------------------------
 
-impl FromRequestHead for HeaderMap {
+impl<E: Sync> FromRequestHead<E> for HeaderMap {
 	type Error = Infallible;
 
-	async fn from_request_head(head: &mut RequestHead) -> Result<Self, Self::Error> {
+	async fn from_request_head(
+		head: &mut RequestHead,
+		_args: &Args<'_, E>,
+	) -> Result<Self, Self::Error> {
 		Ok(head.headers.clone())
 	}
 }
 
-impl<B> FromRequest<B> for HeaderMap
+impl<B, E> FromRequest<B, E> for HeaderMap
 where
 	B: Send,
+	E: Sync,
 {
 	type Error = Infallible;
 
-	async fn from_request(request: Request<B>) -> Result<Self, Self::Error> {
+	async fn from_request(request: Request<B>, _args: &Args<'_, E>) -> Result<Self, Self::Error> {
 		let (RequestHead { headers, .. }, _) = request.into_parts();
 
 		Ok(headers)
