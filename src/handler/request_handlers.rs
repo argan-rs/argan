@@ -48,7 +48,7 @@ impl MethodHandlers {
 
 	#[inline(always)]
 	pub(crate) fn is_empty(&self) -> bool {
-		self.method_handlers.is_empty()
+		self.method_handlers.is_empty() && self.some_wildcard_method_handler.is_none()
 	}
 
 	#[inline(always)]
