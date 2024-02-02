@@ -70,6 +70,7 @@ macro_rules! bit_flags {
 		{
 			type Output = $flags;
 
+			#[inline(always)]
 			fn bitor(self, rhs: Self) -> Self::Output {
 				Self(self.0 | rhs.0)
 			}

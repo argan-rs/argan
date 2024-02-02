@@ -1,6 +1,6 @@
 use std::{any::Any, convert::Infallible};
 
-use http::response::Parts;
+use http::{header::LOCATION, response::Parts, HeaderValue};
 
 use crate::{
 	body::{Body, BodyExt, Bytes, HttpBody},
@@ -72,6 +72,49 @@ impl IntoResponse for StatusCode {
 		response
 	}
 }
+
+// --------------------------------------------------
+// Redirect
+
+pub struct Redirect {
+	status_code: StatusCode,
+	uri: HeaderValue,
+}
+
+impl Redirect {
+	pub fn permanently<U: AsRef<str>>(uri: U) -> Self {
+		Self {
+			status_code: StatusCode::PERMANENT_REDIRECT,
+			uri: HeaderValue::from_str(uri.as_ref()).expect("uri must be a valid header value"),
+		}
+	}
+
+	pub fn temporarily<U: AsRef<str>>(uri: U) -> Self {
+		Self {
+			status_code: StatusCode::TEMPORARY_REDIRECT,
+			uri: HeaderValue::from_str(uri.as_ref()).expect("uri must be a valid header value"),
+		}
+	}
+
+	pub fn to<U: AsRef<str>>(uri: U) -> Self {
+		Self {
+			status_code: StatusCode::SEE_OTHER,
+			uri: HeaderValue::from_str(uri.as_ref()).expect("uri must be a valid header value"),
+		}
+	}
+}
+
+impl IntoResponse for Redirect {
+	#[inline]
+	fn into_response(self) -> Response {
+	  let mut response = Response::default();
+		*response.status_mut() = self.status_code;
+		response.headers_mut().insert(LOCATION, self.uri);
+
+		response
+	}
+}
+
 
 // --------------------------------------------------
 // Infallible Error
