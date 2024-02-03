@@ -34,7 +34,7 @@ pub trait Handler<B = Body, E = ()> {
 	type Response;
 	type Future: Future<Output = Self::Response>;
 
-	fn handle(&self, request: Request<B>, args: &Args<'_, E>) -> Self::Future;
+	fn handle(&self, request: Request<B>, args: &mut Args<'_, E>) -> Self::Future;
 }
 
 impl<S, B> Handler<B> for S
@@ -44,7 +44,7 @@ where
 	type Response = S::Response;
 	type Future = ResultToResponseFuture<S::Future>;
 
-	fn handle(&self, mut request: Request<B>, args: &Args) -> Self::Future {
+	fn handle(&self, mut request: Request<B>, args: &mut Args) -> Self::Future {
 		request
 			.extensions_mut()
 			.insert(args.resource_extensions.clone().into_owned()); // ???
@@ -144,14 +144,14 @@ where
 			.remove::<ResourceExtensions>()
 			.expect("when layered, resource extensions must be inserted into the request");
 
-		let args = Args {
+		let mut args = Args {
 			routing_state,
 			resource_extensions,
 			handler_extension: &(),
 		};
 		// Args::with_resource_extensions(resource_extensions);
 
-		let response_future = self.handler.handle(request, &args);
+		let response_future = self.handler.handle(request, &mut args);
 
 		ResponseToResultFuture::from(response_future)
 	}
@@ -180,14 +180,17 @@ where
 	type Future = H::Future;
 
 	#[inline]
-	fn handle(&self, mut request: Request<B>, args: &Args) -> Self::Future {
-		let args = Args {
-			routing_state: args.routing_state.clone(),
-			resource_extensions: args.resource_extensions.clone(),
+	fn handle(&self, mut request: Request<B>, args: &mut Args) -> Self::Future {
+		let routing_state = std::mem::take(&mut args.routing_state);
+		let resource_extensions = std::mem::take(&mut args.resource_extensions);
+
+		let mut args = Args {
+			routing_state,
+			resource_extensions,
 			handler_extension: &self.extension,
 		};
 
-		self.inner.handle(request, &args)
+		self.inner.handle(request, &mut args)
 	}
 }
 
@@ -281,7 +284,7 @@ impl Handler for BoxedHandler {
 	type Future = BoxedFuture<Self::Response>;
 
 	#[inline(always)]
-	fn handle(&self, request: Request, args: &Args) -> Self::Future {
+	fn handle(&self, request: Request, args: &mut Args) -> Self::Future {
 		self.0.handle(request, args)
 	}
 }
@@ -314,7 +317,7 @@ impl Handler for DummyHandler<DefaultResponseFuture> {
 	type Future = DefaultResponseFuture;
 
 	#[inline(always)]
-	fn handle(&self, _req: Request, _args: &Args) -> Self::Future {
+	fn handle(&self, _req: Request, _args: &mut Args) -> Self::Future {
 		DefaultResponseFuture::new()
 	}
 }
@@ -340,7 +343,7 @@ impl Handler for DummyHandler<BoxedFuture<Response>> {
 	type Future = BoxedFuture<Response>;
 
 	#[inline(always)]
-	fn handle(&self, _req: Request, _args: &Args) -> Self::Future {
+	fn handle(&self, _req: Request, _args: &mut Args) -> Self::Future {
 		Box::pin(DefaultResponseFuture::new())
 	}
 }
@@ -374,14 +377,14 @@ where
 			.remove::<ResourceExtensions>()
 			.expect("when layered, resource extensions must be inserted into the request");
 
-		let args = Args {
+		let mut args = Args {
 			routing_state,
 			resource_extensions,
 			handler_extension: &(),
 		};
 		// Args::with_resource_extensions(resource_extensions);
 
-		let response_future = self.0.handle(request, &args);
+		let response_future = self.0.handle(request, &mut args);
 
 		ResponseToResultFuture::from(response_future)
 	}

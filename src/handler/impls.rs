@@ -69,7 +69,7 @@ where
 	type Response = Response;
 	type Future = BoxedFuture<Self::Response>;
 
-	fn handle(&self, request: Request, _args: &Args<'_, E>) -> Self::Future {
+	fn handle(&self, request: Request, _args: &mut Args<'_, E>) -> Self::Future {
 		(self.func)(request)
 	}
 }
@@ -110,9 +110,9 @@ macro_rules! impl_handler_fn {
 			type Response = Response;
 			type Future = HandlerFnFuture<Func, (Private, $($($ps,)*)? $($lp)?), B, E>;
 
-			fn handle(&self, request: Request<B>, args: &Args<'_, E>) -> Self::Future {
+			fn handle(&self, request: Request<B>, args: &mut Args<'_, E>) -> Self::Future {
 				let func_clone = self.func.clone();
-				let routing_state = args.routing_state.clone();
+				let routing_state = std::mem::take(&mut args.routing_state);
 				let resource_extensions = args.resource_extensions.clone().into_owned();
 				let handler_extension_clone = args.handler_extension.clone();
 

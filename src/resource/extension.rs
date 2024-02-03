@@ -10,7 +10,7 @@ use crate::{
 // --------------------------------------------------------------------------------
 // --------------------------------------------------------------------------------
 
-#[derive(Clone)]
+#[derive(Default, Clone)]
 pub struct ResourceExtensions<'r>(Cow<'r, Extensions>);
 
 impl<'r> ResourceExtensions<'r> {
