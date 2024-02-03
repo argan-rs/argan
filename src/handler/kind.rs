@@ -66,10 +66,10 @@ where
 	H::Handler: Handler + Clone + Send + Sync + 'static,
 	<H::Handler as Handler>::Response: IntoResponse,
 {
-	let final_handler = ResponseFutureBoxer::wrap(IntoResponseAdapter::wrap(handler.into_handler()));
-
 	let method = Method::from_str(method.as_ref())
 		.expect("HTTP method should be a valid token [RFC 9110, 5.6.2 Tokens]");
+
+	let final_handler = ResponseFutureBoxer::wrap(IntoResponseAdapter::wrap(handler.into_handler()));
 
 	HandlerKind(Inner::Method(method, final_handler.into_boxed_handler()))
 }
