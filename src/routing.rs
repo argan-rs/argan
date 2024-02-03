@@ -61,10 +61,10 @@ impl RouteTraversal {
 		self.0 = segment_index;
 	}
 
-	// #[inline]
-	// pub(crate) fn ends_with_trailing_slash(&self, route: &str) -> bool {
-	// 	route != "/" && route.as_bytes().last().unwrap() == &b'/'
-	// }
+	#[inline(always)]
+	pub(crate) fn ends_with_slash(&self, route: &str) -> bool {
+		route != "/" && route.as_bytes().last().unwrap() == &b'/'
+	}
 
 	pub(crate) fn next_segment_index(&self) -> usize {
 		self.0

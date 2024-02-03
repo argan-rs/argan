@@ -29,7 +29,10 @@ mod extension;
 mod service;
 mod static_files;
 
-use self::service::{RequestHandler, RequestPasser, RequestReceiver};
+use self::{
+	config::{ConfigFlags, ConfigOption},
+	service::{RequestHandler, RequestPasser, RequestReceiver},
+};
 
 pub use extension::ResourceExtensions;
 pub use service::ResourceService;
@@ -53,8 +56,7 @@ pub struct Resource {
 
 	extensions: Extensions,
 
-	// TODO: configs, redirect
-	is_subtree_handler: bool,
+	config_flags: ConfigFlags,
 }
 
 // -------------------------
@@ -122,7 +124,7 @@ impl Resource {
 			method_handlers: MethodHandlers::new(),
 			some_mistargeted_request_handler: None,
 			extensions: Extensions::new(),
-			is_subtree_handler: false,
+			config_flags: ConfigFlags::new(),
 		}
 	}
 
@@ -152,7 +154,7 @@ impl Resource {
 
 	#[inline(always)]
 	pub(crate) fn is_subtree_handler(&self) -> bool {
-		self.is_subtree_handler
+		self.config_flags.has(ConfigFlags::SUBTREE_HANDLER)
 	}
 
 	#[inline(always)]
@@ -972,6 +974,35 @@ impl Resource {
 		// }
 	}
 
+	pub fn set_config<C, const N: usize>(&mut self, config_options: C)
+	where
+		C: IntoArray<ConfigOption, N>,
+	{
+		let config_options = config_options.into_array();
+
+		for config_option in config_options {
+			use self::config::InnerOption::*;
+
+			match config_option.0 {
+				DropOnUnmatchingSlash => {
+					self
+						.config_flags
+						.remove(ConfigFlags::REDIRECTS_ON_UNMATCHING_SLASH);
+
+					self
+						.config_flags
+						.add(ConfigFlags::DROPS_ON_UNMATCHING_SLASH);
+				}
+				HandleOnUnmatchingSlash => {
+					self.config_flags.remove(
+						ConfigFlags::REDIRECTS_ON_UNMATCHING_SLASH | ConfigFlags::DROPS_ON_UNMATCHING_SLASH,
+					);
+				}
+				SubtreeHandler => self.config_flags.add(ConfigFlags::SUBTREE_HANDLER),
+			}
+		}
+	}
+
 	// -------------------------
 
 	pub fn for_each_subresource<T, F>(&mut self, mut param: T, mut func: F) -> T
@@ -1014,7 +1045,7 @@ impl Resource {
 			method_handlers,
 			mut some_mistargeted_request_handler,
 			extensions,
-			is_subtree_handler,
+			config_flags,
 			..
 		} = self;
 
@@ -1091,7 +1122,7 @@ impl Resource {
 			some_request_passer,
 			some_request_handler,
 			some_mistargeted_request_handler.clone(),
-			is_subtree_handler,
+			config_flags.clone(),
 			middleware,
 		);
 
@@ -1101,7 +1132,6 @@ impl Resource {
 		ResourceService::new(
 			pattern,
 			extensions,
-			is_subtree_handler,
 			boxed_request_receiver,
 			some_mistargeted_request_handler,
 		)
@@ -1132,8 +1162,8 @@ impl Debug for Resource {
 				middleware count: {},
 				method_handlers: {{ count: {}, wildcard_method_handler_exists: {} }},
 				mistargeted_request_handler exists: {},
-				states count: {},
-				is_subtree_handler: {},
+				extensions count: {},
+				config_flags: [{}],
 			}}",
 			&self.pattern,
 			patterns_to_route(&self.prefix_segment_patterns),
@@ -1145,7 +1175,7 @@ impl Debug for Resource {
 			self.method_handlers.has_wildcard_method_handler(),
 			self.some_mistargeted_request_handler.is_some(),
 			self.extensions.len(),
-			self.is_subtree_handler,
+			self.config_flags,
 		)
 	}
 }
@@ -1156,7 +1186,103 @@ impl IntoArray<Resource, 1> for Resource {
 	}
 }
 
-// -------------------------
+// --------------------------------------------------
+// Config
+
+pub mod config {
+	use super::*;
+
+	bit_flags! {
+		#[derive(Clone)]
+		pub(super) ConfigFlags: u8 {
+			pub(super) ENDS_WITH_SLASH = 0b0001;
+			pub(super) REDIRECTS_ON_UNMATCHING_SLASH = 0b0010;
+			pub DROPS_ON_UNMATCHING_SLASH = 0b0100;
+			pub SUBTREE_HANDLER = 0b1000;
+		}
+	}
+
+	impl Display for ConfigFlags {
+		fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+			let mut flags = String::new();
+
+			if self.has(Self::ENDS_WITH_SLASH) {
+				flags.push_str("ends_with_slash");
+			}
+
+			if self.has(Self::REDIRECTS_ON_UNMATCHING_SLASH) {
+				if !flags.is_empty() {
+					flags.push_str(", ")
+				}
+
+				flags.push_str("redirects_on_unmatching_slash");
+			} else if self.has(Self::DROPS_ON_UNMATCHING_SLASH) {
+				if !flags.is_empty() {
+					flags.push_str(", ")
+				}
+
+				flags.push_str("drops_on_unmatching_slash");
+			} else {
+				if !flags.is_empty() {
+					flags.push_str(", ")
+				}
+
+				flags.push_str("handles_on_unmatching_slash");
+			}
+
+			if self.has(Self::SUBTREE_HANDLER) {
+				if !flags.is_empty() {
+					flags.push_str(", ")
+				}
+
+				flags.push_str("subtree_handler");
+			}
+
+			f.write_str(&flags)
+		}
+	}
+
+	impl Default for ConfigFlags {
+		fn default() -> Self {
+			let mut flags = Self(0);
+			flags.add(Self::REDIRECTS_ON_UNMATCHING_SLASH);
+
+			flags
+		}
+	}
+
+	// ----------
+
+	pub struct ConfigOption(pub(super) InnerOption);
+
+	pub(super) enum InnerOption {
+		DropOnUnmatchingSlash,
+		HandleOnUnmatchingSlash,
+		SubtreeHandler,
+	}
+
+	impl IntoArray<ConfigOption, 1> for ConfigOption {
+		fn into_array(self) -> [ConfigOption; 1] {
+			[self]
+		}
+	}
+
+	// ----------
+
+	pub fn drop_on_unmatching_slash() -> ConfigOption {
+		ConfigOption(InnerOption::DropOnUnmatchingSlash)
+	}
+
+	pub fn handle_on_unmatching_slash() -> ConfigOption {
+		ConfigOption(InnerOption::HandleOnUnmatchingSlash)
+	}
+
+	pub fn subtree_handler() -> ConfigOption {
+		ConfigOption(InnerOption::SubtreeHandler)
+	}
+}
+
+// --------------------------------------------------
 
 #[repr(u8)]
 pub enum Iteration {
