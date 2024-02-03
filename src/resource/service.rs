@@ -128,20 +128,17 @@ where
 		if matched {
 			Box::pin(ResponseToResultFuture::from(match &self.request_receiver {
 				MaybeBoxed::Boxed(boxed_request_receiver) => {
-					// request
-					// 	.extensions_mut()
-					// 	.insert(Uncloneable::from(routing_state));
-
-					let mut args = Args { routing_state, resource_extensions, handler_extension: &() };
-					// Args::with_resource_extensions(ResourceExtensions::new_borrowed(&self.extensions));
+					let mut args = Args {
+						routing_state,
+						resource_extensions,
+						handler_extension: &(),
+					};
 
 					boxed_request_receiver.handle(request, &mut args)
 				}
-				MaybeBoxed::Unboxed(request_receiver) => request_receiver.handle_with_routing_state(
-					request,
-					routing_state,
-					resource_extensions,
-				),
+				MaybeBoxed::Unboxed(request_receiver) => {
+					request_receiver.handle_with_routing_state(request, routing_state, resource_extensions)
+				}
 			}))
 		} else {
 			Box::pin(ResponseToResultFuture::from(handle_mistargeted_request(
@@ -232,16 +229,11 @@ impl RequestReceiver {
 
 				let response_future = match request_passer {
 					MaybeBoxed::Boxed(boxed_request_passer) => {
-						// request
-						// 	.extensions_mut()
-						// 	.insert(Uncloneable::from(routing_state));
-
 						let mut args = Args {
 							routing_state,
 							resource_extensions: resource_extensions.clone(),
 							handler_extension: &(),
 						};
-						// Args::with_resource_extensions(resource_extensions.clone());
 
 						boxed_request_passer.handle(request, &mut args).into()
 					}
@@ -282,10 +274,10 @@ impl RequestReceiver {
 						.expect("unused request should always exist in Uncloneable")
 						.into_request();
 
-					let mut routing_state = request
+					let mut routing_state = response
 						.extensions_mut()
 						.remove::<Uncloneable<RoutingState>>()
-						.expect("Uncloneable<RoutingState> should always exist in a request")
+						.expect("Uncloneable<RoutingState> should always exist when unused request is returned")
 						.into_inner()
 						.expect("RoutingState should always exist in Uncloneable");
 
@@ -298,7 +290,6 @@ impl RequestReceiver {
 						resource_extensions,
 						handler_extension: &(),
 					};
-					// Args::with_resource_extensions(resource_extensions);
 
 					match request_handler_clone.as_ref() {
 						MaybeBoxed::Boxed(boxed_request_handler) => {
@@ -367,19 +358,16 @@ impl RequestReceiver {
 			};
 
 			if handle {
-				// request
-				// 	.extensions_mut()
-				// 	.insert(Uncloneable::from(routing_state));
-
 				let mut args = Args {
 					routing_state,
 					resource_extensions,
 					handler_extension: &(),
 				};
-				// Args::with_resource_extensions(resource_extensions);
 
 				return match request_handler.as_ref() {
-					MaybeBoxed::Boxed(boxed_request_handler) => boxed_request_handler.handle(request, &mut args),
+					MaybeBoxed::Boxed(boxed_request_handler) => {
+						boxed_request_handler.handle(request, &mut args)
+					}
 					MaybeBoxed::Unboxed(request_handler) => request_handler.handle(request, &mut args),
 				};
 			}
@@ -402,14 +390,10 @@ impl Handler for RequestReceiver {
 
 	#[inline]
 	fn handle(&self, mut request: Request, args: &mut Args) -> Self::Future {
-		let mut routing_state = request
-			.extensions_mut()
-			.remove::<Uncloneable<RoutingState>>()
-			.expect("Uncloneable<RoutingState> should always exist in a request")
-			.into_inner()
-			.expect("RoutingState should always exist in Uncloneable");
+		let routing_state = std::mem::take(&mut args.routing_state);
+		let resource_extensions = std::mem::take(&mut args.resource_extensions);
 
-		self.handle_with_routing_state(request, routing_state, args.resource_extensions.clone())
+		self.handle_with_routing_state(request, routing_state, resource_extensions)
 	}
 }
 
@@ -528,16 +512,11 @@ impl RequestPasser {
 		if let Some(next_resource) = some_next_resource {
 			match &next_resource.request_receiver {
 				MaybeBoxed::Boxed(boxed_request_receiver) => {
-					// request
-					// 	.extensions_mut()
-					// 	.insert(Uncloneable::from(routing_state));
-
 					let mut args = Args {
 						routing_state,
 						resource_extensions,
 						handler_extension: &(),
 					};
-					// Args::with_resource_extensions(resource_extensions);
 
 					return boxed_request_receiver.handle(request, &mut args);
 				}
@@ -568,14 +547,10 @@ impl Handler for RequestPasser {
 
 	#[inline]
 	fn handle(&self, mut request: Request, args: &mut Args) -> Self::Future {
-		let mut routing_state = request
-			.extensions_mut()
-			.remove::<Uncloneable<RoutingState>>()
-			.expect("Uncloneable<RoutingState> should be inserted before request_passer is called")
-			.into_inner()
-			.expect("RoutingState should always exist in Uncloneable");
+		let routing_state = std::mem::take(&mut args.routing_state);
+		let resource_extensions = std::mem::take(&mut args.resource_extensions);
 
-		self.handle_with_routing_state(request, routing_state, args.resource_extensions.clone())
+		self.handle_with_routing_state(request, routing_state, resource_extensions)
 	}
 }
 

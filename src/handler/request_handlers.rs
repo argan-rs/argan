@@ -225,16 +225,11 @@ pub(crate) fn handle_mistargeted_request(
 	if let Some((mistargeted_request_handler, resource_extensions)) =
 		some_custom_handler_with_extensions.take()
 	{
-		// request
-		// 	.extensions_mut()
-		// 	.insert(Uncloneable::from(routing_state));
-
 		let mut args = Args {
 			routing_state,
 			resource_extensions,
 			handler_extension: &(),
 		};
-		// Args::with_resource_extensions(resource_extensions);
 
 		// Custom handler with a custom 404 Not Found respnose.
 		return mistargeted_request_handler.handle(request, &mut args);
@@ -247,6 +242,10 @@ pub(crate) fn handle_mistargeted_request(
 		response
 			.extensions_mut()
 			.insert(Uncloneable::from(UnusedRequest::from(request)));
+
+		response
+			.extensions_mut()
+			.insert(Uncloneable::from(routing_state));
 	}
 
 	Box::pin(ready(response))
