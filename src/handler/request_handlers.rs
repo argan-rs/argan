@@ -117,7 +117,7 @@ impl Handler for UnimplementedMethodHandler {
 	type Response = Response;
 	type Future = Ready<Response>;
 
-	fn handle(&self, request: Request, _args: &Args) -> Self::Future {
+	fn handle(&self, request: Request, _args: &mut Args) -> Self::Future {
 		match HeaderValue::from_str(&self.0) {
 			Ok(header_value) => {
 				let mut response = Response::default();
@@ -177,7 +177,7 @@ impl Handler for MistargetedRequestHandler {
 	type Response = Response;
 	type Future = Ready<Response>;
 
-	fn handle(&self, _request: Request, _args: &Args) -> Self::Future {
+	fn handle(&self, _request: Request, _args: &mut Args) -> Self::Future {
 		let mut response = Response::default();
 		*response.status_mut() = StatusCode::NOT_FOUND;
 
@@ -229,7 +229,7 @@ pub(crate) fn handle_mistargeted_request(
 		// 	.extensions_mut()
 		// 	.insert(Uncloneable::from(routing_state));
 
-		let args = Args {
+		let mut args = Args {
 			routing_state,
 			resource_extensions,
 			handler_extension: &(),
@@ -237,7 +237,7 @@ pub(crate) fn handle_mistargeted_request(
 		// Args::with_resource_extensions(resource_extensions);
 
 		// Custom handler with a custom 404 Not Found respnose.
-		return mistargeted_request_handler.handle(request, &args);
+		return mistargeted_request_handler.handle(request, &mut args);
 	}
 
 	let mut response = Response::default();

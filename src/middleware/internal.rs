@@ -34,7 +34,7 @@ where
 	type Future = H::Future;
 
 	#[inline]
-	fn handle(&self, request: Request<B>, args: &Args) -> Self::Future {
+	fn handle(&self, request: Request<B>, args: &mut Args) -> Self::Future {
 		let (parts, body) = request.into_parts();
 		let body = Body::new(body);
 		let request = Request::from_parts(parts, body);
@@ -64,7 +64,7 @@ where
 	type Future = IntoResponseFuture<H::Future>;
 
 	#[inline]
-	fn handle(&self, request: Request<B>, args: &Args) -> Self::Future {
+	fn handle(&self, request: Request<B>, args: &mut Args) -> Self::Future {
 		let response_future = self.0.handle(request, args);
 
 		IntoResponseFuture::from(response_future)
@@ -119,7 +119,7 @@ where
 	type Response = Response;
 	type Future = BoxedFuture<Response>;
 
-	fn handle(&self, request: Request<B>, args: &Args) -> Self::Future {
+	fn handle(&self, request: Request<B>, args: &mut Args) -> Self::Future {
 		let response_future = self.0.handle(request, args);
 
 		Box::pin(response_future)

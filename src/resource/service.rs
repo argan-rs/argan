@@ -123,6 +123,8 @@ where
 		let mut routing_state = RoutingState::new(route_traversal);
 		routing_state.path_params = path_params;
 
+		let resource_extensions = ResourceExtensions::new_borrowed(&self.extensions);
+
 		if matched {
 			Box::pin(ResponseToResultFuture::from(match &self.request_receiver {
 				MaybeBoxed::Boxed(boxed_request_receiver) => {
@@ -130,19 +132,15 @@ where
 					// 	.extensions_mut()
 					// 	.insert(Uncloneable::from(routing_state));
 
-					let args = Args {
-						routing_state,
-						resource_extensions: ResourceExtensions::new_borrowed(&self.extensions),
-						handler_extension: &(),
-					};
+					let mut args = Args { routing_state, resource_extensions, handler_extension: &() };
 					// Args::with_resource_extensions(ResourceExtensions::new_borrowed(&self.extensions));
 
-					boxed_request_receiver.handle(request, &args)
+					boxed_request_receiver.handle(request, &mut args)
 				}
 				MaybeBoxed::Unboxed(request_receiver) => request_receiver.handle_with_routing_state(
 					request,
 					routing_state,
-					ResourceExtensions::new_borrowed(&self.extensions),
+					resource_extensions,
 				),
 			}))
 		} else {
@@ -152,7 +150,7 @@ where
 				self
 					.some_mistargeted_request_handler
 					.as_ref()
-					.map(|handler| (handler, ResourceExtensions::new_borrowed(&self.extensions))),
+					.map(|handler| (handler, resource_extensions)),
 			)))
 		}
 	}
@@ -223,8 +221,10 @@ impl RequestReceiver {
 			.path_traversal
 			.has_remaining_segments(request.uri().path())
 		{
+			let resource_is_subtree_handler = self.is_subtree_hander();
+
 			if let Some(request_passer) = self.some_request_passer.as_ref() {
-				if self.is_subtree_hander() {
+				if resource_is_subtree_handler {
 					routing_state.subtree_handler_exists = true;
 				}
 
@@ -236,14 +236,14 @@ impl RequestReceiver {
 						// 	.extensions_mut()
 						// 	.insert(Uncloneable::from(routing_state));
 
-						let args = Args {
+						let mut args = Args {
 							routing_state,
 							resource_extensions: resource_extensions.clone(),
 							handler_extension: &(),
 						};
 						// Args::with_resource_extensions(resource_extensions.clone());
 
-						boxed_request_passer.handle(request, &args).into()
+						boxed_request_passer.handle(request, &mut args).into()
 					}
 					MaybeBoxed::Unboxed(request_passer) => request_passer.handle_with_routing_state(
 						request,
@@ -252,7 +252,7 @@ impl RequestReceiver {
 					),
 				};
 
-				if !self.is_subtree_hander() {
+				if !resource_is_subtree_handler {
 					return response_future;
 				}
 
@@ -293,7 +293,7 @@ impl RequestReceiver {
 						.path_traversal
 						.revert_to_segment(next_segment_index);
 
-					let args = Args {
+					let mut args = Args {
 						routing_state,
 						resource_extensions,
 						handler_extension: &(),
@@ -302,14 +302,16 @@ impl RequestReceiver {
 
 					match request_handler_clone.as_ref() {
 						MaybeBoxed::Boxed(boxed_request_handler) => {
-							boxed_request_handler.handle(request, &args).await
+							boxed_request_handler.handle(request, &mut args).await
 						}
-						MaybeBoxed::Unboxed(request_handler) => request_handler.handle(request, &args).await,
+						MaybeBoxed::Unboxed(request_handler) => {
+							request_handler.handle(request, &mut args).await
+						}
 					}
 				});
 			}
 
-			if !self.is_subtree_hander() {
+			if !resource_is_subtree_handler {
 				return handle_mistargeted_request(
 					request,
 					routing_state,
@@ -369,7 +371,7 @@ impl RequestReceiver {
 				// 	.extensions_mut()
 				// 	.insert(Uncloneable::from(routing_state));
 
-				let args = Args {
+				let mut args = Args {
 					routing_state,
 					resource_extensions,
 					handler_extension: &(),
@@ -377,8 +379,8 @@ impl RequestReceiver {
 				// Args::with_resource_extensions(resource_extensions);
 
 				return match request_handler.as_ref() {
-					MaybeBoxed::Boxed(boxed_request_handler) => boxed_request_handler.handle(request, &args),
-					MaybeBoxed::Unboxed(request_handler) => request_handler.handle(request, &args),
+					MaybeBoxed::Boxed(boxed_request_handler) => boxed_request_handler.handle(request, &mut args),
+					MaybeBoxed::Unboxed(request_handler) => request_handler.handle(request, &mut args),
 				};
 			}
 		}
@@ -399,7 +401,7 @@ impl Handler for RequestReceiver {
 	type Future = BoxedFuture<Response>;
 
 	#[inline]
-	fn handle(&self, mut request: Request, args: &Args) -> Self::Future {
+	fn handle(&self, mut request: Request, args: &mut Args) -> Self::Future {
 		let mut routing_state = request
 			.extensions_mut()
 			.remove::<Uncloneable<RoutingState>>()
@@ -530,14 +532,14 @@ impl RequestPasser {
 					// 	.extensions_mut()
 					// 	.insert(Uncloneable::from(routing_state));
 
-					let args = Args {
+					let mut args = Args {
 						routing_state,
 						resource_extensions,
 						handler_extension: &(),
 					};
 					// Args::with_resource_extensions(resource_extensions);
 
-					return boxed_request_receiver.handle(request, &args);
+					return boxed_request_receiver.handle(request, &mut args);
 				}
 				MaybeBoxed::Unboxed(request_receiver) => {
 					return request_receiver.handle_with_routing_state(
@@ -565,7 +567,7 @@ impl Handler for RequestPasser {
 	type Future = BoxedFuture<Response>;
 
 	#[inline]
-	fn handle(&self, mut request: Request, args: &Args) -> Self::Future {
+	fn handle(&self, mut request: Request, args: &mut Args) -> Self::Future {
 		let mut routing_state = request
 			.extensions_mut()
 			.remove::<Uncloneable<RoutingState>>()
@@ -697,7 +699,7 @@ impl Handler for RequestHandler {
 	type Response = Response;
 	type Future = BoxedFuture<Response>;
 
-	fn handle(&self, request: Request, args: &Args) -> Self::Future {
+	fn handle(&self, request: Request, args: &mut Args) -> Self::Future {
 		let method = request.method().clone();
 		let some_method_handler = self.method_handlers.iter().find(|(m, _)| m == method);
 

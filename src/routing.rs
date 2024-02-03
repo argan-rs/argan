@@ -7,23 +7,20 @@ use crate::{pattern::ParamsList, request::Request, resource::ResourceService};
 // --------------------------------------------------------------------------------
 // --------------------------------------------------------------------------------
 
-#[derive(Clone)]
+#[derive(Default, Clone)]
 pub(crate) struct RoutingState {
 	pub(crate) path_traversal: RouteTraversal,
 	pub(crate) path_params: ParamsList,
-	// pub(crate) current_resource: Option<ResourceService>,
 	pub(crate) subtree_handler_exists: bool,
 }
 
 impl RoutingState {
 	pub(crate) fn new(
 		path_traversal: RouteTraversal,
-		// resource_service: ResourceService,
 	) -> RoutingState {
 		Self {
 			path_traversal,
 			path_params: ParamsList::new(),
-			// current_resource: Some(resource_service),
 			subtree_handler_exists: false,
 		}
 	}
@@ -31,7 +28,7 @@ impl RoutingState {
 
 // --------------------------------------------------
 
-#[derive(Clone)]
+#[derive(Default, Clone)]
 pub(crate) struct RouteTraversal(usize);
 
 impl RouteTraversal {
