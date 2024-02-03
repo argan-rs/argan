@@ -219,9 +219,9 @@ where
 // --------------------------------------------------------------------------------
 // FinalHandler trait
 
-pub(crate) trait FinalHandler
+trait FinalHandler
 where
-	Self: Handler<Response = Response, Future = BoxedFuture<Response>> + Send + Sync,
+	Self: Handler<Response = Response, Future = BoxedFuture<Response>>,
 {
 	fn into_boxed_handler(self) -> BoxedHandler;
 	fn boxed_clone(&self) -> BoxedHandler;
@@ -243,11 +243,12 @@ where
 // --------------------------------------------------
 // BoxedHandler
 
-pub(crate) struct BoxedHandler(Box<dyn FinalHandler>);
+pub(crate) struct BoxedHandler(Box<dyn FinalHandler + Send + Sync>);
 
 impl BoxedHandler {
+	#[allow(private_bounds)]
 	#[inline(always)]
-	fn new<H: FinalHandler + 'static>(handler: H) -> Self {
+	pub(crate) fn new<H: FinalHandler + Send + Sync + 'static>(handler: H) -> Self {
 		BoxedHandler(Box::new(handler))
 	}
 }

@@ -21,7 +21,7 @@ use crate::{
 			self, handle_mistargeted_request, handle_unimplemented_method, MethodHandlers,
 			MistargetedRequestHandler, UnimplementedMethodHandler,
 		},
-		AdaptiveHandler, Args, BoxedHandler, FinalHandler, Handler, IntoHandler, Service,
+		AdaptiveHandler, Args, BoxedHandler, Handler, IntoHandler, Service,
 	},
 	middleware::{BoxedLayer, LayerTarget, ResponseFutureBoxer},
 	pattern::{ParamsList, Pattern},
@@ -191,7 +191,7 @@ impl RequestReceiver {
 							MaybeBoxed::Boxed(boxed_layer.wrap(boxed_request_receiver.into()));
 					}
 					MaybeBoxed::Unboxed(request_receiver) => {
-						let mut boxed_request_receiver = request_receiver.into_boxed_handler();
+						let mut boxed_request_receiver = BoxedHandler::new(request_receiver);
 
 						maybe_boxed_request_receiver =
 							MaybeBoxed::Boxed(boxed_layer.wrap(boxed_request_receiver.into()));
@@ -440,7 +440,7 @@ impl RequestPasser {
 								MaybeBoxed::from_boxed(boxed_layer.wrap(boxed_request_passer.into()))
 						}
 						MaybeBoxed::Unboxed(request_passer) => {
-							let boxed_request_passer = request_passer.into_boxed_handler();
+							let boxed_request_passer = BoxedHandler::new(request_passer);
 
 							maybe_boxed_request_passer =
 								MaybeBoxed::from_boxed(boxed_layer.wrap(boxed_request_passer.into()));
@@ -618,7 +618,7 @@ impl RequestHandler {
 		}
 
 		if request_handler_middleware_exists {
-			let mut boxed_request_handler = request_handler.into_boxed_handler();
+			let mut boxed_request_handler = BoxedHandler::new(request_handler);
 
 			for layer in middleware.iter_mut().rev() {
 				if let Inner::RequestHandler(_) = &mut layer.0 {
@@ -660,7 +660,7 @@ impl RequestHandler {
 				let allowed_methods = std::mem::take(&mut self.allowed_methods);
 				let unimplemented_method_handler = UnimplementedMethodHandler::new(allowed_methods);
 
-				ResponseFutureBoxer::wrap(unimplemented_method_handler).into_boxed_handler()
+				BoxedHandler::new(ResponseFutureBoxer::wrap(unimplemented_method_handler))
 			}
 		};
 

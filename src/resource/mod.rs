@@ -14,7 +14,7 @@ use crate::{
 		request_handlers::{
 			handle_mistargeted_request, wrap_mistargeted_request_handler, MethodHandlers,
 		},
-		AdaptiveHandler, BoxedHandler, FinalHandler, HandlerKind, IntoHandler,
+		AdaptiveHandler, BoxedHandler, HandlerKind, IntoHandler,
 	},
 	middleware::{IntoResponseAdapter, LayerTarget, ResponseFutureBoxer},
 	pattern::{Pattern, Similarity},

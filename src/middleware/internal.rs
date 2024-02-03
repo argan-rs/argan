@@ -12,7 +12,7 @@ use pin_project::pin_project;
 use crate::{
 	body::{Body, HttpBody},
 	common::{BoxedError, BoxedFuture},
-	handler::{Args, BoxedHandler, DummyHandler, FinalHandler, Handler},
+	handler::{Args, BoxedHandler, DummyHandler, Handler},
 	request::Request,
 	resource::ResourceExtensions,
 	response::{IntoResponse, Response},
