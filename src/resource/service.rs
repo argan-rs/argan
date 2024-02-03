@@ -123,31 +123,27 @@ where
 		let mut routing_state = RoutingState::new(route_traversal);
 		routing_state.path_params = path_params;
 
-		let resource_extensions = ResourceExtensions::new_borrowed(&self.extensions);
+		let mut args = Args {
+			routing_state,
+			resource_extensions: ResourceExtensions::new_borrowed(&self.extensions),
+			handler_extension: &(),
+		};
 
 		if matched {
 			Box::pin(ResponseToResultFuture::from(match &self.request_receiver {
 				MaybeBoxed::Boxed(boxed_request_receiver) => {
-					let mut args = Args {
-						routing_state,
-						resource_extensions,
-						handler_extension: &(),
-					};
-
 					boxed_request_receiver.handle(request, &mut args)
 				}
-				MaybeBoxed::Unboxed(request_receiver) => {
-					request_receiver.handle_with_routing_state(request, routing_state, resource_extensions)
-				}
+				MaybeBoxed::Unboxed(request_receiver) => request_receiver.handle(request, &mut args),
 			}))
 		} else {
 			Box::pin(ResponseToResultFuture::from(handle_mistargeted_request(
 				request,
-				routing_state,
+				args.routing_state,
 				self
 					.some_mistargeted_request_handler
 					.as_ref()
-					.map(|handler| (handler, resource_extensions)),
+					.map(|handler| (handler, args.resource_extensions)),
 			)))
 		}
 	}
@@ -207,14 +203,16 @@ impl RequestReceiver {
 	fn is_subtree_hander(&self) -> bool {
 		self.config_flags.has(ConfigFlags::SUBTREE_HANDLER)
 	}
+}
 
-	pub(crate) fn handle_with_routing_state(
-		&self,
-		mut request: Request,
-		mut routing_state: RoutingState,
-		resource_extensions: ResourceExtensions,
-	) -> BoxedFuture<Response> {
-		if routing_state
+impl Handler for RequestReceiver {
+	type Response = Response;
+	type Future = BoxedFuture<Response>;
+
+	#[inline]
+	fn handle(&self, mut request: Request, args: &mut Args) -> Self::Future {
+		if args
+			.routing_state
 			.path_traversal
 			.has_remaining_segments(request.uri().path())
 		{
@@ -222,26 +220,16 @@ impl RequestReceiver {
 
 			if let Some(request_passer) = self.some_request_passer.as_ref() {
 				if resource_is_subtree_handler {
-					routing_state.subtree_handler_exists = true;
+					args.routing_state.subtree_handler_exists = true;
 				}
 
-				let next_segment_index = routing_state.path_traversal.next_segment_index();
+				let next_segment_index = args.routing_state.path_traversal.next_segment_index();
 
 				let response_future = match request_passer {
 					MaybeBoxed::Boxed(boxed_request_passer) => {
-						let mut args = Args {
-							routing_state,
-							resource_extensions: resource_extensions.clone(),
-							handler_extension: &(),
-						};
-
-						boxed_request_passer.handle(request, &mut args).into()
+						boxed_request_passer.handle(request, args).into()
 					}
-					MaybeBoxed::Unboxed(request_passer) => request_passer.handle_with_routing_state(
-						request,
-						routing_state,
-						resource_extensions.clone(),
-					),
+					MaybeBoxed::Unboxed(request_passer) => request_passer.handle(request, args),
 				};
 
 				if !resource_is_subtree_handler {
@@ -253,7 +241,7 @@ impl RequestReceiver {
 					.clone()
 					.expect("subtree handler must have a request handler");
 
-				let resource_extensions = resource_extensions.into_owned();
+				let resource_extensions = args.resource_extensions.clone().into_owned();
 
 				return Box::pin(async move {
 					let mut response = response_future.await;
@@ -303,6 +291,9 @@ impl RequestReceiver {
 			}
 
 			if !resource_is_subtree_handler {
+				let routing_state = std::mem::take(&mut args.routing_state);
+				let resource_extensions = std::mem::take(&mut args.resource_extensions);
+
 				return handle_mistargeted_request(
 					request,
 					routing_state,
@@ -315,7 +306,8 @@ impl RequestReceiver {
 		}
 
 		if let Some(request_handler) = self.some_request_handler.as_ref() {
-			let request_path_ends_with_slash = routing_state
+			let request_path_ends_with_slash = args
+				.routing_state
 				.path_traversal
 				.ends_with_slash(request.uri().path());
 
@@ -358,20 +350,15 @@ impl RequestReceiver {
 			};
 
 			if handle {
-				let mut args = Args {
-					routing_state,
-					resource_extensions,
-					handler_extension: &(),
-				};
-
 				return match request_handler.as_ref() {
-					MaybeBoxed::Boxed(boxed_request_handler) => {
-						boxed_request_handler.handle(request, &mut args)
-					}
-					MaybeBoxed::Unboxed(request_handler) => request_handler.handle(request, &mut args),
+					MaybeBoxed::Boxed(boxed_request_handler) => boxed_request_handler.handle(request, args),
+					MaybeBoxed::Unboxed(request_handler) => request_handler.handle(request, args),
 				};
 			}
 		}
+
+		let routing_state = std::mem::take(&mut args.routing_state);
+		let resource_extensions = std::mem::take(&mut args.resource_extensions);
 
 		handle_mistargeted_request(
 			request,
@@ -381,19 +368,6 @@ impl RequestReceiver {
 				.as_ref()
 				.map(|handler| (handler, resource_extensions)),
 		)
-	}
-}
-
-impl Handler for RequestReceiver {
-	type Response = Response;
-	type Future = BoxedFuture<Response>;
-
-	#[inline]
-	fn handle(&self, mut request: Request, args: &mut Args) -> Self::Future {
-		let routing_state = std::mem::take(&mut args.routing_state);
-		let resource_extensions = std::mem::take(&mut args.resource_extensions);
-
-		self.handle_with_routing_state(request, routing_state, resource_extensions)
 	}
 }
 
@@ -453,15 +427,17 @@ impl RequestPasser {
 
 		maybe_boxed_request_passer
 	}
+}
 
-	pub(crate) fn handle_with_routing_state(
-		&self,
-		mut request: Request,
-		mut routing_state: RoutingState,
-		resource_extensions: ResourceExtensions,
-	) -> BoxedFuture<Response> {
+impl Handler for RequestPasser {
+	type Response = Response;
+	type Future = BoxedFuture<Response>;
+
+	#[inline]
+	fn handle(&self, mut request: Request, args: &mut Args) -> Self::Future {
 		let some_next_resource = 'some_next_resource: {
-			let (next_segment, _) = routing_state
+			let (next_segment, _) = args
+				.routing_state
 				.path_traversal
 				.next_segment(request.uri().path())
 				.expect("request passer shouldn't be called when there is no next path segment");
@@ -489,7 +465,10 @@ impl RequestPasser {
 				resources.iter().find(|resource| {
 					resource
 						.pattern
-						.is_regex_match(decoded_segment.as_ref(), &mut routing_state.path_params)
+						.is_regex_match(
+							decoded_segment.as_ref(),
+							&mut args.routing_state.path_params,
+						)
 						.expect("regex_resources must keep only the resources with a regex pattern")
 				})
 			}) {
@@ -502,7 +481,7 @@ impl RequestPasser {
 				.is_some_and(|resource| {
 					resource
 						.pattern
-						.is_wildcard_match(decoded_segment, &mut routing_state.path_params)
+						.is_wildcard_match(decoded_segment, &mut args.routing_state.path_params)
 						.expect("wildcard_resource must keep only a resource with a wilcard pattern")
 				});
 
@@ -512,23 +491,16 @@ impl RequestPasser {
 		if let Some(next_resource) = some_next_resource {
 			match &next_resource.request_receiver {
 				MaybeBoxed::Boxed(boxed_request_receiver) => {
-					let mut args = Args {
-						routing_state,
-						resource_extensions,
-						handler_extension: &(),
-					};
-
-					return boxed_request_receiver.handle(request, &mut args);
+					return boxed_request_receiver.handle(request, args);
 				}
 				MaybeBoxed::Unboxed(request_receiver) => {
-					return request_receiver.handle_with_routing_state(
-						request,
-						routing_state,
-						resource_extensions,
-					)
+					return request_receiver.handle(request, args);
 				}
 			}
 		}
+
+		let routing_state = std::mem::take(&mut args.routing_state);
+		let resource_extensions = std::mem::take(&mut args.resource_extensions);
 
 		handle_mistargeted_request(
 			request,
@@ -538,19 +510,6 @@ impl RequestPasser {
 				.as_ref()
 				.map(|handler| (handler, resource_extensions)),
 		)
-	}
-}
-
-impl Handler for RequestPasser {
-	type Response = Response;
-	type Future = BoxedFuture<Response>;
-
-	#[inline]
-	fn handle(&self, mut request: Request, args: &mut Args) -> Self::Future {
-		let routing_state = std::mem::take(&mut args.routing_state);
-		let resource_extensions = std::mem::take(&mut args.resource_extensions);
-
-		self.handle_with_routing_state(request, routing_state, resource_extensions)
 	}
 }
 
