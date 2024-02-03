@@ -579,6 +579,7 @@ pub fn generate_boundary(length: u8) -> Result<Arc<str>, FileStreamError> {
 // ----------
 
 bit_flags! {
+	#[derive(Default)]
 	pub FileStreamOptions: u8 {
 		EMPTY = 0b00;
 		pub ATTACHMENT = 0b01;

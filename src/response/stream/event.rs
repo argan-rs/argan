@@ -290,6 +290,7 @@ impl Default for Event {
 // ----------
 
 bit_flags! {
+	#[derive(Default)]
 	EventFlags: u8 {
 		NAME = 0b_0000_0001;
 		DATA = 0b_0000_0010;
