@@ -24,8 +24,11 @@ macro_rules! bit_flags {
 				+ std::cmp::Ord,
 		{
 			#[inline(always)]
-			$flags_vis fn new() -> Self {
-				Self(0)
+			$flags_vis fn new() -> Self
+			where
+				Self: Default,
+			{
+				Self::default()
 			}
 
 			#[inline(always)]

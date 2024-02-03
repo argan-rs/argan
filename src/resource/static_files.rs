@@ -112,6 +112,7 @@ pub trait Tagger: Send + Sync {
 // -------------------------
 
 bit_flags! {
+	#[derive(Default)]
 	Flags: u8 {
 		ATTACHMENTS = 0b0001;
 		GET = 0b0010;
