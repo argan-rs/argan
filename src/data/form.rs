@@ -33,7 +33,7 @@ where
 {
 	type Error = FormError;
 
-	async fn from_request(request: Request<B>, _args: &Args<'_, E>) -> Result<Self, Self::Error> {
+	async fn from_request(request: Request<B>, _args: &mut Args<'_, E>) -> Result<Self, Self::Error> {
 		let content_type_str = content_type(&request).map_err(Into::<FormError>::into)?;
 
 		if content_type_str == mime::APPLICATION_WWW_FORM_URLENCODED {
@@ -153,7 +153,7 @@ where
 {
 	type Error = MultipartFormError;
 
-	async fn from_request(request: Request<B>, _args: &Args<'_, E>) -> Result<Self, Self::Error> {
+	async fn from_request(request: Request<B>, _args: &mut Args<'_, E>) -> Result<Self, Self::Error> {
 		let content_type_str = content_type(&request).map_err(Into::<MultipartFormError>::into)?;
 
 		parse_boundary(content_type_str)

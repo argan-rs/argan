@@ -19,7 +19,7 @@ impl<E: Sync> FromRequestHead<E> for HeaderMap {
 
 	async fn from_request_head(
 		head: &mut RequestHead,
-		_args: &Args<'_, E>,
+		_args: &mut Args<'_, E>,
 	) -> Result<Self, Self::Error> {
 		Ok(head.headers.clone())
 	}
@@ -32,7 +32,7 @@ where
 {
 	type Error = Infallible;
 
-	async fn from_request(request: Request<B>, _args: &Args<'_, E>) -> Result<Self, Self::Error> {
+	async fn from_request(request: Request<B>, _args: &mut Args<'_, E>) -> Result<Self, Self::Error> {
 		let (RequestHead { headers, .. }, _) = request.into_parts();
 
 		Ok(headers)

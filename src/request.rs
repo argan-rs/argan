@@ -42,7 +42,7 @@ pub trait FromRequestHead<E>: Sized {
 
 	fn from_request_head(
 		head: &mut RequestHead,
-		args: &Args<'_, E>,
+		args: &mut Args<'_, E>,
 	) -> impl Future<Output = Result<Self, Self::Error>> + Send;
 }
 
@@ -54,7 +54,7 @@ pub trait FromRequest<B, E>: Sized {
 
 	fn from_request(
 		request: Request<B>,
-		args: &Args<'_, E>,
+		args: &mut Args<'_, E>,
 	) -> impl Future<Output = Result<Self, Self::Error>> + Send;
 }
 
@@ -65,7 +65,7 @@ where
 {
 	type Error = Infallible;
 
-	async fn from_request(request: Request<B>, _args: &Args<'_, E>) -> Result<Self, Self::Error> {
+	async fn from_request(request: Request<B>, _args: &mut Args<'_, E>) -> Result<Self, Self::Error> {
 		Ok(request)
 	}
 }
@@ -108,7 +108,7 @@ impl<E: Sync> FromRequestHead<E> for Method {
 
 	async fn from_request_head(
 		head: &mut RequestHead,
-		_args: &Args<'_, E>,
+		_args: &mut Args<'_, E>,
 	) -> Result<Self, Self::Error> {
 		Ok(head.method.clone())
 	}
@@ -121,7 +121,7 @@ where
 {
 	type Error = Infallible;
 
-	async fn from_request(request: Request<B>, _args: &Args<'_, E>) -> Result<Self, Self::Error> {
+	async fn from_request(request: Request<B>, _args: &mut Args<'_, E>) -> Result<Self, Self::Error> {
 		let (head, _) = request.into_parts();
 
 		Ok(head.method)
@@ -144,7 +144,7 @@ impl<E: Sync> FromRequestHead<E> for Uri {
 
 	async fn from_request_head(
 		head: &mut RequestHead,
-		_args: &Args<'_, E>,
+		_args: &mut Args<'_, E>,
 	) -> Result<Self, Self::Error> {
 		Ok(head.uri.clone())
 	}
@@ -157,7 +157,7 @@ where
 {
 	type Error = Infallible;
 
-	async fn from_request(request: Request<B>, _args: &Args<'_, E>) -> Result<Self, Self::Error> {
+	async fn from_request(request: Request<B>, _args: &mut Args<'_, E>) -> Result<Self, Self::Error> {
 		let (head, _) = request.into_parts();
 
 		Ok(head.uri)
@@ -172,7 +172,7 @@ impl<E: Sync> FromRequestHead<E> for Version {
 
 	async fn from_request_head(
 		head: &mut RequestHead,
-		_args: &Args<'_, E>,
+		_args: &mut Args<'_, E>,
 	) -> Result<Self, Self::Error> {
 		Ok(head.version)
 	}
@@ -185,7 +185,7 @@ where
 {
 	type Error = Infallible;
 
-	async fn from_request(request: Request<B>, _args: &Args<'_, E>) -> Result<Self, Self::Error> {
+	async fn from_request(request: Request<B>, _args: &mut Args<'_, E>) -> Result<Self, Self::Error> {
 		let (head, _) = request.into_parts();
 
 		Ok(head.version)
@@ -217,7 +217,7 @@ where
 
 	async fn from_request_head(
 		head: &mut RequestHead,
-		_args: &Args<'_, E>,
+		_args: &mut Args<'_, E>,
 	) -> Result<Self, Self::Error> {
 		let routing_state = head
 			.extensions
@@ -242,7 +242,7 @@ where
 {
 	type Error = StatusCode; // TODO.
 
-	async fn from_request(request: Request<B>, _args: &Args<'_, E>) -> Result<Self, Self::Error> {
+	async fn from_request(request: Request<B>, _args: &mut Args<'_, E>) -> Result<Self, Self::Error> {
 		let (mut head, _) = request.into_parts();
 
 		Self::from_request_head(&mut head, _args).await
@@ -263,7 +263,7 @@ where
 
 	async fn from_request_head(
 		head: &mut RequestHead,
-		_args: &Args<'_, E>,
+		_args: &mut Args<'_, E>,
 	) -> Result<Self, Self::Error> {
 		let query_string = head.uri.query().ok_or(StatusCode::BAD_REQUEST)?;
 
@@ -281,7 +281,7 @@ where
 {
 	type Error = StatusCode; // TODO.
 
-	async fn from_request(request: Request<B>, _args: &Args<'_, E>) -> Result<Self, Self::Error> {
+	async fn from_request(request: Request<B>, _args: &mut Args<'_, E>) -> Result<Self, Self::Error> {
 		let (mut head, _) = request.into_parts();
 
 		Self::from_request_head(&mut head, _args).await
@@ -304,7 +304,7 @@ macro_rules! impl_extractions_for_tuples {
 
 			async fn from_request_head(
 				head: &mut RequestHead,
-				args: &Args<'_, E>,
+				args: &mut Args<'_, E>,
 			) -> Result<Self, Self::Error> {
 				let $t1 = $t1::from_request_head(head, args).await.map_err(|error| error.into_response())?;
 
@@ -333,7 +333,10 @@ macro_rules! impl_extractions_for_tuples {
 		{
 			type Error = Response;
 
-			async fn from_request(request: Request<B>, args: &Args<'_, E>) -> Result<Self, Self::Error> {
+			async fn from_request(
+				request: Request<B>,
+				args: &mut Args<'_, E>,
+			) -> Result<Self, Self::Error> {
 				let (mut head, body) = request.into_parts();
 
 				let $t1 = $t1::from_request_head(&mut head, args).await.map_err(

@@ -197,7 +197,7 @@ where
 	#[inline]
 	async fn from_request_head(
 		head: &mut RequestHead,
-		args: &Args<'_, E>,
+		args: &mut Args<'_, E>,
 	) -> Result<Self, Self::Error> {
 		Ok(HandlerExtension(args.handler_extension.clone()))
 	}
@@ -211,10 +211,8 @@ where
 	type Error = Infallible;
 
 	#[inline]
-	async fn from_request(request: Request<B>, args: &Args<'_, E>) -> Result<Self, Self::Error> {
-		let (mut head, _) = request.into_parts();
-
-		<HandlerExtension<E> as FromRequestHead<E>>::from_request_head(&mut head, args).await
+	async fn from_request(request: Request<B>, args: &mut Args<'_, E>) -> Result<Self, Self::Error> {
+		Ok(HandlerExtension(args.handler_extension.clone()))
 	}
 }
 

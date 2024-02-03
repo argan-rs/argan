@@ -155,7 +155,7 @@ macro_rules! impl_handler_fn {
 					"HandlerFnFuture should be created with a handler extension",
 				);
 
-				let args = Args {
+				let mut args = Args {
 					routing_state,
 					resource_extensions,
 					handler_extension: &handler_extension
@@ -167,7 +167,7 @@ macro_rules! impl_handler_fn {
 					).into_parts();
 
 					$(
-						let $ps = match pin!($ps::from_request_head(&mut head, &args)).poll(cx) {
+						let $ps = match pin!($ps::from_request_head(&mut head, &mut args)).poll(cx) {
 							Poll::Ready(result) => {
 								match result {
 									Ok(value) => value,
@@ -188,7 +188,7 @@ macro_rules! impl_handler_fn {
 								self_projection.some_request.take().expect(
 									"the constructor of the HandlerFnFuture or the local scope should set the request"
 								),
-								&args,
+								&mut args,
 							)
 						).poll(cx) {
 							Poll::Ready(result) => {

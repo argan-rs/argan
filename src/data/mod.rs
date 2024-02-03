@@ -54,7 +54,7 @@ where
 
 	async fn from_request_head(
 		head: &mut RequestHead,
-		_args: &Args<'_, E>,
+		_args: &mut Args<'_, E>,
 	) -> Result<Self, Self::Error> {
 		match head.extensions.get::<T>() {
 			Some(value) => Ok(Extension(value.clone())),
@@ -71,7 +71,7 @@ where
 {
 	type Error = StatusCode;
 
-	async fn from_request(request: Request<B>, _args: &Args<'_, E>) -> Result<Self, Self::Error> {
+	async fn from_request(request: Request<B>, _args: &mut Args<'_, E>) -> Result<Self, Self::Error> {
 		let (mut head, _) = request.into_parts();
 
 		Self::from_request_head(&mut head, _args).await
@@ -134,7 +134,7 @@ where
 {
 	type Error = JsonError;
 
-	async fn from_request(request: Request<B>, _args: &Args<'_, E>) -> Result<Self, Self::Error> {
+	async fn from_request(request: Request<B>, _args: &mut Args<'_, E>) -> Result<Self, Self::Error> {
 		let content_type = content_type(&request)?;
 
 		if content_type == mime::APPLICATION_JSON {
@@ -226,7 +226,7 @@ where
 {
 	type Error = StatusCode; // TODO.
 
-	async fn from_request(request: Request<B>, _args: &Args<'_, E>) -> Result<Self, Self::Error> {
+	async fn from_request(request: Request<B>, _args: &mut Args<'_, E>) -> Result<Self, Self::Error> {
 		let content_type = content_type(&request).map_err(|_| StatusCode::BAD_REQUEST)?;
 
 		if content_type == mime::TEXT_PLAIN_UTF_8 {
@@ -314,7 +314,7 @@ where
 {
 	type Error = StatusCode; // TODO.
 
-	async fn from_request(request: Request<B>, _args: &Args<'_, E>) -> Result<Self, Self::Error> {
+	async fn from_request(request: Request<B>, _args: &mut Args<'_, E>) -> Result<Self, Self::Error> {
 		let content_type_str = content_type(&request).map_err(|_| StatusCode::BAD_REQUEST)?;
 
 		if content_type_str == mime::APPLICATION_OCTET_STREAM {
