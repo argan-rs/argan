@@ -107,14 +107,13 @@ impl Redirect {
 impl IntoResponse for Redirect {
 	#[inline]
 	fn into_response(self) -> Response {
-	  let mut response = Response::default();
+		let mut response = Response::default();
 		*response.status_mut() = self.status_code;
 		response.headers_mut().insert(LOCATION, self.uri);
 
 		response
 	}
 }
-
 
 // --------------------------------------------------
 // Infallible Error

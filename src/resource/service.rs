@@ -8,7 +8,7 @@ use std::{
 };
 
 use bytes::Bytes;
-use http::{Extensions, Method, StatusCode};
+use http::{Extensions, Method, StatusCode, Uri};
 use http_body_util::BodyExt;
 use percent_encoding::percent_decode_str;
 
@@ -26,11 +26,11 @@ use crate::{
 	middleware::{BoxedLayer, LayerTarget, ResponseFutureBoxer},
 	pattern::{ParamsList, Pattern},
 	request::Request,
-	response::{IntoResponse, Response},
-	routing::{RouteTraversal, RoutingState, UnusedRequest},
+	response::{IntoResponse, Redirect, Response},
+	routing::{self, RouteTraversal, RoutingState, UnusedRequest},
 };
 
-use super::ResourceExtensions;
+use super::{config::ConfigFlags, ResourceExtensions};
 
 // --------------------------------------------------------------------------------
 // --------------------------------------------------------------------------------
@@ -39,7 +39,6 @@ use super::ResourceExtensions;
 pub struct ResourceService {
 	pub(super) pattern: Pattern,
 	pub(super) extensions: Extensions,
-	pub(super) is_subtree_handler: bool,
 
 	pub(super) request_receiver: MaybeBoxed<RequestReceiver>,
 	pub(super) some_mistargeted_request_handler: Option<BoxedHandler>,
@@ -47,17 +46,15 @@ pub struct ResourceService {
 
 impl ResourceService {
 	#[inline(always)]
-	pub(crate) fn new(
+	pub(super) fn new(
 		pattern: Pattern,
 		extensions: Extensions,
-		is_subtree_handler: bool,
 		request_receiver: MaybeBoxed<RequestReceiver>,
 		some_mistargeted_request_handler: Option<BoxedHandler>,
 	) -> Self {
 		Self {
 			pattern,
 			extensions,
-			is_subtree_handler,
 			request_receiver,
 			some_mistargeted_request_handler,
 		}
@@ -69,11 +66,6 @@ impl ResourceService {
 			Pattern::Static(ref pattern) => pattern.as_ref() == "/",
 			_ => false,
 		}
-	}
-
-	#[inline(always)]
-	pub(super) fn is_subtree_handler(&self) -> bool {
-		self.is_subtree_handler
 	}
 }
 
@@ -170,7 +162,7 @@ pub(crate) struct RequestReceiver {
 	pub(super) some_request_handler: Option<Arc<MaybeBoxed<RequestHandler>>>,
 	pub(super) some_mistargeted_request_handler: Option<BoxedHandler>,
 
-	pub(super) is_subtree_handler: bool,
+	pub(super) config_flags: ConfigFlags,
 }
 
 impl RequestReceiver {
@@ -178,14 +170,14 @@ impl RequestReceiver {
 		some_request_passer: Option<MaybeBoxed<RequestPasser>>,
 		some_request_handler: Option<Arc<MaybeBoxed<RequestHandler>>>,
 		some_mistargeted_request_handler: Option<BoxedHandler>,
-		is_subtree_handler: bool,
+		config_flags: ConfigFlags,
 		middleware: Vec<LayerTarget>,
 	) -> MaybeBoxed<Self> {
 		let request_receiver = Self {
 			some_request_passer,
 			some_request_handler,
 			some_mistargeted_request_handler,
-			is_subtree_handler,
+			config_flags,
 		};
 
 		let mut maybe_boxed_request_receiver = MaybeBoxed::from_unboxed(request_receiver);
@@ -212,6 +204,11 @@ impl RequestReceiver {
 		maybe_boxed_request_receiver
 	}
 
+	#[inline(always)]
+	fn is_subtree_hander(&self) -> bool {
+		self.config_flags.has(ConfigFlags::SUBTREE_HANDLER)
+	}
+
 	pub(crate) fn handle_with_routing_state(
 		&self,
 		mut request: Request,
@@ -223,7 +220,7 @@ impl RequestReceiver {
 			.has_remaining_segments(request.uri().path())
 		{
 			if let Some(request_passer) = self.some_request_passer.as_ref() {
-				if self.is_subtree_handler {
+				if self.is_subtree_hander() {
 					routing_state.subtree_handler_exists = true;
 				}
 
@@ -246,7 +243,7 @@ impl RequestReceiver {
 					),
 				};
 
-				if !self.is_subtree_handler {
+				if !self.is_subtree_hander() {
 					return response_future;
 				}
 
@@ -298,7 +295,7 @@ impl RequestReceiver {
 				});
 			}
 
-			if !self.is_subtree_handler {
+			if !self.is_subtree_hander() {
 				return handle_mistargeted_request(
 					request,
 					routing_state,
@@ -311,16 +308,60 @@ impl RequestReceiver {
 		}
 
 		if let Some(request_handler) = self.some_request_handler.as_ref() {
-			request
-				.extensions_mut()
-				.insert(Uncloneable::from(routing_state));
+			let request_path_ends_with_slash = routing_state
+				.path_traversal
+				.ends_with_slash(request.uri().path());
 
-			let args = Args::with_resource_extensions(resource_extensions);
+			let resource_path_ends_with_slash = self.config_flags.has(ConfigFlags::ENDS_WITH_SLASH);
 
-			return match request_handler.as_ref() {
-				MaybeBoxed::Boxed(boxed_request_handler) => boxed_request_handler.handle(request, &args),
-				MaybeBoxed::Unboxed(request_handler) => request_handler.handle(request, &args),
+			let handle = if request_path_ends_with_slash && !resource_path_ends_with_slash {
+				if self
+					.config_flags
+					.has(ConfigFlags::REDIRECTS_ON_UNMATCHING_SLASH)
+				{
+					let path = request.uri().path();
+
+					return Box::pin(ready(
+						Redirect::permanently(&path[..path.len() - 1]).into_response(),
+					));
+				}
+
+				!self
+					.config_flags
+					.has(ConfigFlags::DROPS_ON_UNMATCHING_SLASH)
+			} else if !request_path_ends_with_slash && resource_path_ends_with_slash {
+				if self
+					.config_flags
+					.has(ConfigFlags::REDIRECTS_ON_UNMATCHING_SLASH)
+				{
+					let path = request.uri().path();
+
+					let mut new_path = String::with_capacity(path.len() + 1);
+					new_path.push_str(path);
+					new_path.push('/');
+
+					return Box::pin(ready(Redirect::permanently(new_path).into_response()));
+				}
+
+				!self
+					.config_flags
+					.has(ConfigFlags::DROPS_ON_UNMATCHING_SLASH)
+			} else {
+				true
 			};
+
+			if handle {
+				request
+					.extensions_mut()
+					.insert(Uncloneable::from(routing_state));
+
+				let args = Args::with_resource_extensions(resource_extensions);
+
+				return match request_handler.as_ref() {
+					MaybeBoxed::Boxed(boxed_request_handler) => boxed_request_handler.handle(request, &args),
+					MaybeBoxed::Unboxed(request_handler) => request_handler.handle(request, &args),
+				};
+			}
 		}
 
 		handle_mistargeted_request(
