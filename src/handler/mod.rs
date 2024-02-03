@@ -94,19 +94,20 @@ where
 #[non_exhaustive]
 #[derive(Clone)]
 pub struct Args<'r, E = ()> {
+	pub(crate) routing_state: RoutingState,
 	pub resource_extensions: ResourceExtensions<'r>,
 	pub handler_extension: &'r E, // The handler has the same lifetime as the resource it belongs to.
 }
 
-impl<'r> Args<'r> {
-	#[inline(always)]
-	pub(crate) fn with_resource_extensions(resource_extensions: ResourceExtensions<'r>) -> Self {
-		Self {
-			resource_extensions,
-			handler_extension: &(),
-		}
-	}
-}
+// impl<'r> Args<'r> {
+// 	#[inline(always)]
+// 	pub(crate) fn with_resource_extensions(resource_extensions: ResourceExtensions<'r>) -> Self {
+// 		Self {
+// 			resource_extensions,
+// 			handler_extension: &(),
+// 		}
+// 	}
+// }
 
 // --------------------------------------------------------------------------------
 
@@ -131,12 +132,24 @@ where
 
 	#[inline]
 	fn call(&self, mut request: Request<B>) -> Self::Future {
+		let routing_state = request
+			.extensions_mut()
+			.remove::<Uncloneable<RoutingState>>()
+			.expect("Uncloneable<RoutingState> should be inserted before routing started")
+			.into_inner()
+			.expect("RoutingState should always exist in Uncloneable");
+
 		let resource_extensions = request
 			.extensions_mut()
 			.remove::<ResourceExtensions>()
 			.expect("when layered, resource extensions must be inserted into the request");
 
-		let args = Args::with_resource_extensions(resource_extensions);
+		let args = Args {
+			routing_state,
+			resource_extensions,
+			handler_extension: &(),
+		};
+		// Args::with_resource_extensions(resource_extensions);
 
 		let response_future = self.handler.handle(request, &args);
 
@@ -169,6 +182,7 @@ where
 	#[inline]
 	fn handle(&self, mut request: Request<B>, args: &Args) -> Self::Future {
 		let args = Args {
+			routing_state: args.routing_state.clone(),
 			resource_extensions: args.resource_extensions.clone(),
 			handler_extension: &self.extension,
 		};
@@ -348,12 +362,24 @@ where
 
 	#[inline]
 	fn call(&self, mut request: Request<B>) -> Self::Future {
+		let routing_state = request
+			.extensions_mut()
+			.remove::<Uncloneable<RoutingState>>()
+			.expect("Uncloneable<RoutingState> should be inserted before routing started")
+			.into_inner()
+			.expect("RoutingState should always exist in Uncloneable");
+
 		let resource_extensions = request
 			.extensions_mut()
 			.remove::<ResourceExtensions>()
 			.expect("when layered, resource extensions must be inserted into the request");
 
-		let args = Args::with_resource_extensions(resource_extensions);
+		let args = Args {
+			routing_state,
+			resource_extensions,
+			handler_extension: &(),
+		};
+		// Args::with_resource_extensions(resource_extensions);
 
 		let response_future = self.0.handle(request, &args);
 

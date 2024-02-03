@@ -13,6 +13,7 @@ use crate::{
 	request::{FromRequest, FromRequestHead, Request},
 	resource::ResourceExtensions,
 	response::{IntoResponse, Response},
+	routing::RoutingState,
 };
 
 use super::{Args, Handler, IntoHandler};
@@ -111,12 +112,14 @@ macro_rules! impl_handler_fn {
 
 			fn handle(&self, request: Request<B>, args: &Args<'_, E>) -> Self::Future {
 				let func_clone = self.func.clone();
+				let routing_state = args.routing_state.clone();
 				let resource_extensions = args.resource_extensions.clone().into_owned();
 				let handler_extension_clone = args.handler_extension.clone();
 
 				HandlerFnFuture::new(
 					func_clone,
 					request,
+					routing_state,
 					resource_extensions,
 					handler_extension_clone,
 				)
@@ -140,6 +143,10 @@ macro_rules! impl_handler_fn {
 			fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
 				let self_projection = self.project();
 
+				let routing_state = self_projection.some_routing_state.take().expect(
+					"HandlerFnFuture should be created with a routing state",
+				);
+
 				let resource_extensions = self_projection.some_resource_extensions.take().expect(
 					"HandlerFnFuture should be created with resource extensions",
 				);
@@ -148,7 +155,11 @@ macro_rules! impl_handler_fn {
 					"HandlerFnFuture should be created with a handler extension",
 				);
 
-				let args = Args { resource_extensions, handler_extension: &handler_extension };
+				let args = Args {
+					routing_state,
+					resource_extensions,
+					handler_extension: &handler_extension
+				};
 
 				$(
 					let (mut head, body) = self_projection.some_request.take().expect(
@@ -225,6 +236,7 @@ impl_handler_fn!((P1, P2, P3, P4, P5, P6, P7, P8, P9, P10, P11, P12, P13, P14, P
 pub struct HandlerFnFuture<Func, M, B, E> {
 	func: Func,
 	some_request: Option<Request<B>>,
+	some_routing_state: Option<RoutingState>,
 	some_resource_extensions: Option<ResourceExtensions<'static>>,
 	some_handler_extension: Option<E>,
 	_mark: PhantomData<fn() -> M>,
@@ -234,12 +246,14 @@ impl<Func, M, B, E> HandlerFnFuture<Func, M, B, E> {
 	fn new(
 		func: Func,
 		request: Request<B>,
+		routing_state: RoutingState,
 		resource_extensions: ResourceExtensions<'static>,
 		handler_extension: E,
 	) -> Self {
 		Self {
 			func,
 			some_request: Some(request),
+			some_routing_state: Some(routing_state),
 			some_resource_extensions: Some(resource_extensions),
 			some_handler_extension: Some(handler_extension),
 			_mark: PhantomData,

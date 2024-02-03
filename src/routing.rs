@@ -7,6 +7,7 @@ use crate::{pattern::ParamsList, request::Request, resource::ResourceService};
 // --------------------------------------------------------------------------------
 // --------------------------------------------------------------------------------
 
+#[derive(Clone)]
 pub(crate) struct RoutingState {
 	pub(crate) path_traversal: RouteTraversal,
 	pub(crate) path_params: ParamsList,
@@ -30,6 +31,7 @@ impl RoutingState {
 
 // --------------------------------------------------
 
+#[derive(Clone)]
 pub(crate) struct RouteTraversal(usize);
 
 impl RouteTraversal {

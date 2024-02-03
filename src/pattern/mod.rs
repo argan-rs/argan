@@ -370,7 +370,7 @@ impl AsRef<[(Box<str>, usize)]> for RegexNames {
 
 // --------------------------------------------------
 
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone)]
 pub(crate) struct ParamsList(Vec<Params>);
 
 impl ParamsList {
@@ -397,7 +397,7 @@ impl ParamsList {
 
 // --------------------------------------------------
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub(crate) enum Params {
 	Regex(RegexNames, CaptureLocations, Box<str>),
 	Wildcard(Arc<str>, Box<str>),
