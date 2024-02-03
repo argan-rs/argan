@@ -5,9 +5,7 @@ use tower_layer::Layer as TowerLayer;
 
 use crate::{
 	common::IntoArray,
-	handler::{
-		AdaptiveHandler, BoxedHandler, Handler, HandlerService, /* HandlerService */
-	},
+	handler::{AdaptiveHandler, BoxedHandler, Handler, HandlerService /* HandlerService */},
 	response::IntoResponse,
 };
 
