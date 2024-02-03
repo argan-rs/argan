@@ -150,7 +150,7 @@ where
 
 	async fn from_request_head(
 		head: &mut RequestHead,
-		_args: &Args<'_, E>,
+		_args: &mut Args<'_, E>,
 	) -> Result<Self, Self::Error> {
 		let cookie_jar = head
 			.headers
@@ -179,7 +179,7 @@ where
 {
 	type Error = Infallible;
 
-	async fn from_request(request: Request<B>, _args: &Args<'_, E>) -> Result<Self, Self::Error> {
+	async fn from_request(request: Request<B>, _args: &mut Args<'_, E>) -> Result<Self, Self::Error> {
 		let (mut head, _) = request.into_parts();
 
 		<CookieJar<K> as FromRequestHead<E>>::from_request_head(&mut head, _args).await
@@ -260,7 +260,7 @@ where
 
 	async fn from_request_head(
 		head: &mut RequestHead,
-		_args: &Args<'_, E>,
+		_args: &mut Args<'_, E>,
 	) -> Result<Self, Self::Error> {
 		<CookieJar<K> as FromRequestHead<E>>::from_request_head(head, _args)
 			.await
@@ -276,7 +276,7 @@ where
 {
 	type Error = Infallible;
 
-	async fn from_request(request: Request<B>, _args: &Args<'_, E>) -> Result<Self, Self::Error> {
+	async fn from_request(request: Request<B>, _args: &mut Args<'_, E>) -> Result<Self, Self::Error> {
 		let (mut head, _) = request.into_parts();
 
 		<PrivateCookieJar<K> as FromRequestHead<E>>::from_request_head(&mut head, _args).await
@@ -350,7 +350,7 @@ where
 
 	async fn from_request_head(
 		head: &mut RequestHead,
-		_args: &Args<'_, E>,
+		_args: &mut Args<'_, E>,
 	) -> Result<Self, Self::Error> {
 		<CookieJar<K> as FromRequestHead<E>>::from_request_head(head, _args)
 			.await
@@ -366,7 +366,7 @@ where
 {
 	type Error = Infallible;
 
-	async fn from_request(request: Request<B>, _args: &Args<'_, E>) -> Result<Self, Self::Error> {
+	async fn from_request(request: Request<B>, _args: &mut Args<'_, E>) -> Result<Self, Self::Error> {
 		let (mut head, _) = request.into_parts();
 
 		<SignedCookieJar<K> as FromRequestHead<E>>::from_request_head(&mut head, _args).await

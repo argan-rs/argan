@@ -50,7 +50,7 @@ where
 	#[inline]
 	async fn from_request_head(
 		head: &mut RequestHead,
-		args: &Args<'_, HE>,
+		args: &mut Args<'_, HE>,
 	) -> Result<Self, Self::Error> {
 		match args.resource_extensions.get_ref::<RE>() {
 			Some(value) => Ok(ResourceExtension(value.clone())),
@@ -68,7 +68,7 @@ where
 	type Error = StatusCode; // ???
 
 	#[inline]
-	async fn from_request(request: Request<B>, args: &Args<'_, HE>) -> Result<Self, Self::Error> {
+	async fn from_request(request: Request<B>, args: &mut Args<'_, HE>) -> Result<Self, Self::Error> {
 		let (mut head, _) = request.into_parts();
 
 		<ResourceExtension<RE> as FromRequestHead<HE>>::from_request_head(&mut head, args).await
