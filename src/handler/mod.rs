@@ -92,22 +92,11 @@ where
 // Args
 
 #[non_exhaustive]
-#[derive(Clone)]
 pub struct Args<'r, E = ()> {
 	pub(crate) routing_state: RoutingState,
 	pub resource_extensions: ResourceExtensions<'r>,
 	pub handler_extension: &'r E, // The handler has the same lifetime as the resource it belongs to.
 }
-
-// impl<'r> Args<'r> {
-// 	#[inline(always)]
-// 	pub(crate) fn with_resource_extensions(resource_extensions: ResourceExtensions<'r>) -> Self {
-// 		Self {
-// 			resource_extensions,
-// 			handler_extension: &(),
-// 		}
-// 	}
-// }
 
 // --------------------------------------------------------------------------------
 

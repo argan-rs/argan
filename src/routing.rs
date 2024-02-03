@@ -7,7 +7,7 @@ use crate::{pattern::ParamsList, request::Request, resource::ResourceService};
 // --------------------------------------------------------------------------------
 // --------------------------------------------------------------------------------
 
-#[derive(Default, Clone)]
+#[derive(Default)]
 pub(crate) struct RoutingState {
 	pub(crate) path_traversal: RouteTraversal,
 	pub(crate) path_params: ParamsList,
@@ -15,9 +15,7 @@ pub(crate) struct RoutingState {
 }
 
 impl RoutingState {
-	pub(crate) fn new(
-		path_traversal: RouteTraversal,
-	) -> RoutingState {
+	pub(crate) fn new(path_traversal: RouteTraversal) -> RoutingState {
 		Self {
 			path_traversal,
 			path_params: ParamsList::new(),
@@ -28,7 +26,7 @@ impl RoutingState {
 
 // --------------------------------------------------
 
-#[derive(Default, Clone)]
+#[derive(Default)]
 pub(crate) struct RouteTraversal(usize);
 
 impl RouteTraversal {
