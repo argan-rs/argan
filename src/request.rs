@@ -226,7 +226,7 @@ where
 			.as_mut()
 			.expect("RoutingState should always exist in Uncloneable");
 
-		let mut from_params_list = routing_state.path_params.deserializer();
+		let mut from_params_list = routing_state.uri_params.deserializer();
 
 		T::deserialize(&mut from_params_list)
 			.map(|value| Self(value))

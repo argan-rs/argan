@@ -37,11 +37,11 @@ use super::{config::ConfigFlags, ResourceExtensions};
 
 #[derive(Clone)]
 pub struct ResourceService {
-	pub(super) pattern: Pattern,
-	pub(super) extensions: Extensions,
+	pattern: Pattern,
+	extensions: Extensions,
 
-	pub(super) request_receiver: MaybeBoxed<RequestReceiver>,
-	pub(super) some_mistargeted_request_handler: Option<BoxedHandler>,
+	request_receiver: MaybeBoxed<RequestReceiver>,
+	some_mistargeted_request_handler: Option<BoxedHandler>,
 }
 
 impl ResourceService {
@@ -67,6 +67,36 @@ impl ResourceService {
 			_ => false,
 		}
 	}
+
+	#[inline]
+	pub(crate) fn handle_with_params<B>(
+		&self,
+		request: Request<B>,
+		uri_params: ParamsList,
+	) -> ResponseToResultFuture<BoxedFuture<Response>>
+	where
+		B: HttpBody<Data = Bytes> + Send + Sync + 'static,
+		B::Error: Into<BoxedError>,
+	{
+		let mut request = request.map(Body::new);
+
+		let route = request.uri().path();
+		let mut routing_state = RoutingState::new(RouteTraversal::for_route(route));
+		routing_state.uri_params = uri_params;
+
+		let mut args = Args {
+			routing_state,
+			resource_extensions: ResourceExtensions::new_borrowed(&self.extensions),
+			handler_extension: &(),
+		};
+
+		ResponseToResultFuture::from(match &self.request_receiver {
+			MaybeBoxed::Boxed(boxed_request_receiver) => {
+				boxed_request_receiver.handle(request, &mut args)
+			}
+			MaybeBoxed::Unboxed(request_receiver) => request_receiver.handle(request, &mut args),
+		})
+	}
 }
 
 // --------------------------------------------------
@@ -81,9 +111,7 @@ where
 	type Future = ResponseToResultFuture<BoxedFuture<Response>>;
 
 	fn call(&self, request: Request<B>) -> Self::Future {
-		let (head, body) = request.into_parts();
-		let incoming_body = Body::new(body);
-		let mut request = Request::<Body>::from_parts(head, incoming_body);
+		let mut request = request.map(Body::new);
 
 		let route = request.uri().path();
 		let mut route_traversal = RouteTraversal::for_route(route);
@@ -103,9 +131,9 @@ where
 				result
 			} else {
 				let Ok(decoded_segment) = percent_decode_str(next_segment).decode_utf8() else {
-					return ResponseToResultFuture::from(
-						Box::pin(ready(StatusCode::BAD_REQUEST.into_response())) as BoxedFuture<Response>
-					); // ???
+					return ResponseToResultFuture::from(Box::pin(ready(
+						StatusCode::BAD_REQUEST.into_response(),
+					)) as BoxedFuture<Response>); // ???
 				};
 
 				if let Some(result) = self
@@ -123,7 +151,7 @@ where
 		};
 
 		let mut routing_state = RoutingState::new(route_traversal);
-		routing_state.path_params = path_params;
+		routing_state.uri_params = path_params;
 
 		let mut args = Args {
 			routing_state,
@@ -228,9 +256,7 @@ impl Handler for RequestReceiver {
 				let next_segment_index = args.routing_state.path_traversal.next_segment_index();
 
 				let response_future = match request_passer {
-					MaybeBoxed::Boxed(boxed_request_passer) => {
-						boxed_request_passer.handle(request, args)
-					}
+					MaybeBoxed::Boxed(boxed_request_passer) => boxed_request_passer.handle(request, args),
 					MaybeBoxed::Unboxed(request_passer) => request_passer.handle(request, args),
 				};
 
@@ -469,7 +495,7 @@ impl Handler for RequestPasser {
 						.pattern
 						.is_regex_match(
 							decoded_segment.as_ref(),
-							&mut args.routing_state.path_params,
+							&mut args.routing_state.uri_params,
 						)
 						.expect("regex_resources must keep only the resources with a regex pattern")
 				})
@@ -483,7 +509,7 @@ impl Handler for RequestPasser {
 				.is_some_and(|resource| {
 					resource
 						.pattern
-						.is_wildcard_match(decoded_segment, &mut args.routing_state.path_params)
+						.is_wildcard_match(decoded_segment, &mut args.routing_state.uri_params)
 						.expect("wildcard_resource must keep only a resource with a wilcard pattern")
 				});
 
