@@ -79,7 +79,7 @@ impl Resource {
 		}
 
 		if !path_patterns.starts_with('/') {
-			panic!("path patterns must start with a slash or must be a root pattern '/'")
+			panic!("path patterns must start with a slash or must be a root '/'")
 		}
 
 		let mut route_segments = RouteSegments::new(path_patterns);
@@ -102,16 +102,26 @@ impl Resource {
 			break pattern;
 		};
 
-		Self::with_prefix_path_patterns(prefix_path_patterns, resource_pattern)
+		Self::with_prefix_path_patterns(
+			prefix_path_patterns,
+			resource_pattern,
+			route_segments.ends_with_slash(),
+		)
 	}
 
 	#[inline(always)]
 	pub(crate) fn with_prefix_path_patterns(
 		prefix_path_patterns: Vec<Pattern>,
 		resource_pattern: Pattern,
+		ends_with_slash: bool,
 	) -> Resource {
 		if let Pattern::Regex(ref name, None) = resource_pattern {
 			panic!("{} pattern has no regex segment", name.pattern_name())
+		}
+
+		let mut config_flags = ConfigFlags::new();
+		if ends_with_slash {
+			config_flags.add(ConfigFlags::ENDS_WITH_SLASH);
 		}
 
 		Resource {
@@ -124,7 +134,7 @@ impl Resource {
 			method_handlers: MethodHandlers::new(),
 			some_mistargeted_request_handler: None,
 			extensions: Extensions::new(),
-			config_flags: ConfigFlags::new(),
+			config_flags,
 		}
 	}
 
@@ -137,7 +147,7 @@ impl Resource {
 
 	#[inline(always)]
 	pub(crate) fn with_pattern(pattern: Pattern) -> Resource {
-		Self::with_prefix_path_patterns(Vec::new(), pattern)
+		Self::with_prefix_path_patterns(Vec::new(), pattern, false)
 	}
 
 	// -------------------------
@@ -807,9 +817,10 @@ impl Resource {
 		(leaf_resource, route_segments)
 	}
 
-	#[inline]
 	fn new_subresource_mut(&mut self, segments: RouteSegments) -> &mut Resource {
 		let mut current_resource = self;
+		let mut newly_created = false;
+		let ends_with_slash = segments.ends_with_slash();
 
 		for (segment, _) in segments {
 			let pattern = Pattern::parse(segment);
@@ -823,12 +834,18 @@ impl Resource {
 			let new_subresource = Resource::with_pattern(pattern);
 			current_resource.add_subresource(new_subresource);
 			(current_resource, _) = current_resource.leaf_resource_mut(RouteSegments::new(segment));
+			newly_created = true;
+		}
+
+		if newly_created && ends_with_slash {
+			current_resource
+				.config_flags
+				.add(ConfigFlags::ENDS_WITH_SLASH);
 		}
 
 		current_resource
 	}
 
-	#[inline]
 	fn path_has_the_same_name(&self, name: &str) -> bool {
 		if let Some(resource_name) = self.name() {
 			if resource_name == name {
