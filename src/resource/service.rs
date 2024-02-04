@@ -78,7 +78,7 @@ where
 {
 	type Response = Response;
 	type Error = Infallible;
-	type Future = BoxedFuture<Result<Response, Infallible>>;
+	type Future = ResponseToResultFuture<BoxedFuture<Response>>;
 
 	fn call(&self, request: Request<B>) -> Self::Future {
 		let (head, body) = request.into_parts();
@@ -103,7 +103,9 @@ where
 				result
 			} else {
 				let Ok(decoded_segment) = percent_decode_str(next_segment).decode_utf8() else {
-					return Box::pin(ready(Ok(StatusCode::BAD_REQUEST.into_response()))); // ???
+					return ResponseToResultFuture::from(
+						Box::pin(ready(StatusCode::BAD_REQUEST.into_response())) as BoxedFuture<Response>
+					); // ???
 				};
 
 				if let Some(result) = self
@@ -130,21 +132,21 @@ where
 		};
 
 		if matched {
-			Box::pin(ResponseToResultFuture::from(match &self.request_receiver {
+			ResponseToResultFuture::from(match &self.request_receiver {
 				MaybeBoxed::Boxed(boxed_request_receiver) => {
 					boxed_request_receiver.handle(request, &mut args)
 				}
 				MaybeBoxed::Unboxed(request_receiver) => request_receiver.handle(request, &mut args),
-			}))
+			})
 		} else {
-			Box::pin(ResponseToResultFuture::from(handle_mistargeted_request(
+			ResponseToResultFuture::from(handle_mistargeted_request(
 				request,
 				args.routing_state,
 				self
 					.some_mistargeted_request_handler
 					.as_ref()
 					.map(|handler| (handler, args.resource_extensions)),
-			)))
+			))
 		}
 	}
 }
@@ -227,7 +229,7 @@ impl Handler for RequestReceiver {
 
 				let response_future = match request_passer {
 					MaybeBoxed::Boxed(boxed_request_passer) => {
-						boxed_request_passer.handle(request, args).into()
+						boxed_request_passer.handle(request, args)
 					}
 					MaybeBoxed::Unboxed(request_passer) => request_passer.handle(request, args),
 				};
