@@ -119,6 +119,10 @@ impl<'r> RouteSegments<'r> {
 	pub(crate) fn revert_to_segment(&mut self, segment_index: usize) {
 		self.route_traversal.revert_to_segment(segment_index);
 	}
+
+	pub(crate) fn ends_with_slash(&self) -> bool {
+		self.route_traversal.ends_with_slash(self.route)
+	}
 }
 
 impl<'r> Iterator for RouteSegments<'r> {
