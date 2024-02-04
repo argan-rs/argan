@@ -1,3 +1,4 @@
+use core::panic;
 use std::{
 	any::{self, Any, TypeId},
 	convert::Infallible,
@@ -186,6 +187,10 @@ impl Resource {
 		let new_resources = new_resources.into_array();
 
 		for new_resource in new_resources {
+			if new_resource.pattern() == "/" {
+				panic!("a root resource cannot be a subresource");
+			}
+
 			self.add_single_subresource(new_resource);
 		}
 	}
@@ -566,6 +571,10 @@ impl Resource {
 		let new_resources = new_resources.into_array();
 
 		for new_resource in new_resources {
+			if new_resource.pattern() == "/" {
+				panic!("a root resource cannot be a subresource");
+			}
+
 			self.add_single_subresource_under(relative_path, new_resource);
 		}
 	}
