@@ -73,7 +73,7 @@ impl ResourceService {
 		&self,
 		request: Request<B>,
 		uri_params: ParamsList,
-	) -> ResponseToResultFuture<BoxedFuture<Response>>
+	) -> BoxedFuture<Response>
 	where
 		B: HttpBody<Data = Bytes> + Send + Sync + 'static,
 		B::Error: Into<BoxedError>,
@@ -90,12 +90,12 @@ impl ResourceService {
 			handler_extension: &(),
 		};
 
-		ResponseToResultFuture::from(match &self.request_receiver {
+		match &self.request_receiver {
 			MaybeBoxed::Boxed(boxed_request_receiver) => {
 				boxed_request_receiver.handle(request, &mut args)
 			}
 			MaybeBoxed::Unboxed(request_receiver) => request_receiver.handle(request, &mut args),
-		})
+		}
 	}
 }
 
@@ -183,11 +183,11 @@ where
 
 #[derive(Clone)]
 pub(crate) struct RequestReceiver {
-	pub(super) some_request_passer: Option<MaybeBoxed<RequestPasser>>,
-	pub(super) some_request_handler: Option<Arc<MaybeBoxed<RequestHandler>>>,
-	pub(super) some_mistargeted_request_handler: Option<BoxedHandler>,
+	some_request_passer: Option<MaybeBoxed<RequestPasser>>,
+	some_request_handler: Option<Arc<MaybeBoxed<RequestHandler>>>,
+	some_mistargeted_request_handler: Option<BoxedHandler>,
 
-	pub(super) config_flags: ConfigFlags,
+	config_flags: ConfigFlags,
 }
 
 impl RequestReceiver {
@@ -403,11 +403,11 @@ impl Handler for RequestReceiver {
 
 #[derive(Clone)]
 pub(crate) struct RequestPasser {
-	pub(super) some_static_resources: Option<Arc<[ResourceService]>>,
-	pub(super) some_regex_resources: Option<Arc<[ResourceService]>>,
-	pub(super) some_wildcard_resource: Option<Arc<ResourceService>>,
+	some_static_resources: Option<Arc<[ResourceService]>>,
+	some_regex_resources: Option<Arc<[ResourceService]>>,
+	some_wildcard_resource: Option<Arc<ResourceService>>,
 
-	pub(super) some_mistargeted_request_handler: Option<BoxedHandler>,
+	some_mistargeted_request_handler: Option<BoxedHandler>,
 }
 
 impl RequestPasser {
@@ -493,10 +493,7 @@ impl Handler for RequestPasser {
 				resources.iter().find(|resource| {
 					resource
 						.pattern
-						.is_regex_match(
-							decoded_segment.as_ref(),
-							&mut args.routing_state.uri_params,
-						)
+						.is_regex_match(decoded_segment.as_ref(), &mut args.routing_state.uri_params)
 						.expect("regex_resources must keep only the resources with a regex pattern")
 				})
 			}) {
@@ -545,10 +542,10 @@ impl Handler for RequestPasser {
 
 #[derive(Clone)]
 pub(crate) struct RequestHandler {
-	pub(super) allowed_methods: String,
+	allowed_methods: String,
 
-	pub(super) method_handlers: Vec<(Method, BoxedHandler)>,
-	pub(super) some_wildcard_method_handler: Option<BoxedHandler>,
+	method_handlers: Vec<(Method, BoxedHandler)>,
+	some_wildcard_method_handler: Option<BoxedHandler>,
 }
 
 impl RequestHandler {

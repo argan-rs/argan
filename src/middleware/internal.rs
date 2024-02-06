@@ -35,9 +35,7 @@ where
 
 	#[inline]
 	fn handle(&self, request: Request<B>, args: &mut Args) -> Self::Future {
-		let (parts, body) = request.into_parts();
-		let body = Body::new(body);
-		let request = Request::from_parts(parts, body);
+		let request = request.map(Body::new);
 
 		self.0.handle(request, args)
 	}
