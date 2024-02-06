@@ -48,7 +48,7 @@ where
 		request
 			.extensions_mut()
 			.insert(args.resource_extensions.clone().into_owned()); // ???
-		
+
 		let result_future = self.call(request);
 
 		ResultToResponseFuture::from(result_future)

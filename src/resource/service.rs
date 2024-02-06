@@ -23,7 +23,7 @@ use crate::{
 		},
 		AdaptiveHandler, Args, BoxedHandler, Handler, IntoHandler, Service,
 	},
-	middleware::{BoxedLayer, LayerTarget, ResponseFutureBoxer},
+	middleware::{BoxedLayer, Layer, LayerTarget, ResponseFutureBoxer},
 	pattern::{ParamsList, Pattern},
 	request::Request,
 	response::{IntoResponse, Redirect, Response},
@@ -582,9 +582,7 @@ impl RequestHandler {
 					};
 
 					for method in methods.into_iter().rev() {
-						if let Err(method) =
-							request_handler.wrap_method_handler(method, boxed_layer.boxed_clone())
-						{
+						if let Err(method) = request_handler.wrap_method_handler(method, boxed_layer.clone()) {
 							return Err(method);
 						}
 					}
