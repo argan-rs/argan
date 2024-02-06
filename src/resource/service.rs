@@ -320,7 +320,7 @@ impl Handler for RequestReceiver {
 
 			if !resource_is_subtree_handler {
 				let routing_state = std::mem::take(&mut args.routing_state);
-				let resource_extensions = std::mem::take(&mut args.resource_extensions);
+				let resource_extensions = args.resource_extensions.take();
 
 				return handle_mistargeted_request(
 					request,
@@ -386,7 +386,7 @@ impl Handler for RequestReceiver {
 		}
 
 		let routing_state = std::mem::take(&mut args.routing_state);
-		let resource_extensions = std::mem::take(&mut args.resource_extensions);
+		let resource_extensions = args.resource_extensions.take();
 
 		handle_mistargeted_request(
 			request,
@@ -525,7 +525,7 @@ impl Handler for RequestPasser {
 		}
 
 		let routing_state = std::mem::take(&mut args.routing_state);
-		let resource_extensions = std::mem::take(&mut args.resource_extensions);
+		let resource_extensions = args.resource_extensions.take();
 
 		handle_mistargeted_request(
 			request,
