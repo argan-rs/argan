@@ -93,7 +93,7 @@ impl Layer<AdaptiveHandler> for BoxedLayer {
 
 impl Clone for BoxedLayer {
 	fn clone(&self) -> Self {
-		self.0.as_ref().boxed_clone()
+		self.0.boxed_clone()
 	}
 }
 

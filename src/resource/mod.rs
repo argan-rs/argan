@@ -17,7 +17,7 @@ use crate::{
 		},
 		AdaptiveHandler, BoxedHandler, HandlerKind, IntoHandler,
 	},
-	middleware::{IntoResponseAdapter, LayerTarget, ResponseFutureBoxer},
+	middleware::{request_receiver_with, IntoResponseAdapter, LayerTarget, ResponseFutureBoxer},
 	pattern::{Pattern, Similarity},
 	request::{FromRequest, FromRequestHead, Request, RequestHead},
 	response::Response,
@@ -1024,7 +1024,15 @@ impl Resource {
 						ConfigFlags::REDIRECTS_ON_UNMATCHING_SLASH | ConfigFlags::DROPS_ON_UNMATCHING_SLASH,
 					);
 				}
-				SubtreeHandler => self.config_flags.add(ConfigFlags::SUBTREE_HANDLER),
+				SubtreeHandler => {
+					self.config_flags.add(ConfigFlags::SUBTREE_HANDLER);
+				}
+				ModifyRequestExtensions(request_extensions_modifier_layer) => {
+					let request_receiver_layer_target =
+						request_receiver_with(request_extensions_modifier_layer);
+
+					self.middleware.insert(0, request_receiver_layer_target);
+				}
 			}
 		}
 	}
@@ -1216,15 +1224,20 @@ impl IntoArray<Resource, 1> for Resource {
 // Config
 
 pub mod config {
+	use crate::middleware::RequestExtensionsModifierLayer;
+
 	use super::*;
+
+	// --------------------------------------------------------------------------------
+	// --------------------------------------------------------------------------------
 
 	bit_flags! {
 		#[derive(Clone)]
 		pub(super) ConfigFlags: u8 {
 			pub(super) ENDS_WITH_SLASH = 0b0001;
 			pub(super) REDIRECTS_ON_UNMATCHING_SLASH = 0b0010;
-			pub DROPS_ON_UNMATCHING_SLASH = 0b0100;
-			pub SUBTREE_HANDLER = 0b1000;
+			pub(super) DROPS_ON_UNMATCHING_SLASH = 0b0100;
+			pub(super) SUBTREE_HANDLER = 0b1000;
 		}
 	}
 
@@ -1285,6 +1298,7 @@ pub mod config {
 		DropOnUnmatchingSlash,
 		HandleOnUnmatchingSlash,
 		SubtreeHandler,
+		ModifyRequestExtensions(RequestExtensionsModifierLayer),
 	}
 
 	impl IntoArray<ConfigOption, 1> for ConfigOption {
@@ -1305,6 +1319,17 @@ pub mod config {
 
 	pub fn subtree_handler() -> ConfigOption {
 		ConfigOption(InnerOption::SubtreeHandler)
+	}
+
+	pub fn modify_request_extensions<Func>(modifier: Func) -> ConfigOption
+	where
+		Func: Fn(&mut Extensions) + Clone + Send + Sync + 'static,
+	{
+		let request_extensions_modifier = RequestExtensionsModifierLayer::new(modifier);
+
+		ConfigOption(InnerOption::ModifyRequestExtensions(
+			request_extensions_modifier,
+		))
 	}
 }
 
