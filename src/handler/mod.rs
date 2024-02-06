@@ -48,7 +48,7 @@ where
 		request
 			.extensions_mut()
 			.insert(args.resource_extensions.clone().into_owned()); // ???
-
+		
 		let result_future = self.call(request);
 
 		ResultToResponseFuture::from(result_future)
@@ -171,7 +171,7 @@ where
 	#[inline]
 	fn handle(&self, mut request: Request<B>, args: &mut Args) -> Self::Future {
 		let routing_state = std::mem::take(&mut args.routing_state);
-		let resource_extensions = std::mem::take(&mut args.resource_extensions);
+		let resource_extensions = args.resource_extensions.take();
 
 		let mut args = Args {
 			routing_state,

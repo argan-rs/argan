@@ -10,7 +10,7 @@ use crate::{
 // --------------------------------------------------------------------------------
 // --------------------------------------------------------------------------------
 
-#[derive(Default, Clone)]
+#[derive(Clone)]
 pub struct ResourceExtensions<'r>(Cow<'r, Extensions>);
 
 impl<'r> ResourceExtensions<'r> {
@@ -27,6 +27,11 @@ impl<'r> ResourceExtensions<'r> {
 	#[inline(always)]
 	pub fn get_ref<T: Send + Sync + 'static>(&self) -> Option<&T> {
 		self.0.get::<T>()
+	}
+
+	#[inline(always)]
+	pub(crate) fn take(&mut self) -> ResourceExtensions<'_> {
+		ResourceExtensions(std::mem::take(&mut self.0))
 	}
 
 	#[inline(always)]
