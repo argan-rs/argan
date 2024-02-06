@@ -53,7 +53,7 @@ where
 		args: &mut Args<'_, HE>,
 	) -> Result<Self, Self::Error> {
 		match args.resource_extensions.get_ref::<RE>() {
-			Some(value) => Ok(ResourceExtension(value.clone())),
+			Some(value) => Ok(Self(value.clone())),
 			None => Err(StatusCode::INTERNAL_SERVER_ERROR),
 		}
 	}
@@ -69,9 +69,10 @@ where
 
 	#[inline]
 	async fn from_request(request: Request<B>, args: &mut Args<'_, HE>) -> Result<Self, Self::Error> {
-		let (mut head, _) = request.into_parts();
-
-		<ResourceExtension<RE> as FromRequestHead<HE>>::from_request_head(&mut head, args).await
+		match args.resource_extensions.get_ref::<RE>() {
+			Some(value) => Ok(Self(value.clone())),
+			None => Err(StatusCode::INTERNAL_SERVER_ERROR),
+		}
 	}
 }
 

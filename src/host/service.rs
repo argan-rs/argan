@@ -20,15 +20,38 @@ use super::*;
 
 pub struct HostService {
 	pattern: Pattern,
-	root_resource_service: ResourceService,
+	root_resource: ResourceService,
 }
 
 impl HostService {
-	pub(super) fn new(pattern: Pattern, root_resource_service: ResourceService) -> Self {
+	pub(super) fn new(pattern: Pattern, root_resource: ResourceService) -> Self {
 		Self {
 			pattern,
-			root_resource_service,
+			root_resource,
 		}
+	}
+
+	#[inline(always)]
+	pub(crate) fn is_static_match(&self, text: &str) -> Option<bool> {
+		self.pattern.is_static_match(text)
+	}
+
+	#[inline(always)]
+	pub(crate) fn is_regex_match(&self, text: &str, params_list: &mut ParamsList) -> Option<bool> {
+		self.pattern.is_regex_match(text, params_list)
+	}
+
+	#[inline(always)]
+	pub(crate) fn handle_with_params<B>(
+		&self,
+		request: Request<B>,
+		uri_params: ParamsList,
+	) -> BoxedFuture<Response>
+	where
+		B: HttpBody<Data = Bytes> + Send + Sync + 'static,
+		B::Error: Into<BoxedError>,
+	{
+		self.root_resource.handle_with_params(request, uri_params)
 	}
 }
 
@@ -57,14 +80,14 @@ where
 		let mut uri_params = ParamsList::new();
 
 		if let Some(result) = self.pattern.is_static_match(host) {
-			return self
-				.root_resource_service
-				.handle_with_params(request, uri_params);
+			return ResponseToResultFuture::from(
+				self.root_resource.handle_with_params(request, uri_params),
+			);
 		} else {
 			if let Some(result) = self.pattern.is_regex_match(host, &mut uri_params) {
-				return self
-					.root_resource_service
-					.handle_with_params(request, uri_params);
+				return ResponseToResultFuture::from(
+					self.root_resource.handle_with_params(request, uri_params),
+				);
 			}
 		}
 

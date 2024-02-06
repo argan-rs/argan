@@ -370,7 +370,6 @@ where
 			resource_extensions,
 			handler_extension: &(),
 		};
-		// Args::with_resource_extensions(resource_extensions);
 
 		let response_future = self.0.handle(request, &mut args);
 
