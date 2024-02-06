@@ -7,7 +7,7 @@ use http::{Extensions, HeaderName, HeaderValue, Method, StatusCode};
 
 use crate::{
 	common::{mark::Private, BoxedFuture, Uncloneable},
-	middleware::{BoxedLayer, Layer, LayerTarget, ResponseFutureBoxer},
+	middleware::{Layer, LayerTarget, ResponseFutureBoxer},
 	request::Request,
 	resource::ResourceExtensions,
 	response::{IntoResponse, Response},

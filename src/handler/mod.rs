@@ -3,7 +3,7 @@ use std::{convert::Infallible, fmt::Debug, future::Future, marker::PhantomData, 
 use crate::{
 	body::{Body, HttpBody},
 	common::{BoxedError, BoxedFuture, Uncloneable},
-	middleware::{Layer, RequestBodyAdapter},
+	middleware::Layer,
 	request::{FromRequest, FromRequestHead, Request, RequestHead},
 	resource::ResourceExtensions,
 	response::Response,
@@ -340,47 +340,26 @@ impl Handler for DummyHandler<BoxedFuture<Response>> {
 // AdaptiveHandler
 
 #[derive(Clone)]
-pub struct AdaptiveHandler(RequestBodyAdapter<BoxedHandler>);
+pub struct AdaptiveHandler(BoxedHandler);
 
-impl<B> Service<Request<B>> for AdaptiveHandler
+impl<B> Handler<B> for AdaptiveHandler
 where
 	B: HttpBody<Data = Bytes> + Send + Sync + 'static,
 	B::Error: Into<BoxedError>,
 {
 	type Response = Response;
-	type Error = Infallible;
-	type Future = ResponseToResultFuture<BoxedFuture<Response>>;
+	type Future = BoxedFuture<Response>;
 
-	#[inline]
-	fn call(&self, mut request: Request<B>) -> Self::Future {
-		let routing_state = request
-			.extensions_mut()
-			.remove::<Uncloneable<RoutingState>>()
-			.expect("Uncloneable<RoutingState> should be inserted before routing started")
-			.into_inner()
-			.expect("RoutingState should always exist in Uncloneable");
-
-		let resource_extensions = request
-			.extensions_mut()
-			.remove::<ResourceExtensions>()
-			.expect("when layered, resource extensions must be inserted into the request");
-
-		let mut args = Args {
-			routing_state,
-			resource_extensions,
-			handler_extension: &(),
-		};
-
-		let response_future = self.0.handle(request, &mut args);
-
-		ResponseToResultFuture::from(response_future)
+	#[inline(always)]
+	fn handle(&self, request: Request<B>, args: &mut Args<'_, ()>) -> Self::Future {
+		self.0.handle(request.map(Body::new), args)
 	}
 }
 
 impl From<BoxedHandler> for AdaptiveHandler {
 	#[inline(always)]
 	fn from(boxed_handler: BoxedHandler) -> Self {
-		Self(RequestBodyAdapter::wrap(boxed_handler))
+		Self(boxed_handler)
 	}
 }
 
