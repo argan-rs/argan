@@ -183,6 +183,11 @@ impl Resource {
 	}
 
 	#[inline(always)]
+	pub(crate) fn host_pattern(&self) -> Option<&Pattern> {
+		self.some_host_pattern.as_ref()
+	}
+
+	#[inline(always)]
 	pub(crate) fn is_subtree_handler(&self) -> bool {
 		self.config_flags.has(ConfigFlags::SUBTREE_HANDLER)
 	}
@@ -752,15 +757,15 @@ impl Resource {
 		let relative_path = relative_path.as_ref();
 
 		if relative_path.is_empty() {
-			panic!("empty route")
+			panic!("empty relative path")
 		}
 
 		if relative_path == "/" {
-			panic!("root cannot be a sub-resource")
+			panic!("relative path cannot be a root")
 		}
 
 		if !relative_path.starts_with('/') {
-			panic!("{} route must start with '/'", relative_path)
+			panic!("'{}' relative path must start with '/'", relative_path)
 		}
 
 		let segments = RouteSegments::new(relative_path);
