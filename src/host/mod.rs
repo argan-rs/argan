@@ -40,8 +40,13 @@ impl Host {
 		}
 
 		Self {
-			pattern: host_pattern,
-			root_resource: Resource::with_pattern(Pattern::parse("/")),
+			pattern: host_pattern.clone(),
+			root_resource: Resource::with_uri_patterns(
+				Some(host_pattern),
+				Vec::new(),
+				Pattern::parse("/"),
+				false,
+			),
 		}
 	}
 
