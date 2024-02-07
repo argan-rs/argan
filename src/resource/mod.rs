@@ -4,10 +4,11 @@ use std::{
 	convert::Infallible,
 	fmt::{Debug, Display},
 	future::Ready,
+	str::FromStr as _,
 	sync::Arc,
 };
 
-use http::Extensions;
+use http::{Extensions, Uri};
 
 use crate::{
 	common::{mark::Private, patterns_to_route, BoxedFuture, IntoArray, Uncloneable},
@@ -45,6 +46,7 @@ pub use static_files::{StaticFiles, Tagger};
 pub struct Resource {
 	pattern: Pattern,
 	prefix_segment_patterns: Vec<Pattern>,
+	some_host_pattern: Option<Pattern>,
 
 	static_resources: Vec<Resource>,
 	regex_resources: Vec<Resource>,
@@ -63,27 +65,38 @@ pub struct Resource {
 // -------------------------
 
 impl Resource {
-	pub fn new<P>(path_patterns: P) -> Resource
+	pub fn new<P>(uri_patterns: P) -> Resource
 	where
 		P: AsRef<str>,
 	{
-		let path_patterns = path_patterns.as_ref();
+		let uri = Uri::from_str(uri_patterns.as_ref()).expect("patterns should form a valid URI");
 
-		if path_patterns.is_empty() {
+		let some_host_pattern = uri.host().map(|host_pattern_str| {
+			let host_pattern = Pattern::parse(host_pattern_str);
+			if host_pattern.is_wildcard() {
+				panic!("host pattern cannot be a wildcard");
+			}
+
+			host_pattern
+		});
+
+		let path_patterns_str = uri.path();
+
+		if path_patterns_str.is_empty() {
 			panic!("empty path patterns")
 		}
 
-		if path_patterns == "/" {
-			let pattern = Pattern::parse(path_patterns);
+		if path_patterns_str == "/" {
+			let pattern = Pattern::parse(path_patterns_str);
 
-			return Resource::with_pattern(pattern);
+			return Self::with_uri_patterns(some_host_pattern, Vec::new(), pattern, false);
 		}
 
-		if !path_patterns.starts_with('/') {
+		if !path_patterns_str.starts_with('/') {
 			panic!("path patterns must start with a slash or must be a root '/'")
 		}
 
-		let mut route_segments = RouteSegments::new(path_patterns);
+		let mut route_segments = RouteSegments::new(path_patterns_str);
 
 		let mut prefix_path_patterns = Vec::new();
 
@@ -103,15 +116,16 @@ impl Resource {
 			break pattern;
 		};
 
-		Self::with_prefix_path_patterns(
+		Self::with_uri_patterns(
+			some_host_pattern,
 			prefix_path_patterns,
 			resource_pattern,
 			route_segments.ends_with_slash(),
 		)
 	}
 
-	#[inline(always)]
-	pub(crate) fn with_prefix_path_patterns(
+	pub(crate) fn with_uri_patterns(
+		some_host_pattern: Option<Pattern>,
 		prefix_path_patterns: Vec<Pattern>,
 		resource_pattern: Pattern,
 		ends_with_slash: bool,
@@ -128,6 +142,7 @@ impl Resource {
 		Resource {
 			pattern: resource_pattern,
 			prefix_segment_patterns: prefix_path_patterns,
+			some_host_pattern,
 			static_resources: Vec::new(),
 			regex_resources: Vec::new(),
 			some_wildcard_resource: None,
@@ -139,16 +154,20 @@ impl Resource {
 		}
 	}
 
-	#[inline(always)]
-	pub(crate) fn with_pattern_str(pattern: &str) -> Resource {
-		let pattern = Pattern::parse(pattern);
-
-		Self::with_pattern(pattern)
-	}
+	// #[inline(always)]
+	// pub(crate) fn with_pattern_str(
+	// 	some_host_pattern_str: Option<&str>,
+	// 	pattern_str: &str,
+	// ) -> Resource {
+	// 	let some_host_pattern = some_host_pattern_str.map(Pattern::parse);
+	// 	let pattern = Pattern::parse(pattern_str);
+	//
+	// 	Self::with_pattern(some_host_pattern, pattern)
+	// }
 
 	#[inline(always)]
 	pub(crate) fn with_pattern(pattern: Pattern) -> Resource {
-		Self::with_prefix_path_patterns(Vec::new(), pattern, false)
+		Self::with_uri_patterns(None, Vec::new(), pattern, false)
 	}
 
 	// -------------------------
@@ -197,10 +216,11 @@ impl Resource {
 
 	fn add_single_subresource(&mut self, mut new_resource: Resource) {
 		if !new_resource.prefix_segment_patterns.is_empty() {
+			let some_host_pattern = new_resource.some_host_pattern.take();
 			let mut prefix_segment_patterns =
 				std::mem::take(&mut new_resource.prefix_segment_patterns).into_iter();
 
-			self.check_path_segments_are_the_same(&mut prefix_segment_patterns);
+			self.check_uri_segments_are_the_same(some_host_pattern, &mut prefix_segment_patterns);
 
 			if prefix_segment_patterns.len() > 0 {
 				// We must create the remaining prefix segment resources and get the last subresource
@@ -239,7 +259,8 @@ impl Resource {
 						existing_resource.keep_subresources($new_resource);
 					} else if !existing_resource.has_some_effect() {
 						// We can't just replace the existing resource with a new resource. The new resource
-						// must also keep the prefix segment patterns of the existing resource.
+						// must also keep the host and prefix segment patterns of the existing resource.
+						$new_resource.some_host_pattern = existing_resource.some_host_pattern.take();
 						$new_resource.prefix_segment_patterns =
 							std::mem::take(&mut existing_resource.prefix_segment_patterns);
 
@@ -255,6 +276,7 @@ impl Resource {
 
 					$resources[position] = existing_resource;
 				} else {
+					$new_resource.some_host_pattern = self.some_host_pattern.clone();
 					$new_resource.prefix_segment_patterns = self.path_patterns();
 					$resources.push($new_resource);
 				}
@@ -273,6 +295,7 @@ impl Resource {
 						if !new_resource.has_some_effect() {
 							wildcard_resource.keep_subresources(new_resource);
 						} else if !wildcard_resource.has_some_effect() {
+							new_resource.some_host_pattern = wildcard_resource.some_host_pattern.take();
 							new_resource.prefix_segment_patterns =
 								std::mem::take(&mut wildcard_resource.prefix_segment_patterns);
 
@@ -290,6 +313,7 @@ impl Resource {
 
 					self.some_wildcard_resource = Some(wildcard_resource);
 				} else {
+					new_resource.some_host_pattern = self.some_host_pattern.clone();
 					new_resource.prefix_segment_patterns = self.path_patterns();
 					self.some_wildcard_resource = Some(Box::new(new_resource));
 				}
@@ -297,11 +321,29 @@ impl Resource {
 		}
 	}
 
-	#[inline]
-	fn check_path_segments_are_the_same(
+	fn check_uri_segments_are_the_same(
 		&self,
+		some_host_pattern: Option<Pattern>,
 		prefix_segment_patterns: &mut impl Iterator<Item = Pattern>,
 	) {
+		if let Some(host_pattern) = some_host_pattern {
+			let Some(self_host_pattern) = self.some_host_pattern.as_ref() else {
+				panic!("resource is intended to belong to a host {}", host_pattern);
+			};
+
+			if let Pattern::Regex(host_name, None) = &host_pattern {
+				if let Pattern::Regex(self_host_name, _) = self_host_pattern {
+					if host_name.pattern_name() != self_host_name.pattern_name() {
+						panic!("no host with a name '{}' exists", host_name.pattern_name(),)
+					}
+				}
+			}
+
+			if self_host_pattern.compare(&host_pattern) != Similarity::Same {
+				panic!("no host '{}' exists", host_pattern);
+			}
+		}
+
 		let self_path_segment_patterns = self
 			.prefix_segment_patterns
 			.iter()
@@ -316,8 +358,15 @@ impl Resource {
 			// So when matching them to the parent resource's path segment patterns, we only
 			// compare pattern names.
 			if let Pattern::Regex(prefix_segment_names, None) = &prefix_segment_pattern {
-				if let Pattern::Regex(self_path_segment_names, _) = self_path_segment_pattern {
+				if let Pattern::Regex(self_path_segment_names, some_regex) = self_path_segment_pattern {
 					if prefix_segment_names.pattern_name() == self_path_segment_names.pattern_name() {
+						if some_regex.is_none() {
+							panic!(
+								"resource '{}' has no regex pattern in the resource tree",
+								prefix_segment_names.pattern_name(),
+							)
+						}
+
 						continue;
 					}
 				}
@@ -326,11 +375,24 @@ impl Resource {
 					"no prefix path segment resource with a name '{}' exists",
 					prefix_segment_names.pattern_name(),
 				)
+			} else if let Pattern::Regex(self_path_segment_names, None) = self_path_segment_pattern {
+				if let Pattern::Regex(prefix_segment_names, some_regex) = &prefix_segment_pattern {
+					if self_path_segment_names.pattern_name() == prefix_segment_names.pattern_name() {
+						if some_regex.is_none() {
+							panic!(
+								"resource '{}' has no regex pattern in the resource tree",
+								self_path_segment_names.pattern_name(),
+							)
+						}
+
+						continue;
+					}
+				}
 			}
 
 			if self_path_segment_pattern.compare(&prefix_segment_pattern) != Similarity::Same {
 				panic!(
-					"no segment '{}' exists among the prefix path segments of the resource '{}",
+					"no segment '{}' exists among the prefix path segments of the resource '{}'",
 					prefix_segment_pattern,
 					self.pattern(),
 				)
@@ -423,19 +485,16 @@ impl Resource {
 				}
 			}
 
-			let pattern_clone = pattern.clone();
-			let new_subresource = Resource::with_pattern(pattern);
-			current_resource.add_subresource(new_subresource);
+			current_resource.add_subresource(Resource::with_pattern(pattern.clone()));
 
 			(current_resource, _) =
-				current_resource.by_patterns_leaf_resource_mut(std::iter::once(pattern_clone));
+				current_resource.by_patterns_leaf_resource_mut(std::iter::once(pattern));
 		}
 
 		current_resource
 	}
 
 	// Checks the names of the new resource and its subresources for uniqueness.
-	#[inline]
 	fn check_names_are_unique_in_the_path(&self, new_resource: &Resource) {
 		if let Some(name) = new_resource.name() {
 			if self.path_has_the_same_name(name) {
@@ -494,6 +553,7 @@ impl Resource {
 								if !other_resource.has_some_effect() {
 									resource.keep_subresources(other_resource);
 								} else if !resource.has_some_effect() {
+									other_resource.some_host_pattern = resource.some_host_pattern.take();
 									other_resource.prefix_segment_patterns =
 										std::mem::take(&mut resource.prefix_segment_patterns);
 
@@ -508,6 +568,7 @@ impl Resource {
 
 								$resources[position] = resource;
 							} else {
+								other_resource.some_host_pattern = self.some_host_pattern.clone();
 								other_resource.prefix_segment_patterns = self.path_patterns();
 								$resources.push(other_resource);
 							}
@@ -533,8 +594,10 @@ impl Resource {
 					if !other_wildcard_resource.has_some_effect() {
 						wildcard_resource.keep_subresources(*other_wildcard_resource);
 					} else if !wildcard_resource.has_some_effect() {
+						other_wildcard_resource.some_host_pattern = wildcard_resource.some_host_pattern.take();
 						other_wildcard_resource.prefix_segment_patterns =
 							std::mem::take(&mut wildcard_resource.prefix_segment_patterns);
+
 						other_wildcard_resource.keep_subresources(*wildcard_resource);
 						wildcard_resource = other_wildcard_resource;
 					} else {
@@ -548,6 +611,7 @@ impl Resource {
 
 				self.some_wildcard_resource = Some(wildcard_resource);
 			} else {
+				other_wildcard_resource.some_host_pattern = self.some_host_pattern.clone();
 				other_wildcard_resource.prefix_segment_patterns = self.path_patterns();
 				self.some_wildcard_resource = Some(other_wildcard_resource);
 			}
@@ -581,11 +645,12 @@ impl Resource {
 
 	fn add_single_subresource_under(&mut self, relative_path: &str, mut new_resource: Resource) {
 		if !new_resource.prefix_segment_patterns.is_empty() {
+			let some_host_pattern = new_resource.some_host_pattern.take();
 			let mut prefix_segment_patterns =
 				std::mem::take(&mut new_resource.prefix_segment_patterns).into_iter();
 
-			// Prefix segments start from the root. They must be the same as the path segments of self.
-			self.check_path_segments_are_the_same(&mut prefix_segment_patterns);
+			// Prefix segments are absolute. They must be the same as the path segments of self.
+			self.check_uri_segments_are_the_same(some_host_pattern, &mut prefix_segment_patterns);
 
 			if relative_path.is_empty() {
 				if prefix_segment_patterns.len() > 0 {
@@ -619,7 +684,9 @@ impl Resource {
 				if let Pattern::Regex(ref prefix_route_segment_names, None) = prefix_route_segment_pattern {
 					if let Pattern::Regex(prefix_segment_names, some_regex) = &prefix_segment_pattern {
 						if some_regex.is_none() {
-							panic!("either route's segment or the resource's prefix segment must be complete")
+							panic!(
+								"either relative path's segment or the resource's prefix segment must be complete",
+							)
 						}
 
 						if prefix_segment_names.pattern_name() == prefix_route_segment_names.pattern_name() {
@@ -633,7 +700,9 @@ impl Resource {
 						&prefix_route_segment_pattern
 					{
 						if some_regex.is_none() {
-							panic!("either route's segment or the resource's prefix segment must be complete")
+							panic!(
+								"either relative path's segment or the resource's prefix segment must be complete",
+							)
 						}
 
 						if prefix_route_segment_names.pattern_name() == prefix_segment_names.pattern_name() {
@@ -840,8 +909,8 @@ impl Resource {
 				}
 			}
 
-			let new_subresource = Resource::with_pattern(pattern);
-			current_resource.add_subresource(new_subresource);
+			current_resource.add_subresource(Resource::with_pattern(pattern));
+
 			(current_resource, _) = current_resource.leaf_resource_mut(RouteSegments::new(segment));
 			newly_created = true;
 		}
@@ -1431,7 +1500,7 @@ mod test {
 
 			let (resource, _) =
 				parent.by_patterns_leaf_resource_mut(route_to_patterns(case.1).into_iter());
-			resource.check_path_segments_are_the_same(&mut route_to_patterns(case.0).into_iter());
+			resource.check_uri_segments_are_the_same(None, &mut route_to_patterns(case.0).into_iter());
 		}
 
 		{
@@ -1490,7 +1559,8 @@ mod test {
 			assert_eq!(resource4_2.static_resources.len(), 1);
 
 			let (resource5_0, _) = resource4_2.leaf_resource(RouteSegments::new("/abc5_0"));
-			resource5_0.check_path_segments_are_the_same(
+			resource5_0.check_uri_segments_are_the_same(
+				None,
 				&mut route_to_patterns("/abc0_0/*abc1_0/$abc2_0:@(p0)/$abc3_1:@cn0(p0)/abc4_2/abc5_0")
 					.into_iter(),
 			);
@@ -1509,7 +1579,8 @@ mod test {
 
 			parent.add_subresource(resource3_0);
 			let (resource3_0, _) = parent.leaf_resource_mut(RouteSegments::new(route3_0));
-			resource3_0.check_path_segments_are_the_same(&mut route_to_patterns(pattern3_0).into_iter());
+			resource3_0
+				.check_uri_segments_are_the_same(None, &mut route_to_patterns(pattern3_0).into_iter());
 			assert_eq!(resource3_0.static_resources.len(), 1);
 			assert_eq!(resource3_0.regex_resources.len(), 2);
 			assert_eq!(resource3_0.method_handlers.count(), 1);
@@ -1542,7 +1613,7 @@ mod test {
 				segment_patterns.push(pattern);
 			}
 
-			resource.check_path_segments_are_the_same(&mut segment_patterns.into_iter());
+			resource.check_uri_segments_are_the_same(None, &mut segment_patterns.into_iter());
 		}
 	}
 
@@ -1552,7 +1623,7 @@ mod test {
 		let resource = Resource::new("/news/$area:@(local|worldwide)");
 		let mut segment_patterns = vec![Pattern::parse("news"), Pattern::parse("local")].into_iter();
 
-		resource.check_path_segments_are_the_same(&mut segment_patterns);
+		resource.check_uri_segments_are_the_same(None, &mut segment_patterns);
 	}
 
 	#[test]
@@ -1561,7 +1632,7 @@ mod test {
 		let resource = Resource::new("/news/$area:@(local|worldwide)");
 		let mut segment_patterns = vec![Pattern::parse("news"), Pattern::parse("$city")].into_iter();
 
-		resource.check_path_segments_are_the_same(&mut segment_patterns);
+		resource.check_uri_segments_are_the_same(None, &mut segment_patterns);
 	}
 
 	#[test]
@@ -1570,7 +1641,7 @@ mod test {
 		let resource = Resource::new("/news/$area:@(local|worldwide)");
 		let mut segment_patterns = vec![Pattern::parse("news"), Pattern::parse("*area")].into_iter();
 
-		resource.check_path_segments_are_the_same(&mut segment_patterns);
+		resource.check_uri_segments_are_the_same(None, &mut segment_patterns);
 	}
 
 	#[test]
@@ -1681,7 +1752,8 @@ mod test {
 				resource.set_handler(get(DummyHandler::<DefaultResponseFuture>::new()));
 			}
 
-			resource.check_path_segments_are_the_same(&mut route_to_patterns(case.full_path).into_iter());
+			resource
+				.check_uri_segments_are_the_same(None, &mut route_to_patterns(case.full_path).into_iter());
 		}
 
 		{
