@@ -178,12 +178,19 @@ impl Resource {
 	}
 
 	#[inline(always)]
-	pub(crate) fn pattern(&self) -> String {
+	pub(crate) fn pattern_string(&self) -> String {
 		self.pattern.to_string()
 	}
 
 	#[inline(always)]
-	pub(crate) fn host_pattern(&self) -> Option<&Pattern> {
+	pub(crate) fn set_host_pattern(&mut self, host_pattern: Pattern) {
+		if self.some_host_pattern.is_some() {
+			panic!("resource already has a host pattern")
+		}
+	}
+
+	#[inline(always)]
+	pub(crate) fn host_pattern_ref(&self) -> Option<&Pattern> {
 		self.some_host_pattern.as_ref()
 	}
 
@@ -211,7 +218,7 @@ impl Resource {
 		let new_resources = new_resources.into_array();
 
 		for new_resource in new_resources {
-			if new_resource.pattern() == "/" {
+			if new_resource.pattern_string() == "/" {
 				panic!("a root resource cannot be a subresource");
 			}
 
@@ -336,15 +343,13 @@ impl Resource {
 				panic!("resource is intended to belong to a host {}", host_pattern);
 			};
 
-			if let Pattern::Regex(host_name, None) = &host_pattern {
-				if let Pattern::Regex(self_host_name, _) = self_host_pattern {
-					if host_name.pattern_name() != self_host_name.pattern_name() {
-						panic!("no host with a name '{}' exists", host_name.pattern_name(),)
+			if let Pattern::Regex(host_names, None) = &host_pattern {
+				if let Pattern::Regex(self_host_names, _) = self_host_pattern {
+					if host_names.pattern_name() != self_host_names.pattern_name() {
+						panic!("no host with a name '{}' exists", host_names.pattern_name(),)
 					}
 				}
-			}
-
-			if self_host_pattern.compare(&host_pattern) != Similarity::Same {
+			} else if self_host_pattern.compare(&host_pattern) != Similarity::Same {
 				panic!("no host '{}' exists", host_pattern);
 			}
 		}
@@ -399,7 +404,7 @@ impl Resource {
 				panic!(
 					"no segment '{}' exists among the prefix path segments of the resource '{}'",
 					prefix_segment_pattern,
-					self.pattern(),
+					self.pattern_string(),
 				)
 			}
 		}
@@ -640,7 +645,7 @@ impl Resource {
 		let new_resources = new_resources.into_array();
 
 		for new_resource in new_resources {
-			if new_resource.pattern() == "/" {
+			if new_resource.pattern_string() == "/" {
 				panic!("a root resource cannot be a subresource");
 			}
 
