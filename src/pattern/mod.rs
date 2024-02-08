@@ -314,13 +314,9 @@ impl Display for Pattern {
 
 impl Default for Pattern {
 	fn default() -> Self {
-		EMPTY_STATIC
-			.get_or_init(|| Pattern::Static("".into()))
-			.clone()
+		Pattern::Static("".into())
 	}
 }
-
-static EMPTY_STATIC: OnceLock<Pattern> = OnceLock::new();
 
 // --------------------------------------------------
 

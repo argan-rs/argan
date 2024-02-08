@@ -1,3 +1,4 @@
+use core::panic;
 use std::str::FromStr;
 
 use http::Uri;
@@ -6,7 +7,7 @@ use crate::{
 	common::IntoArray,
 	handler::HandlerKind,
 	middleware::LayerTarget,
-	pattern::Pattern,
+	pattern::{Pattern, Similarity},
 	resource::{config::ConfigOption, Iteration, Resource},
 };
 
@@ -25,7 +26,7 @@ pub struct Host {
 }
 
 impl Host {
-	pub fn new<P>(host_pattern: P) -> Self
+	pub fn new<P>(host_pattern: P, mut root: Resource) -> Self
 	where
 		P: AsRef<str>,
 	{
@@ -39,79 +40,45 @@ impl Host {
 			panic!("host pattern cannot be a wildcard");
 		}
 
-		Self {
-			pattern: host_pattern.clone(),
-			root_resource: Resource::with_uri_patterns(
-				Some(host_pattern),
-				Vec::new(),
-				Pattern::parse("/"),
-				false,
-			),
+		if let Pattern::Regex(names, Some(_)) = &host_pattern {
+			panic!("regex host pattern must be complete");
 		}
-	}
 
-	#[inline(always)]
-	pub fn add_resource<R, const N: usize>(&mut self, new_resources: R)
-	where
-		R: IntoArray<Resource, N>,
-	{
-		self.root_resource.add_subresource(new_resources);
-	}
+		if root.pattern_string() != "/" {
+			panic!("host can only have a root resource");
+		}
 
-	#[inline(always)]
-	pub fn add_resource_under<P, R, const N: usize>(&mut self, relative_path: P, new_resources: R)
-	where
-		P: AsRef<str>,
-		R: IntoArray<Resource, N>,
-	{
-		self
-			.root_resource
-			.add_subresource_under(relative_path, new_resources)
-	}
+		if root
+			.host_pattern_ref()
+			.is_some_and(|resource_host_pattern| {
+				if let Pattern::Regex(resource_host_names, None) = resource_host_pattern {
+					if let Pattern::Regex(host_names, _) = &host_pattern {
+						if resource_host_names.pattern_name() != host_names.pattern_name() {
+							panic!(
+								"resource is intended to belong to a host {}",
+								resource_host_pattern.to_string(),
+							);
+						}
 
-	#[inline(always)]
-	pub fn subresource_mut<P>(&mut self, relative_path: P) -> &mut Resource
-	where
-		P: AsRef<str>,
-	{
-		self.root_resource.subresource_mut(relative_path)
-	}
+						return true;
+					}
+				} else if resource_host_pattern.compare(&host_pattern) != Similarity::Same {
+					panic!(
+						"resource is intended to belong to a host {}",
+						resource_host_pattern.to_string(),
+					);
+				}
 
-	#[inline(always)]
-	pub fn add_extension<E: Clone + Send + Sync + 'static>(&mut self, extension: E) {
-		self.root_resource.add_extension(extension)
-	}
+				false
+			}) {
+			// Root doesn't have the regex part of the host pattern. We need to set it.
+			root.set_host_pattern(host_pattern.clone());
+		}
 
-	#[inline(always)]
-	pub fn set_handler<H, const N: usize>(&mut self, handler_kinds: H)
-	where
-		H: IntoArray<HandlerKind, N>,
-	{
-		self.root_resource.set_handler(handler_kinds)
-	}
-
-	#[inline(always)]
-	pub fn add_layer<L, const N: usize>(&mut self, layer_targets: L)
-	where
-		L: IntoArray<LayerTarget, N>,
-	{
-		self.root_resource.add_layer(layer_targets)
-	}
-
-	#[inline(always)]
-	pub fn set_config<C, const N: usize>(&mut self, config_options: C)
-	where
-		C: IntoArray<ConfigOption, N>,
-	{
-		self.root_resource.set_config(config_options)
-	}
-
-	#[inline(always)]
-	pub fn for_each_subresource<T, F>(&mut self, mut param: T, mut func: F) -> T
-	where
-		F: FnMut(&mut T, &mut Resource) -> Iteration,
-	{
-		self.root_resource.for_each_subresource(param, func)
+		Self {
+			pattern: host_pattern,
+			root_resource: root,
+		}
 	}
 
 	#[inline(always)]
