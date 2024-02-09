@@ -69,32 +69,18 @@ impl ResourceService {
 	}
 
 	#[inline]
-	pub(crate) fn handle_with_params<B>(
-		&self,
-		request: Request<B>,
-		uri_params: ParamsList,
-	) -> BoxedFuture<Response>
+	pub(crate) fn handle<B>(&self, request: Request<B>, args: &mut Args) -> BoxedFuture<Response>
 	where
 		B: HttpBody<Data = Bytes> + Send + Sync + 'static,
 		B::Error: Into<BoxedError>,
 	{
 		let mut request = request.map(Body::new);
 
-		let route = request.uri().path();
-		let mut routing_state = RoutingState::new(RouteTraversal::for_route(route));
-		routing_state.uri_params = uri_params;
-
-		let mut args = Args {
-			routing_state,
-			resource_extensions: ResourceExtensions::new_borrowed(&self.extensions),
-			handler_extension: &(),
-		};
+		// TODO: Replace resource extensions in the args.
 
 		match &self.request_receiver {
-			MaybeBoxed::Boxed(boxed_request_receiver) => {
-				boxed_request_receiver.handle(request, &mut args)
-			}
-			MaybeBoxed::Unboxed(request_receiver) => request_receiver.handle(request, &mut args),
+			MaybeBoxed::Boxed(boxed_request_receiver) => boxed_request_receiver.handle(request, args),
+			MaybeBoxed::Unboxed(request_receiver) => request_receiver.handle(request, args),
 		}
 	}
 }
@@ -205,7 +191,7 @@ impl RequestReceiver {
 			config_flags,
 		};
 
-		let mut maybe_boxed_request_receiver = MaybeBoxed::from_unboxed(request_receiver);
+		let mut maybe_boxed_request_receiver = MaybeBoxed::Unboxed(request_receiver);
 
 		for layer in middleware {
 			use super::layer_targets::ResourceLayerTargetValue;
@@ -425,12 +411,12 @@ impl RequestPasser {
 			some_mistargeted_request_handler,
 		};
 
-		let mut maybe_boxed_request_passer = MaybeBoxed::from_unboxed(request_passer);
+		let mut maybe_boxed_request_passer = MaybeBoxed::Unboxed(request_passer);
 
 		for layer in middleware.iter_mut().rev() {
 			use super::layer_targets::ResourceLayerTargetValue;
 
-			match &mut layer.0 {
+			match layer.0 {
 				ResourceLayerTargetValue::RequestPasser(_) => {
 					let ResourceLayerTargetValue::RequestPasser(boxed_layer) = layer.0.take() else {
 						unreachable!()
@@ -439,13 +425,13 @@ impl RequestPasser {
 					match maybe_boxed_request_passer {
 						MaybeBoxed::Boxed(boxed_request_passer) => {
 							maybe_boxed_request_passer =
-								MaybeBoxed::from_boxed(boxed_layer.wrap(boxed_request_passer.into()))
+								MaybeBoxed::Boxed(boxed_layer.wrap(boxed_request_passer.into()));
 						}
 						MaybeBoxed::Unboxed(request_passer) => {
 							let boxed_request_passer = BoxedHandler::new(request_passer);
 
 							maybe_boxed_request_passer =
-								MaybeBoxed::from_boxed(boxed_layer.wrap(boxed_request_passer.into()));
+								MaybeBoxed::Boxed(boxed_layer.wrap(boxed_request_passer.into()));
 						}
 					}
 				}
@@ -575,7 +561,7 @@ impl RequestHandler {
 		use super::layer_targets::ResourceLayerTargetValue;
 
 		for layer in middleware.iter_mut().rev() {
-			match &mut layer.0 {
+			match layer.0 {
 				ResourceLayerTargetValue::MethodHandler(..) => {
 					let ResourceLayerTargetValue::MethodHandler(methods, boxed_layer) = layer.0.take() else {
 						unreachable!()
@@ -592,7 +578,7 @@ impl RequestHandler {
 						unreachable!()
 					};
 
-					request_handler.wrap_wildcard_method_handler(boxed_layer)
+					request_handler.wrap_wildcard_method_handler(boxed_layer);
 				}
 				ResourceLayerTargetValue::RequestHandler(_) => request_handler_middleware_exists = true,
 				_ => {}
@@ -603,7 +589,7 @@ impl RequestHandler {
 			let mut boxed_request_handler = BoxedHandler::new(request_handler);
 
 			for layer in middleware.iter_mut().rev() {
-				if let ResourceLayerTargetValue::RequestHandler(_) = &mut layer.0 {
+				if let ResourceLayerTargetValue::RequestHandler(_) = layer.0 {
 					let ResourceLayerTargetValue::RequestHandler(boxed_layer) = layer.0.take() else {
 						unreachable!()
 					};
@@ -614,7 +600,7 @@ impl RequestHandler {
 
 			Ok(MaybeBoxed::Boxed(boxed_request_handler))
 		} else {
-			Ok(MaybeBoxed::from_unboxed(request_handler))
+			Ok(MaybeBoxed::Unboxed(request_handler))
 		}
 	}
 

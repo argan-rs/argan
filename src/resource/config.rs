@@ -99,9 +99,9 @@ pub fn modify_request_extensions<Func>(modifier: Func) -> ResourceConfigOption
 where
 	Func: Fn(&mut Extensions) + Clone + Send + Sync + 'static,
 {
-	let request_extensions_modifier = RequestExtensionsModifierLayer::new(modifier);
+	let request_extensions_modifier_layer = RequestExtensionsModifierLayer::new(modifier);
 
 	ResourceConfigOption(ResourceConfigOptionValue::ModifyRequestExtensions(
-		request_extensions_modifier,
+		request_extensions_modifier_layer,
 	))
 }

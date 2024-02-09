@@ -1233,7 +1233,7 @@ impl Resource {
 		// -------------------------
 		// RequestReceiver
 
-		let boxed_request_receiver = RequestReceiver::new(
+		let request_receiver = RequestReceiver::new(
 			some_request_passer,
 			some_request_handler,
 			some_mistargeted_request_handler.clone(),
@@ -1247,7 +1247,7 @@ impl Resource {
 		ResourceService::new(
 			pattern,
 			extensions,
-			boxed_request_receiver,
+			request_receiver,
 			some_mistargeted_request_handler,
 		)
 	}

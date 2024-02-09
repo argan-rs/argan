@@ -113,18 +113,6 @@ pub(crate) enum MaybeBoxed<H> {
 	Unboxed(H),
 }
 
-impl<H> MaybeBoxed<H> {
-	#[inline(always)]
-	pub(crate) fn from_boxed(handler: BoxedHandler) -> Self {
-		Self::Boxed(handler)
-	}
-
-	#[inline(always)]
-	pub(crate) fn from_unboxed(handler: H) -> Self {
-		Self::Unboxed(handler)
-	}
-}
-
 // --------------------------------------------------------------------------------
 
 pub(crate) struct Interval {

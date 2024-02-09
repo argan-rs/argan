@@ -1,16 +1,17 @@
 use std::{convert::Infallible, future::ready};
 
-use http::StatusCode;
+use http::{Extensions, StatusCode};
 use hyper::service::Service;
 
 use crate::{
 	body::{Bytes, HttpBody},
 	common::{BoxedError, BoxedFuture},
-	handler::{futures::ResponseToResultFuture, request_handlers::handle_mistargeted_request},
+	handler::{futures::ResponseToResultFuture, request_handlers::handle_mistargeted_request, Args},
 	pattern::ParamsList,
 	request::Request,
-	resource::ResourceService,
+	resource::{ResourceExtensions, ResourceService},
 	response::{IntoResponse, Response},
+	routing::{RouteTraversal, RoutingState},
 };
 
 use super::*;
@@ -42,16 +43,12 @@ impl HostService {
 	}
 
 	#[inline(always)]
-	pub(crate) fn handle_with_params<B>(
-		&self,
-		request: Request<B>,
-		uri_params: ParamsList,
-	) -> BoxedFuture<Response>
+	pub(crate) fn handle<B>(&self, request: Request<B>, args: &mut Args) -> BoxedFuture<Response>
 	where
 		B: HttpBody<Data = Bytes> + Send + Sync + 'static,
 		B::Error: Into<BoxedError>,
 	{
-		self.root_resource.handle_with_params(request, uri_params)
+		self.root_resource.handle(request, args)
 	}
 }
 
@@ -77,17 +74,21 @@ where
 			return handle_unmatching_host!();
 		};
 
-		let mut uri_params = ParamsList::new();
+		let routing_state = RoutingState::new(RouteTraversal::for_route(request.uri().path()));
+		let mut args = Args {
+			routing_state,
+			resource_extensions: ResourceExtensions::new_owned(Extensions::new()),
+			handler_extension: &(),
+		};
 
 		if let Some(result) = self.pattern.is_static_match(host) {
-			return ResponseToResultFuture::from(
-				self.root_resource.handle_with_params(request, uri_params),
-			);
+			return ResponseToResultFuture::from(self.root_resource.handle(request, &mut args));
 		} else {
-			if let Some(result) = self.pattern.is_regex_match(host, &mut uri_params) {
-				return ResponseToResultFuture::from(
-					self.root_resource.handle_with_params(request, uri_params),
-				);
+			if let Some(result) = self
+				.pattern
+				.is_regex_match(host, &mut args.routing_state.uri_params)
+			{
+				return ResponseToResultFuture::from(self.root_resource.handle(request, &mut args));
 			}
 		}
 
