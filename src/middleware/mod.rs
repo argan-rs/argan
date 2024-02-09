@@ -4,7 +4,7 @@ use http::Method;
 use tower_layer::Layer as TowerLayer;
 
 use crate::{
-	common::{BoxedFuture, IntoArray},
+	common::{BoxedError, BoxedFuture, IntoArray},
 	handler::{AdaptiveHandler, BoxedHandler, Handler, HandlerService /* HandlerService */},
 	response::{IntoResponse, Response},
 };
@@ -57,6 +57,7 @@ where
 }
 
 // --------------------------------------------------
+// FinalLayer
 
 trait FinalLayer
 where
@@ -80,8 +81,22 @@ where
 }
 
 // --------------------------------------------------
+// BoxedLayer
 
 pub(crate) struct BoxedLayer(Box<dyn FinalLayer>);
+
+impl BoxedLayer {
+	pub(crate) fn new<L>(layer: L) -> Self
+	where
+		L: Layer<AdaptiveHandler> + Clone + 'static,
+		L::Handler:
+			Handler<Response = Response, Future = BoxedFuture<Response>> + Clone + Send + Sync + 'static,
+	{
+		let adaptive_handler_wrapper = AdaptiveHandlerWrapper(layer);
+
+		BoxedLayer(Box::new(adaptive_handler_wrapper))
+	}
+}
 
 impl Layer<AdaptiveHandler> for BoxedLayer {
 	type Handler = BoxedHandler;
@@ -97,76 +112,8 @@ impl Clone for BoxedLayer {
 	}
 }
 
-// -------------------------
-
-pub struct LayerTarget(pub(crate) Inner);
-
-#[derive(Default)]
-pub(crate) enum Inner {
-	#[default]
-	None,
-	RequestReceiver(BoxedLayer),
-	RequestPasser(BoxedLayer),
-	RequestHandler(BoxedLayer),
-	MethodHandler(Vec<Method>, BoxedLayer),
-	WildcardMethodHandler(BoxedLayer),
-	MistargetedRequestHandler(BoxedLayer),
-}
-
-impl Inner {
-	#[inline(always)]
-	pub(crate) fn take(&mut self) -> Inner {
-		std::mem::take(self)
-	}
-}
-
-trait IntoLayerTargetList<const N: usize> {
-	fn into_layer_kind_list(self) -> [LayerTarget; N];
-}
-
-// ----------
-
-macro_rules! layer_target_wrapper {
-	($func:ident, $kind:ident) => {
-		pub fn $func<L, M>(layer: L) -> LayerTarget
-		where
-			L: IntoLayer<M, AdaptiveHandler>,
-			L::Layer: Layer<AdaptiveHandler> + Clone + 'static,
-			<L::Layer as Layer<AdaptiveHandler>>::Handler:
-				Handler<Response = Response, Future = BoxedFuture<Response>> + Clone + Send + Sync + 'static
-		{
-			LayerTarget(Inner::$kind(BoxedLayer(Box::new(AdaptiveHandlerWrapper(
-				layer.into_layer(),
-			)))))
-		}
-	};
-}
-
-layer_target_wrapper!(request_receiver_with, RequestReceiver);
-
-layer_target_wrapper!(request_passer_with, RequestPasser);
-
-layer_target_wrapper!(request_handler_with, RequestHandler);
-
-pub fn method_handler_of<M, const N: usize, L, Mark>(methods: M, layer: L) -> LayerTarget
-where
-	M: IntoArray<Method, N>,
-	L: IntoLayer<Mark, AdaptiveHandler>,
-	L::Layer: Layer<AdaptiveHandler> + Clone + 'static,
-	<L::Layer as Layer<AdaptiveHandler>>::Handler:
-		Handler<Response = Response, Future = BoxedFuture<Response>> + Clone + Send + Sync + 'static,
-{
-	LayerTarget(Inner::MethodHandler(
-		methods.into_array().into(),
-		AdaptiveHandlerWrapper(layer.into_layer()).into_boxed_layer(),
-	))
-}
-
-layer_target_wrapper!(wildcard_method_handler_with, WildcardMethodHandler);
-
-layer_target_wrapper!(mistargeted_request_handler_with, MistargetedRequestHandler);
-
-// ----------
+// --------------------------------------------------
+// AdaptiveHandlerWrapper
 
 #[derive(Clone)]
 struct AdaptiveHandlerWrapper<L>(L);

@@ -23,14 +23,14 @@ use crate::{
 		},
 		AdaptiveHandler, Args, BoxedHandler, Handler, IntoHandler, Service,
 	},
-	middleware::{BoxedLayer, Layer, LayerTarget, ResponseFutureBoxer},
+	middleware::{BoxedLayer, Layer, ResponseFutureBoxer},
 	pattern::{ParamsList, Pattern},
 	request::Request,
 	response::{IntoResponse, Redirect, Response},
 	routing::{self, RouteTraversal, RoutingState, UnusedRequest},
 };
 
-use super::{config::ConfigFlags, ResourceExtensions};
+use super::{config::ConfigFlags, ResourceExtensions, ResourceLayerTarget};
 
 // --------------------------------------------------------------------------------
 // --------------------------------------------------------------------------------
@@ -196,7 +196,7 @@ impl RequestReceiver {
 		some_request_handler: Option<Arc<MaybeBoxed<RequestHandler>>>,
 		some_mistargeted_request_handler: Option<BoxedHandler>,
 		config_flags: ConfigFlags,
-		middleware: Vec<LayerTarget>,
+		middleware: Vec<ResourceLayerTarget>,
 	) -> MaybeBoxed<Self> {
 		let request_receiver = Self {
 			some_request_passer,
@@ -208,9 +208,9 @@ impl RequestReceiver {
 		let mut maybe_boxed_request_receiver = MaybeBoxed::from_unboxed(request_receiver);
 
 		for layer in middleware {
-			use crate::middleware::Inner;
+			use super::layer_targets::ResourceLayerTargetValue;
 
-			if let Inner::RequestReceiver(boxed_layer) = layer.0 {
+			if let ResourceLayerTargetValue::RequestReceiver(boxed_layer) = layer.0 {
 				match maybe_boxed_request_receiver {
 					MaybeBoxed::Boxed(mut boxed_request_receiver) => {
 						maybe_boxed_request_receiver =
@@ -416,7 +416,7 @@ impl RequestPasser {
 		some_regex_resources: Option<Arc<[ResourceService]>>,
 		some_wildcard_resource: Option<Arc<ResourceService>>,
 		some_mistargeted_request_handler: Option<BoxedHandler>,
-		middleware: &mut Vec<LayerTarget>,
+		middleware: &mut Vec<ResourceLayerTarget>,
 	) -> MaybeBoxed<Self> {
 		let request_passer = Self {
 			some_static_resources,
@@ -428,11 +428,11 @@ impl RequestPasser {
 		let mut maybe_boxed_request_passer = MaybeBoxed::from_unboxed(request_passer);
 
 		for layer in middleware.iter_mut().rev() {
-			use crate::middleware::Inner;
+			use super::layer_targets::ResourceLayerTargetValue;
 
 			match &mut layer.0 {
-				Inner::RequestPasser(_) => {
-					let Inner::RequestPasser(boxed_layer) = layer.0.take() else {
+				ResourceLayerTargetValue::RequestPasser(_) => {
+					let ResourceLayerTargetValue::RequestPasser(boxed_layer) = layer.0.take() else {
 						unreachable!()
 					};
 
@@ -551,7 +551,7 @@ pub(crate) struct RequestHandler {
 impl RequestHandler {
 	pub(crate) fn new(
 		method_handlers: MethodHandlers,
-		middleware: &mut Vec<LayerTarget>,
+		middleware: &mut Vec<ResourceLayerTarget>,
 	) -> Result<MaybeBoxed<Self>, Method> {
 		let MethodHandlers {
 			method_handlers,
@@ -572,12 +572,12 @@ impl RequestHandler {
 
 		let mut request_handler_middleware_exists = false;
 
-		use crate::middleware::Inner;
+		use super::layer_targets::ResourceLayerTargetValue;
 
 		for layer in middleware.iter_mut().rev() {
 			match &mut layer.0 {
-				Inner::MethodHandler(..) => {
-					let Inner::MethodHandler(methods, boxed_layer) = layer.0.take() else {
+				ResourceLayerTargetValue::MethodHandler(..) => {
+					let ResourceLayerTargetValue::MethodHandler(methods, boxed_layer) = layer.0.take() else {
 						unreachable!()
 					};
 
@@ -587,14 +587,14 @@ impl RequestHandler {
 						}
 					}
 				}
-				Inner::WildcardMethodHandler(_) => {
-					let Inner::WildcardMethodHandler(boxed_layer) = layer.0.take() else {
+				ResourceLayerTargetValue::WildcardMethodHandler(_) => {
+					let ResourceLayerTargetValue::WildcardMethodHandler(boxed_layer) = layer.0.take() else {
 						unreachable!()
 					};
 
 					request_handler.wrap_wildcard_method_handler(boxed_layer)
 				}
-				Inner::RequestHandler(_) => request_handler_middleware_exists = true,
+				ResourceLayerTargetValue::RequestHandler(_) => request_handler_middleware_exists = true,
 				_ => {}
 			}
 		}
@@ -603,8 +603,8 @@ impl RequestHandler {
 			let mut boxed_request_handler = BoxedHandler::new(request_handler);
 
 			for layer in middleware.iter_mut().rev() {
-				if let Inner::RequestHandler(_) = &mut layer.0 {
-					let Inner::RequestHandler(boxed_layer) = layer.0.take() else {
+				if let ResourceLayerTargetValue::RequestHandler(_) = &mut layer.0 {
+					let ResourceLayerTargetValue::RequestHandler(boxed_layer) = layer.0.take() else {
 						unreachable!()
 					};
 

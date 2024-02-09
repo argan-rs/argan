@@ -18,7 +18,7 @@ use crate::{
 		},
 		AdaptiveHandler, BoxedHandler, HandlerKind, IntoHandler,
 	},
-	middleware::{request_receiver_with, IntoResponseAdapter, LayerTarget, ResponseFutureBoxer},
+	middleware::{IntoResponseAdapter, ResponseFutureBoxer},
 	pattern::{Pattern, Similarity},
 	request::{FromRequest, FromRequestHead, Request, RequestHead},
 	response::Response,
@@ -27,16 +27,19 @@ use crate::{
 
 // --------------------------------------------------
 
+mod config;
 mod extension;
+mod layer_targets;
 mod service;
 mod static_files;
 
 use self::{
-	config::{ConfigFlags, ConfigOption},
+	config::{ConfigFlags, ResourceConfigOption},
 	service::{RequestHandler, RequestPasser, RequestReceiver},
 };
 
 pub use extension::ResourceExtensions;
+pub use layer_targets::*;
 pub use service::ResourceService;
 pub use static_files::{StaticFiles, Tagger};
 
@@ -52,12 +55,11 @@ pub struct Resource {
 	regex_resources: Vec<Resource>,
 	some_wildcard_resource: Option<Box<Resource>>,
 
-	middleware: Vec<LayerTarget>,
-
 	method_handlers: MethodHandlers,
 	some_mistargeted_request_handler: Option<BoxedHandler>,
 
 	extensions: Extensions,
+	middleware: Vec<ResourceLayerTarget>,
 
 	config_flags: ConfigFlags,
 }
@@ -205,7 +207,7 @@ impl Resource {
 	}
 
 	#[inline(always)]
-	fn has_some_effect(&self) -> bool {
+	pub(crate) fn has_some_effect(&self) -> bool {
 		self.method_handlers.has_some_effect() && !self.middleware.is_empty()
 	}
 
@@ -542,7 +544,7 @@ impl Resource {
 	// Tries to compare all the subresources of the other with the corresponding subresources
 	// of self and keeps the ones that have some effect on a request or have no corresponding
 	// resource.
-	fn keep_subresources(&mut self, mut other: Resource) {
+	pub(crate) fn keep_subresources(&mut self, mut other: Resource) {
 		macro_rules! keep_other_resources {
 			(mut $resources:expr, mut $other_resources:expr) => {
 				if !$other_resources.is_empty() {
@@ -988,7 +990,7 @@ impl Resource {
 
 	pub fn add_layer<L, const N: usize>(&mut self, layer_targets: L)
 	where
-		L: IntoArray<LayerTarget, N>,
+		L: IntoArray<ResourceLayerTarget, N>,
 	{
 		self.middleware.extend(layer_targets.into_array());
 
@@ -1081,12 +1083,12 @@ impl Resource {
 
 	pub fn set_config<C, const N: usize>(&mut self, config_options: C)
 	where
-		C: IntoArray<ConfigOption, N>,
+		C: IntoArray<ResourceConfigOption, N>,
 	{
 		let config_options = config_options.into_array();
 
 		for config_option in config_options {
-			use self::config::InnerOption::*;
+			use self::config::ResourceConfigOptionValue::*;
 
 			match config_option.0 {
 				DropOnUnmatchingSlash => {
@@ -1296,119 +1298,6 @@ impl Debug for Resource {
 impl IntoArray<Resource, 1> for Resource {
 	fn into_array(self) -> [Resource; 1] {
 		[self]
-	}
-}
-
-// --------------------------------------------------
-// Config
-
-pub mod config {
-	use crate::middleware::RequestExtensionsModifierLayer;
-
-	use super::*;
-
-	// --------------------------------------------------------------------------------
-	// --------------------------------------------------------------------------------
-
-	bit_flags! {
-		#[derive(Clone)]
-		pub(super) ConfigFlags: u8 {
-			pub(super) ENDS_WITH_SLASH = 0b0001;
-			pub(super) REDIRECTS_ON_UNMATCHING_SLASH = 0b0010;
-			pub(super) DROPS_ON_UNMATCHING_SLASH = 0b0100;
-			pub(super) SUBTREE_HANDLER = 0b1000;
-		}
-	}
-
-	impl Display for ConfigFlags {
-		fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-			let mut flags = String::new();
-
-			if self.has(Self::ENDS_WITH_SLASH) {
-				flags.push_str("ends_with_slash");
-			}
-
-			if self.has(Self::REDIRECTS_ON_UNMATCHING_SLASH) {
-				if !flags.is_empty() {
-					flags.push_str(", ")
-				}
-
-				flags.push_str("redirects_on_unmatching_slash");
-			} else if self.has(Self::DROPS_ON_UNMATCHING_SLASH) {
-				if !flags.is_empty() {
-					flags.push_str(", ")
-				}
-
-				flags.push_str("drops_on_unmatching_slash");
-			} else {
-				if !flags.is_empty() {
-					flags.push_str(", ")
-				}
-
-				flags.push_str("handles_on_unmatching_slash");
-			}
-
-			if self.has(Self::SUBTREE_HANDLER) {
-				if !flags.is_empty() {
-					flags.push_str(", ")
-				}
-
-				flags.push_str("subtree_handler");
-			}
-
-			f.write_str(&flags)
-		}
-	}
-
-	impl Default for ConfigFlags {
-		fn default() -> Self {
-			let mut flags = Self(0);
-			flags.add(Self::REDIRECTS_ON_UNMATCHING_SLASH);
-
-			flags
-		}
-	}
-
-	// ----------
-
-	pub struct ConfigOption(pub(super) InnerOption);
-
-	pub(super) enum InnerOption {
-		DropOnUnmatchingSlash,
-		HandleOnUnmatchingSlash,
-		SubtreeHandler,
-		ModifyRequestExtensions(RequestExtensionsModifierLayer),
-	}
-
-	impl IntoArray<ConfigOption, 1> for ConfigOption {
-		fn into_array(self) -> [ConfigOption; 1] {
-			[self]
-		}
-	}
-
-	// ----------
-
-	pub fn drop_on_unmatching_slash() -> ConfigOption {
-		ConfigOption(InnerOption::DropOnUnmatchingSlash)
-	}
-
-	pub fn handle_on_unmatching_slash() -> ConfigOption {
-		ConfigOption(InnerOption::HandleOnUnmatchingSlash)
-	}
-
-	pub fn subtree_handler() -> ConfigOption {
-		ConfigOption(InnerOption::SubtreeHandler)
-	}
-
-	pub fn modify_request_extensions<Func>(modifier: Func) -> ConfigOption
-	where
-		Func: Fn(&mut Extensions) + Clone + Send + Sync + 'static,
-	{
-		let request_extensions_modifier = RequestExtensionsModifierLayer::new(modifier);
-
-		ConfigOption(InnerOption::ModifyRequestExtensions(
-			request_extensions_modifier,
-		))
 	}
 }
 
