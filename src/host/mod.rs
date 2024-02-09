@@ -6,9 +6,8 @@ use http::Uri;
 use crate::{
 	common::IntoArray,
 	handler::HandlerKind,
-	middleware::LayerTarget,
 	pattern::{Pattern, Similarity},
-	resource::{config::ConfigOption, Iteration, Resource},
+	resource::Resource,
 };
 
 // --------------------------------------------------
@@ -44,6 +43,10 @@ impl Host {
 			panic!("regex host pattern must be complete");
 		}
 
+		Self::with_pattern(host_pattern, root)
+	}
+
+	pub(crate) fn with_pattern(host_pattern: Pattern, mut root: Resource) -> Self {
 		if root.pattern_string() != "/" {
 			panic!("host can only have a root resource");
 		}
@@ -78,6 +81,52 @@ impl Host {
 		Self {
 			pattern: host_pattern,
 			root_resource: root,
+		}
+	}
+
+	#[inline(always)]
+	pub(crate) fn pattern_string(&self) -> String {
+		self.pattern.to_string()
+	}
+
+	#[inline(always)]
+	pub(crate) fn compare_pattern(&self, other_host_pattern: &Pattern) -> Similarity {
+		self.pattern.compare(other_host_pattern)
+	}
+
+	#[inline(always)]
+	pub(crate) fn root_mut(&mut self) -> &mut Resource {
+		&mut self.root_resource
+	}
+
+	#[inline(always)]
+	pub(crate) fn root(&mut self) -> Resource {
+		std::mem::replace(
+			&mut self.root_resource,
+			Resource::with_pattern(Pattern::default()),
+		)
+	}
+
+	#[inline(always)]
+	pub(crate) fn set_root(&mut self, root: Resource) {
+		if self.root_resource.pattern_string() != "" {
+			panic!("host already has a root resource");
+		}
+
+		self.root_resource = root;
+	}
+
+	pub(crate) fn merge_or_replace_root(&mut self, mut new_root: Resource) {
+		if !new_root.has_some_effect() {
+			self.root_resource.keep_subresources(new_root);
+		} else if !self.root_resource.has_some_effect() {
+			new_root.keep_subresources(self.root());
+			self.root_resource = new_root;
+		} else {
+			panic!(
+				"conflicting root resources for a host '{}'",
+				self.pattern_string()
+			)
 		}
 	}
 
