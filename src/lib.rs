@@ -22,4 +22,5 @@ mod pattern;
 pub mod request;
 pub mod resource;
 pub mod response;
+pub mod router;
 mod routing;
