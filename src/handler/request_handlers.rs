@@ -7,9 +7,9 @@ use http::{Extensions, HeaderName, HeaderValue, Method, StatusCode};
 
 use crate::{
 	common::{mark::Private, BoxedFuture, Uncloneable},
-	middleware::{Layer, LayerTarget, ResponseFutureBoxer},
+	middleware::{Layer, ResponseFutureBoxer},
 	request::Request,
-	resource::ResourceExtensions,
+	resource::{ResourceExtensions, ResourceLayerTarget},
 	response::{IntoResponse, Response},
 	routing::{RoutingState, UnusedRequest},
 };
@@ -189,13 +189,13 @@ impl Handler for MistargetedRequestHandler {
 
 pub(crate) fn wrap_mistargeted_request_handler(
 	mut some_mistargeted_request_handler: Option<BoxedHandler>,
-	middleware: &mut Vec<LayerTarget>,
+	middleware: &mut Vec<ResourceLayerTarget>,
 ) -> Option<BoxedHandler> {
-	use crate::middleware::Inner;
+	use crate::resource::ResourceLayerTargetValue;
 
 	for layer in middleware.iter_mut().rev() {
-		if let Inner::MistargetedRequestHandler(_) = &mut layer.0 {
-			let Inner::MistargetedRequestHandler(boxed_layer) = layer.0.take() else {
+		if let ResourceLayerTargetValue::MistargetedRequestHandler(_) = &mut layer.0 {
+			let ResourceLayerTargetValue::MistargetedRequestHandler(boxed_layer) = layer.0.take() else {
 				unreachable!()
 			};
 
