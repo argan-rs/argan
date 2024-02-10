@@ -28,7 +28,6 @@ use crate::{
 // --------------------------------------------------
 
 mod config;
-mod extension;
 mod layer_targets;
 mod service;
 mod static_files;
@@ -38,9 +37,8 @@ use self::{
 	service::{RequestHandler, RequestPasser, RequestReceiver},
 };
 
-pub use extension::ResourceExtensions;
 pub use layer_targets::*;
-pub use service::ResourceService;
+pub use service::{ResourceExtensions, ResourceService};
 pub use static_files::{StaticFiles, Tagger};
 
 // --------------------------------------------------------------------------------

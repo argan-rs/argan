@@ -205,39 +205,6 @@ where
 	}
 }
 
-// ----------
-
-#[derive(Clone)]
-pub struct HandlerExtension<E>(E);
-
-impl<E> FromRequestHead<E> for HandlerExtension<E>
-where
-	E: Clone + Sync,
-{
-	type Error = Infallible;
-
-	#[inline]
-	async fn from_request_head(
-		head: &mut RequestHead,
-		args: &mut Args<'_, E>,
-	) -> Result<Self, Self::Error> {
-		Ok(HandlerExtension(args.handler_extension.clone()))
-	}
-}
-
-impl<B, E> FromRequest<B, E> for HandlerExtension<E>
-where
-	B: Send,
-	E: Clone + Sync,
-{
-	type Error = Infallible;
-
-	#[inline]
-	async fn from_request(request: Request<B>, args: &mut Args<'_, E>) -> Result<Self, Self::Error> {
-		Ok(HandlerExtension(args.handler_extension.clone()))
-	}
-}
-
 // --------------------------------------------------------------------------------
 // FinalHandler trait
 
