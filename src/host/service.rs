@@ -6,10 +6,11 @@ use hyper::service::Service;
 use crate::{
 	body::{Bytes, HttpBody},
 	common::{BoxedError, BoxedFuture},
+	data::extensions::NodeExtensions,
 	handler::{futures::ResponseToResultFuture, request_handlers::handle_mistargeted_request, Args},
 	pattern::ParamsList,
 	request::Request,
-	resource::{ResourceExtensions, ResourceService},
+	resource::ResourceService,
 	response::{IntoResponse, Response},
 	routing::{RouteTraversal, RoutingState},
 };
@@ -77,7 +78,7 @@ where
 		let routing_state = RoutingState::new(RouteTraversal::for_route(request.uri().path()));
 		let mut args = Args {
 			routing_state,
-			resource_extensions: ResourceExtensions::new_owned(Extensions::new()),
+			node_extensions: NodeExtensions::new_owned(Extensions::new()),
 			handler_extension: &(),
 		};
 
