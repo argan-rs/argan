@@ -68,6 +68,11 @@ impl ResourceService {
 		}
 	}
 
+	#[inline(always)]
+	pub(crate) fn extensions_ref(&self) -> &Extensions {
+		&self.extensions
+	}
+
 	#[inline]
 	pub(crate) fn handle<B>(&self, request: Request<B>, args: &mut Args) -> BoxedFuture<Response>
 	where
@@ -75,12 +80,13 @@ impl ResourceService {
 		B::Error: Into<BoxedError>,
 	{
 		let mut request = request.map(Body::new);
-
-		// TODO: Replace resource extensions in the args.
+		let mut args = args.resource_extensions_replaced(&self.extensions);
 
 		match &self.request_receiver {
-			MaybeBoxed::Boxed(boxed_request_receiver) => boxed_request_receiver.handle(request, args),
-			MaybeBoxed::Unboxed(request_receiver) => request_receiver.handle(request, args),
+			MaybeBoxed::Boxed(boxed_request_receiver) => {
+				boxed_request_receiver.handle(request, &mut args)
+			}
+			MaybeBoxed::Unboxed(request_receiver) => request_receiver.handle(request, &mut args),
 		}
 	}
 }
@@ -500,12 +506,14 @@ impl Handler for RequestPasser {
 		};
 
 		if let Some(next_resource) = some_next_resource {
+			let mut args = args.resource_extensions_replaced(&next_resource.extensions);
+
 			match &next_resource.request_receiver {
 				MaybeBoxed::Boxed(boxed_request_receiver) => {
-					return boxed_request_receiver.handle(request, args);
+					return boxed_request_receiver.handle(request, &mut args);
 				}
 				MaybeBoxed::Unboxed(request_receiver) => {
-					return request_receiver.handle(request, args);
+					return request_receiver.handle(request, &mut args);
 				}
 			}
 		}
