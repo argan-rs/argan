@@ -332,10 +332,7 @@ pub struct Args<'r, E = ()> {
 
 impl Args<'_, ()> {
 	#[inline]
-	pub(crate) fn node_extensions_replaced<'e>(
-		&mut self,
-		extensions: &'e Extensions,
-	) -> Args<'e> {
+	pub(crate) fn node_extensions_replaced<'e>(&mut self, extensions: &'e Extensions) -> Args<'e> {
 		let Args {
 			routing_state,
 			node_extensions,

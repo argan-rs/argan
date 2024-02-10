@@ -1,11 +1,4 @@
-use std::{
-	borrow::Cow,
-	fmt::Display,
-	iter::Peekable,
-	slice,
-	str::Chars,
-	sync::{Arc, OnceLock},
-};
+use std::{borrow::Cow, fmt::Display, iter::Peekable, slice, str::Chars, sync::Arc};
 
 use percent_encoding::{percent_encode, NON_ALPHANUMERIC};
 use regex::{CaptureLocations, CaptureNames, Regex};
@@ -63,6 +56,8 @@ impl Pattern {
 				panic!("incomplete regex pattern")
 			}
 
+			let replacer = Regex::new("(%2f)|(%2F)").expect("hard coded regex must be valid");
+
 			if let [segment] = segments.as_mut_slice() {
 				match segment {
 					Segment::Static(_) => {
@@ -77,6 +72,8 @@ impl Pattern {
 						} else {
 							name.clone()
 						};
+
+						let subpattern = replacer.replace_all(subpattern, "/");
 
 						let regex_subpattern = format!(r"\A(?P<{}>{})\z", capture_name, subpattern);
 						match Regex::new(&regex_subpattern) {
@@ -98,14 +95,16 @@ impl Pattern {
 			for segment in segments {
 				match segment {
 					Segment::Static(mut subpattern) => {
-						subpattern = regex::escape(subpattern.as_ref());
+						let subpattern = regex::escape(replacer.replace_all(&subpattern, "/").as_ref());
 						regex_pattern.push_str(&subpattern);
 					}
 					Segment::Capturing {
 						some_name,
 						mut subpattern,
 					} => {
-						subpattern = if let Some(capture_name) = some_name {
+						let subpattern = replacer.replace_all(&subpattern, "/");
+
+						let subpattern = if let Some(capture_name) = some_name {
 							if nameless_capturing_segment_exists {
 								panic!(
 									"regex pattern without a capture name cannot have multiple capturing segments",
@@ -142,6 +141,8 @@ impl Pattern {
 			}
 		}
 
+		let replacer = Regex::new("(%2f)|(%2F)").expect("hard coded regex must be valid");
+
 		if let Some('\\') = chars.peek() {
 			let mut buf = String::new();
 
@@ -159,14 +160,17 @@ impl Pattern {
 			}
 
 			buf.extend(chars);
+
+			let static_pattern = replacer.replace_all(&buf, "/");
 			let encoded_static_pattern =
-				Cow::<str>::from(percent_encode(buf.as_bytes(), NON_ALPHANUMERIC));
+				Cow::<str>::from(percent_encode(static_pattern.as_bytes(), NON_ALPHANUMERIC));
 
 			return Pattern::Static(encoded_static_pattern.into());
 		}
 
+		let static_pattern = replacer.replace_all(pattern, "/");
 		let encoded_static_pattern =
-			Cow::<str>::from(percent_encode(pattern.as_bytes(), NON_ALPHANUMERIC));
+			Cow::<str>::from(percent_encode(static_pattern.as_bytes(), NON_ALPHANUMERIC));
 
 		Pattern::Static(encoded_static_pattern.into())
 	}
