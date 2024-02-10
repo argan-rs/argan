@@ -15,7 +15,6 @@ use crate::{
 	common::{BoxedError, BoxedFuture},
 	handler::{AdaptiveHandler, Args, BoxedHandler, DummyHandler, Handler},
 	request::Request,
-	resource::ResourceExtensions,
 	response::{IntoResponse, Response},
 };
 

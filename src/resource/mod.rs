@@ -38,7 +38,7 @@ use self::{
 };
 
 pub use layer_targets::*;
-pub use service::{ResourceExtensions, ResourceService};
+pub use service::ResourceService;
 pub use static_files::{StaticFiles, Tagger};
 
 // --------------------------------------------------------------------------------

@@ -7,9 +7,10 @@ use http::{Extensions, HeaderName, HeaderValue, Method, StatusCode};
 
 use crate::{
 	common::{mark::Private, BoxedFuture, Uncloneable},
+	data::extensions::NodeExtensions,
 	middleware::{Layer, ResponseFutureBoxer},
 	request::Request,
-	resource::{ResourceExtensions, ResourceLayerTarget},
+	resource::ResourceLayerTarget,
 	response::{IntoResponse, Response},
 	routing::{RoutingState, UnusedRequest},
 };
@@ -220,14 +221,14 @@ pub(crate) fn wrap_mistargeted_request_handler(
 pub(crate) fn handle_mistargeted_request(
 	mut request: Request,
 	routing_state: RoutingState,
-	mut some_custom_handler_with_extensions: Option<(&BoxedHandler, ResourceExtensions)>,
+	mut some_custom_handler_with_extensions: Option<(&BoxedHandler, NodeExtensions)>,
 ) -> BoxedFuture<Response> {
-	if let Some((mistargeted_request_handler, resource_extensions)) =
+	if let Some((mistargeted_request_handler, node_extensions)) =
 		some_custom_handler_with_extensions.take()
 	{
 		let mut args = Args {
 			routing_state,
-			resource_extensions,
+			node_extensions,
 			handler_extension: &(),
 		};
 

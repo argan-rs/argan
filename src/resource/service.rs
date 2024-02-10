@@ -16,6 +16,7 @@ use percent_encoding::percent_decode_str;
 use crate::{
 	body::{Body, HttpBody},
 	common::{mark::Private, BoxedError, BoxedFuture, MaybeBoxed, Uncloneable, SCOPE_VALIDITY},
+	data::extensions::NodeExtensions,
 	handler::{
 		futures::ResponseToResultFuture,
 		request_handlers::{
@@ -81,7 +82,7 @@ impl ResourceService {
 		B::Error: Into<BoxedError>,
 	{
 		let mut request = request.map(Body::new);
-		let mut args = args.resource_extensions_replaced(&self.extensions);
+		let mut args = args.node_extensions_replaced(&self.extensions);
 
 		match &self.request_receiver {
 			MaybeBoxed::Boxed(boxed_request_receiver) => {
@@ -148,7 +149,7 @@ where
 
 		let mut args = Args {
 			routing_state,
-			resource_extensions: ResourceExtensions::new_borrowed(&self.extensions),
+			node_extensions: NodeExtensions::new_borrowed(&self.extensions),
 			handler_extension: &(),
 		};
 
@@ -166,7 +167,7 @@ where
 				self
 					.some_mistargeted_request_handler
 					.as_ref()
-					.map(|handler| (handler, args.resource_extensions)),
+					.map(|handler| (handler, args.node_extensions)),
 			))
 		}
 	}
@@ -262,7 +263,7 @@ impl Handler for RequestReceiver {
 					.clone()
 					.expect("subtree handler must have a request handler");
 
-				let resource_extensions = args.resource_extensions.clone().into_owned();
+				let node_extensions = args.node_extensions.clone().into_owned();
 
 				return Box::pin(async move {
 					let mut response = response_future.await;
@@ -296,7 +297,7 @@ impl Handler for RequestReceiver {
 
 					let mut args = Args {
 						routing_state,
-						resource_extensions,
+						node_extensions,
 						handler_extension: &(),
 					};
 
@@ -313,7 +314,7 @@ impl Handler for RequestReceiver {
 
 			if !resource_is_subtree_handler {
 				let routing_state = std::mem::take(&mut args.routing_state);
-				let resource_extensions = args.resource_extensions.take();
+				let node_extensions = args.node_extensions.take();
 
 				return handle_mistargeted_request(
 					request,
@@ -321,7 +322,7 @@ impl Handler for RequestReceiver {
 					self
 						.some_mistargeted_request_handler
 						.as_ref()
-						.map(|handler| (handler, resource_extensions)),
+						.map(|handler| (handler, node_extensions)),
 				);
 			}
 		}
@@ -379,7 +380,7 @@ impl Handler for RequestReceiver {
 		}
 
 		let routing_state = std::mem::take(&mut args.routing_state);
-		let resource_extensions = args.resource_extensions.take();
+		let node_extensions = args.node_extensions.take();
 
 		handle_mistargeted_request(
 			request,
@@ -387,7 +388,7 @@ impl Handler for RequestReceiver {
 			self
 				.some_mistargeted_request_handler
 				.as_ref()
-				.map(|handler| (handler, resource_extensions)),
+				.map(|handler| (handler, node_extensions)),
 		)
 	}
 }
@@ -507,7 +508,7 @@ impl Handler for RequestPasser {
 		};
 
 		if let Some(next_resource) = some_next_resource {
-			let mut args = args.resource_extensions_replaced(&next_resource.extensions);
+			let mut args = args.node_extensions_replaced(&next_resource.extensions);
 
 			match &next_resource.request_receiver {
 				MaybeBoxed::Boxed(boxed_request_receiver) => {
@@ -520,7 +521,7 @@ impl Handler for RequestPasser {
 		}
 
 		let routing_state = std::mem::take(&mut args.routing_state);
-		let resource_extensions = args.resource_extensions.take();
+		let node_extensions = args.node_extensions.take();
 
 		handle_mistargeted_request(
 			request,
@@ -528,7 +529,7 @@ impl Handler for RequestPasser {
 			self
 				.some_mistargeted_request_handler
 				.as_ref()
-				.map(|handler| (handler, resource_extensions)),
+				.map(|handler| (handler, node_extensions)),
 		)
 	}
 }
@@ -664,39 +665,6 @@ impl Handler for RequestHandler {
 				handle_unimplemented_method(request, &self.allowed_methods)
 			}
 		}
-	}
-}
-
-// --------------------------------------------------
-// ResourceExtensions
-
-#[derive(Clone)]
-pub struct ResourceExtensions<'r>(Cow<'r, Extensions>);
-
-impl<'r> ResourceExtensions<'r> {
-	#[inline(always)]
-	pub(crate) fn new_borrowed(extensions: &'r Extensions) -> Self {
-		Self(Cow::Borrowed(extensions))
-	}
-
-	#[inline(always)]
-	pub(crate) fn new_owned(extensions: Extensions) -> ResourceExtensions<'static> {
-		ResourceExtensions(Cow::Owned(extensions))
-	}
-
-	#[inline(always)]
-	pub fn get_ref<T: Send + Sync + 'static>(&self) -> Option<&T> {
-		self.0.get::<T>()
-	}
-
-	#[inline(always)]
-	pub(crate) fn take(&mut self) -> ResourceExtensions<'_> {
-		ResourceExtensions(std::mem::take(&mut self.0))
-	}
-
-	#[inline(always)]
-	pub(crate) fn into_owned(self) -> ResourceExtensions<'static> {
-		ResourceExtensions(Cow::<'static, _>::Owned(self.0.into_owned()))
 	}
 }
 

@@ -3,9 +3,9 @@ use std::{convert::Infallible, fmt::Debug, future::Future, marker::PhantomData, 
 use crate::{
 	body::{Body, HttpBody},
 	common::{BoxedError, BoxedFuture, Uncloneable},
+	data::extensions::NodeExtensions,
 	middleware::Layer,
 	request::{FromRequest, FromRequestHead, Request, RequestHead},
-	resource::ResourceExtensions,
 	response::Response,
 	routing::RoutingState,
 };
@@ -47,7 +47,7 @@ where
 	fn handle(&self, mut request: Request<B>, args: &mut Args) -> Self::Future {
 		request
 			.extensions_mut()
-			.insert(args.resource_extensions.clone().into_owned()); // ???
+			.insert(args.node_extensions.clone().into_owned()); // ???
 
 		let result_future = self.call(request);
 
@@ -88,39 +88,8 @@ where
 	}
 }
 
-// -------------------------
-// Args
-
-#[non_exhaustive]
-pub struct Args<'r, E = ()> {
-	pub(crate) routing_state: RoutingState,
-	pub resource_extensions: ResourceExtensions<'r>,
-	pub handler_extension: &'r E, // The handler has the same lifetime as the resource it belongs to.
-}
-
-impl Args<'_, ()> {
-	#[inline]
-	pub(crate) fn resource_extensions_replaced<'e>(
-		&mut self,
-		extensions: &'e Extensions,
-	) -> Args<'e> {
-		let Args {
-			routing_state,
-			resource_extensions,
-			handler_extension,
-		} = self;
-
-		let mut args = Args {
-			routing_state: std::mem::take(routing_state),
-			resource_extensions: ResourceExtensions::new_borrowed(extensions),
-			handler_extension: &(),
-		};
-
-		args
-	}
-}
-
-// --------------------------------------------------------------------------------
+// --------------------------------------------------
+// HandlerService
 
 pub struct HandlerService<H> {
 	handler: H,
@@ -150,17 +119,16 @@ where
 			.into_inner()
 			.expect("RoutingState should always exist in Uncloneable");
 
-		let resource_extensions = request
+		let node_extensions = request
 			.extensions_mut()
-			.remove::<ResourceExtensions>()
+			.remove::<NodeExtensions>()
 			.expect("when layered, resource extensions must be inserted into the request");
 
 		let mut args = Args {
 			routing_state,
-			resource_extensions,
+			node_extensions,
 			handler_extension: &(),
 		};
-		// Args::with_resource_extensions(resource_extensions);
 
 		let response_future = self.handler.handle(request, &mut args);
 
@@ -193,11 +161,11 @@ where
 	#[inline]
 	fn handle(&self, mut request: Request<B>, args: &mut Args) -> Self::Future {
 		let routing_state = std::mem::take(&mut args.routing_state);
-		let resource_extensions = args.resource_extensions.take();
+		let node_extensions = args.node_extensions.take();
 
 		let mut args = Args {
 			routing_state,
-			resource_extensions,
+			node_extensions,
 			handler_extension: &self.extension,
 		};
 
@@ -349,6 +317,38 @@ impl From<BoxedHandler> for AdaptiveHandler {
 	#[inline(always)]
 	fn from(boxed_handler: BoxedHandler) -> Self {
 		Self(boxed_handler)
+	}
+}
+
+// --------------------------------------------------------------------------------
+// Args
+
+#[non_exhaustive]
+pub struct Args<'r, E = ()> {
+	pub(crate) routing_state: RoutingState,
+	pub node_extensions: NodeExtensions<'r>,
+	pub handler_extension: &'r E, // The handler has the same lifetime as the resource it belongs to.
+}
+
+impl Args<'_, ()> {
+	#[inline]
+	pub(crate) fn node_extensions_replaced<'e>(
+		&mut self,
+		extensions: &'e Extensions,
+	) -> Args<'e> {
+		let Args {
+			routing_state,
+			node_extensions,
+			handler_extension,
+		} = self;
+
+		let mut args = Args {
+			routing_state: std::mem::take(routing_state),
+			node_extensions: NodeExtensions::new_borrowed(extensions),
+			handler_extension: &(),
+		};
+
+		args
 	}
 }
 

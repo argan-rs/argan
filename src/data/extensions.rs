@@ -1,3 +1,5 @@
+use http::Extensions;
+
 use super::*;
 
 // --------------------------------------------------------------------------------
@@ -117,11 +119,11 @@ where
 }
 
 // --------------------------------------------------
-// ResourceExtension
+// NodeExtension
 
-pub struct ResourceExtension<RE>(RE);
+pub struct NodeExtension<RE>(RE);
 
-impl<HE, RE> FromRequestHead<HE> for ResourceExtension<RE>
+impl<HE, RE> FromRequestHead<HE> for NodeExtension<RE>
 where
 	HE: Sync,
 	RE: Clone + Send + Sync + 'static,
@@ -133,14 +135,14 @@ where
 		head: &mut RequestHead,
 		args: &mut Args<'_, HE>,
 	) -> Result<Self, Self::Error> {
-		match args.resource_extensions.get_ref::<RE>() {
+		match args.node_extensions.get_ref::<RE>() {
 			Some(value) => Ok(Self(value.clone())),
 			None => Err(StatusCode::INTERNAL_SERVER_ERROR),
 		}
 	}
 }
 
-impl<B, HE, RE> FromRequest<B, HE> for ResourceExtension<RE>
+impl<B, HE, RE> FromRequest<B, HE> for NodeExtension<RE>
 where
 	B: Send,
 	HE: Sync,
@@ -150,10 +152,43 @@ where
 
 	#[inline]
 	async fn from_request(request: Request<B>, args: &mut Args<'_, HE>) -> Result<Self, Self::Error> {
-		match args.resource_extensions.get_ref::<RE>() {
+		match args.node_extensions.get_ref::<RE>() {
 			Some(value) => Ok(Self(value.clone())),
 			None => Err(StatusCode::INTERNAL_SERVER_ERROR),
 		}
+	}
+}
+
+// --------------------------------------------------
+// ResourceExtensions
+
+#[derive(Clone)]
+pub struct NodeExtensions<'r>(Cow<'r, Extensions>);
+
+impl<'r> NodeExtensions<'r> {
+	#[inline(always)]
+	pub(crate) fn new_borrowed(extensions: &'r Extensions) -> Self {
+		Self(Cow::Borrowed(extensions))
+	}
+
+	#[inline(always)]
+	pub(crate) fn new_owned(extensions: Extensions) -> NodeExtensions<'static> {
+		NodeExtensions(Cow::Owned(extensions))
+	}
+
+	#[inline(always)]
+	pub fn get_ref<T: Send + Sync + 'static>(&self) -> Option<&T> {
+		self.0.get::<T>()
+	}
+
+	#[inline(always)]
+	pub(crate) fn take(&mut self) -> NodeExtensions<'_> {
+		NodeExtensions(std::mem::take(&mut self.0))
+	}
+
+	#[inline(always)]
+	pub(crate) fn into_owned(self) -> NodeExtensions<'static> {
+		NodeExtensions(Cow::<'static, _>::Owned(self.0.into_owned()))
 	}
 }
 
