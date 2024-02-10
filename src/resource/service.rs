@@ -1,5 +1,6 @@
 use std::{
 	any::Any,
+	borrow::Cow,
 	convert::Infallible,
 	fmt::Debug,
 	future::{ready, IntoFuture},
@@ -30,7 +31,7 @@ use crate::{
 	routing::{self, RouteTraversal, RoutingState, UnusedRequest},
 };
 
-use super::{config::ConfigFlags, ResourceExtensions, ResourceLayerTarget};
+use super::{config::ConfigFlags, ResourceLayerTarget};
 
 // --------------------------------------------------------------------------------
 // --------------------------------------------------------------------------------
@@ -663,6 +664,39 @@ impl Handler for RequestHandler {
 				handle_unimplemented_method(request, &self.allowed_methods)
 			}
 		}
+	}
+}
+
+// --------------------------------------------------
+// ResourceExtensions
+
+#[derive(Clone)]
+pub struct ResourceExtensions<'r>(Cow<'r, Extensions>);
+
+impl<'r> ResourceExtensions<'r> {
+	#[inline(always)]
+	pub(crate) fn new_borrowed(extensions: &'r Extensions) -> Self {
+		Self(Cow::Borrowed(extensions))
+	}
+
+	#[inline(always)]
+	pub(crate) fn new_owned(extensions: Extensions) -> ResourceExtensions<'static> {
+		ResourceExtensions(Cow::Owned(extensions))
+	}
+
+	#[inline(always)]
+	pub fn get_ref<T: Send + Sync + 'static>(&self) -> Option<&T> {
+		self.0.get::<T>()
+	}
+
+	#[inline(always)]
+	pub(crate) fn take(&mut self) -> ResourceExtensions<'_> {
+		ResourceExtensions(std::mem::take(&mut self.0))
+	}
+
+	#[inline(always)]
+	pub(crate) fn into_owned(self) -> ResourceExtensions<'static> {
+		ResourceExtensions(Cow::<'static, _>::Owned(self.0.into_owned()))
 	}
 }
 
