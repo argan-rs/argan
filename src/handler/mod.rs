@@ -13,7 +13,7 @@ use crate::{
 // ----------
 
 use bytes::Bytes;
-use http::StatusCode;
+use http::{Extensions, StatusCode};
 pub use hyper::service::Service;
 
 // --------------------------------------------------
@@ -96,6 +96,28 @@ pub struct Args<'r, E = ()> {
 	pub(crate) routing_state: RoutingState,
 	pub resource_extensions: ResourceExtensions<'r>,
 	pub handler_extension: &'r E, // The handler has the same lifetime as the resource it belongs to.
+}
+
+impl Args<'_, ()> {
+	#[inline]
+	pub(crate) fn resource_extensions_replaced<'e>(
+		&mut self,
+		extensions: &'e Extensions,
+	) -> Args<'e> {
+		let Args {
+			routing_state,
+			resource_extensions,
+			handler_extension,
+		} = self;
+
+		let mut args = Args {
+			routing_state: std::mem::take(routing_state),
+			resource_extensions: ResourceExtensions::new_borrowed(extensions),
+			handler_extension: &(),
+		};
+
+		args
+	}
 }
 
 // --------------------------------------------------------------------------------
