@@ -64,7 +64,7 @@ impl IntoResponse for HeaderMap {
 // --------------------------------------------------
 
 #[derive(Debug, ImplError)]
-pub(crate) enum HeaderError {
+pub(crate) enum ContentTypeError {
 	#[error("missing {0} header")]
 	MissingHeader(HeaderName),
 	#[error(transparent)]

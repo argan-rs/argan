@@ -18,7 +18,7 @@ use crate::{
 	body::Body,
 	common::{IntoArray, Uncloneable},
 	handler::Args,
-	header::HeaderError,
+	header::ContentTypeError,
 	response::{IntoResponse, IntoResponseHead, Response},
 	routing::RoutingState,
 	ImplError, StdError,
@@ -72,11 +72,11 @@ where
 
 // --------------------------------------------------------------------------------
 
-pub(crate) fn content_type<B>(request: &Request<B>) -> Result<&str, HeaderError> {
+pub(crate) fn content_type<B>(request: &Request<B>) -> Result<&str, ContentTypeError> {
 	let content_type = request
 		.headers()
 		.get(CONTENT_TYPE)
-		.ok_or(HeaderError::MissingHeader(CONTENT_TYPE))?;
+		.ok_or(ContentTypeError::MissingHeader(CONTENT_TYPE))?;
 
 	content_type.to_str().map_err(Into::into)
 }

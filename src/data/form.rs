@@ -77,7 +77,7 @@ where
 
 // ----------
 
-data_error! {
+data_extractor_error! {
 	#[derive(Debug)]
 	pub FormError {
 		#[error("{0}")]
@@ -312,7 +312,7 @@ impl Part {
 
 // ----------
 
-data_error! {
+data_extractor_error! {
 	#[derive(Debug)]
 	pub MultipartFormError {
 		#[error("unkown part {part_name}")]
