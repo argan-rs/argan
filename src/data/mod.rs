@@ -139,11 +139,13 @@ impl IntoResponse for &'static str {
 // --------------------------------------------------
 // String
 
-impl<B, E> FromRequest<B, E> for String
+pub struct Text<const SIZE_LIMIT: usize = { 2 * 1024 * 1024 }>(String);
+
+impl<B, E, const SIZE_LIMIT: usize> FromRequest<B, E> for Text<SIZE_LIMIT>
 where
 	B: HttpBody + Send,
 	B::Data: Send,
-	B::Error: Debug,
+	B::Error: Into<BoxedError>,
 	E: Sync,
 {
 	type Error = StatusCode; // TODO.
@@ -152,12 +154,18 @@ where
 		let content_type = content_type(&request).map_err(|_| StatusCode::BAD_REQUEST)?;
 
 		if content_type == mime::TEXT_PLAIN_UTF_8 {
-			match request.collect().await {
+			match Limited::new(request, SIZE_LIMIT).collect().await {
 				Ok(body) => match String::from_utf8(body.to_bytes().into()) {
-					Ok(text) => Ok(text),
+					Ok(text) => Ok(Text(text)),
 					Err(error) => Err(StatusCode::BAD_REQUEST),
 				},
-				Err(error) => Err(StatusCode::INTERNAL_SERVER_ERROR),
+				Err(error) => Err(
+					error
+						.downcast_ref::<LengthLimitError>()
+						.map_or(StatusCode::INTERNAL_SERVER_ERROR, |_| {
+							StatusCode::PAYLOAD_TOO_LARGE
+						}),
+				),
 			}
 		} else {
 			Err(StatusCode::UNSUPPORTED_MEDIA_TYPE)
@@ -227,11 +235,13 @@ impl IntoResponse for Cow<'static, [u8]> {
 // --------------------------------------------------
 // Bytes
 
-impl<B, E> FromRequest<B, E> for Bytes
+pub struct Binary<const SIZE_LIMIT: usize = { 16 * 1024 * 1024 }>(Bytes);
+
+impl<B, E, const SIZE_LIMIT: usize> FromRequest<B, E> for Binary<SIZE_LIMIT>
 where
 	B: HttpBody + Send,
 	B::Data: Send,
-	B::Error: Debug,
+	B::Error: Into<BoxedError>,
 	E: Sync,
 {
 	type Error = StatusCode; // TODO.
@@ -240,9 +250,15 @@ where
 		let content_type_str = content_type(&request).map_err(|_| StatusCode::BAD_REQUEST)?;
 
 		if content_type_str == mime::APPLICATION_OCTET_STREAM {
-			match request.collect().await {
-				Ok(body) => Ok(body.to_bytes()),
-				Err(error) => Err(StatusCode::INTERNAL_SERVER_ERROR),
+			match Limited::new(request, SIZE_LIMIT).collect().await {
+				Ok(body) => Ok(Binary(body.to_bytes())),
+				Err(error) => Err(
+					error
+						.downcast_ref::<LengthLimitError>()
+						.map_or(StatusCode::INTERNAL_SERVER_ERROR, |_| {
+							StatusCode::PAYLOAD_TOO_LARGE
+						}),
+				),
 			}
 		} else {
 			Err(StatusCode::UNSUPPORTED_MEDIA_TYPE)
