@@ -106,7 +106,7 @@ macro_rules! call_for_tuples {
 
 // --------------------------------------------------------------------------------
 
-macro_rules! data_error {
+macro_rules! data_extractor_error {
 	(
 		$(#[$enum_metas:meta])*
 		$vis:vis $error_name:ident {
@@ -137,11 +137,13 @@ macro_rules! data_error {
 			),*
 		}
 
-		impl From<crate::header::HeaderError> for $error_name {
-			fn from(header_error: crate::header::HeaderError) -> Self {
+		impl From<crate::header::ContentTypeError> for $error_name {
+			fn from(header_error: crate::header::ContentTypeError) -> Self {
 				match header_error {
-					HeaderError::MissingHeader(_) => $error_name::MissingContentType,
-					HeaderError::InvalidValue(error) => $error_name::InvalidContentType(error),
+					crate::header::ContentTypeError::MissingHeader(_) => $error_name::MissingContentType,
+					crate::header::ContentTypeError::InvalidValue(error) => {
+						$error_name::InvalidContentType(error)
+					}
 				}
 			}
 		}

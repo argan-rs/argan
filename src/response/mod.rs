@@ -1,6 +1,10 @@
 use std::{any::Any, convert::Infallible};
 
-use http::{header::LOCATION, response::Parts, HeaderValue};
+use http::{
+	header::{InvalidHeaderName, InvalidHeaderValue, LOCATION},
+	response::Parts,
+	HeaderMap, HeaderName, HeaderValue,
+};
 
 use crate::{
 	body::{Body, BodyExt, Bytes, HttpBody},
@@ -39,6 +43,7 @@ pub trait IntoResponse {
 }
 
 impl<B> IntoResponse for Response<B>
+// ???
 where
 	B: HttpBody<Data = Bytes> + Send + Sync + 'static,
 	B::Error: Into<BoxedError>,
@@ -167,6 +172,79 @@ where
 			Ok(value) => value.into_response(),
 			Err(error) => error.into_response(),
 		}
+	}
+}
+
+// --------------------------------------------------
+// Array of header (name, value) tuples
+
+impl<N, V, const C: usize> IntoResponseHead for [(N, V); C]
+where
+	N: TryInto<HeaderName>,
+	N::Error: crate::StdError,
+	V: TryInto<HeaderValue>,
+	V::Error: crate::StdError,
+{
+	type Error = HeaderError<N::Error, V::Error>;
+
+	fn into_response_head(self, mut head: ResponseHead) -> Result<ResponseHead, Self::Error> {
+		for (key, value) in self {
+			let header_name =
+				TryInto::<HeaderName>::try_into(key).map_err(HeaderError::from_name_error)?;
+			let header_value =
+				TryInto::<HeaderValue>::try_into(value).map_err(HeaderError::from_value_error)?;
+
+			head.headers.insert(header_name, header_value);
+		}
+
+		Ok(head)
+	}
+}
+
+impl<N, V, const C: usize> IntoResponse for [(N, V); C]
+where
+	N: TryInto<HeaderName>,
+	N::Error: crate::StdError,
+	V: TryInto<HeaderValue>,
+	V::Error: crate::StdError,
+{
+	fn into_response(self) -> Response {
+		let (head, body) = Response::default().into_parts();
+
+		match self.into_response_head(head) {
+			Ok(head) => Response::from_parts(head, body),
+			Err(error) => error.into_response(),
+		}
+	}
+}
+
+#[derive(Debug, crate::ImplError)]
+pub enum HeaderError<NE, VE> {
+	#[error("missing {0} header")]
+	MissingHeader(HeaderName),
+	#[error(transparent)]
+	InvalidName(NE),
+	#[error(transparent)]
+	InvalidValue(VE),
+}
+
+impl<NE, VE> HeaderError<NE, VE> {
+	pub(crate) fn from_missing_header(header_name: HeaderName) -> Self {
+		Self::MissingHeader(header_name)
+	}
+
+	pub(crate) fn from_name_error(name_error: NE) -> Self {
+		Self::InvalidName(name_error)
+	}
+
+	pub(crate) fn from_value_error(value_error: VE) -> Self {
+		Self::InvalidValue(value_error)
+	}
+}
+
+impl<NE, VE> IntoResponse for HeaderError<NE, VE> {
+	fn into_response(self) -> Response {
+		StatusCode::INTERNAL_SERVER_ERROR.into_response()
 	}
 }
 

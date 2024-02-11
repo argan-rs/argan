@@ -22,7 +22,7 @@ use crate::{
 	body::{Body, Bytes, HttpBody},
 	common::BoxedError,
 	handler::Args,
-	header::HeaderError,
+	header::ContentTypeError,
 	request::{content_type, FromRequest, FromRequestHead, Request, RequestHead},
 	response::{IntoResponse, IntoResponseHead, Response, ResponseHead},
 	ImplError,
@@ -100,7 +100,7 @@ where
 
 // ----------
 
-data_error! {
+data_extractor_error! {
 	#[derive(Debug)]
 	pub JsonError {
 		#[error("invlaid JSON syntax in line {line}, column {column}")]
