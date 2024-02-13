@@ -1,6 +1,7 @@
-use std::convert::Infallible;
+use std::{convert::Infallible, num::ParseFloatError};
 
 use crate::{
+	common::SCOPE_VALIDITY,
 	handler::Args,
 	request::{FromRequest, FromRequestHead, Request, RequestHead},
 	response::{IntoResponse, IntoResponseHead, Response, ResponseHead},
@@ -69,6 +70,52 @@ pub(crate) enum ContentTypeError {
 	MissingHeader(HeaderName),
 	#[error(transparent)]
 	InvalidValue(#[from] ToStrError),
+}
+
+// --------------------------------------------------
+
+fn split_header_value_elements(
+	header_value: &HeaderValue,
+) -> Result<Vec<(&str, f32)>, HeaderValueElementsError> {
+	header_value
+		.to_str()?
+		.split(',')
+		.try_fold::<_, _, Result<_, HeaderValueElementsError>>(Vec::new(), |mut values, value| {
+			let value = value.trim().split_once(';').map_or(
+				Result::<_, HeaderValueElementsError>::Ok((value, 1f32)),
+				|segments| {
+					let value = segments.0.trim_end();
+					let quality = segments
+						.1
+						.trim_start()
+						.strip_prefix("q=")
+						.ok_or(HeaderValueElementsError::InvalidQualitySpecifier)?;
+
+					let quality = quality.parse::<f32>()?;
+
+					Ok((value, quality))
+				},
+			)?;
+
+			values.push(value);
+
+			Ok(values)
+		})
+		.map(|mut values| {
+			values.sort_by(|a, b| b.1.partial_cmp(&a.1).expect(SCOPE_VALIDITY));
+
+			values
+		})
+}
+
+#[derive(Debug, crate::ImplError)]
+pub enum HeaderValueElementsError {
+	#[error(transparent)]
+	ToStrError(#[from] ToStrError),
+	#[error("invalid quality specifier")]
+	InvalidQualitySpecifier,
+	#[error(transparent)]
+	ParseFloatError(#[from] ParseFloatError),
 }
 
 // --------------------------------------------------------------------------------
