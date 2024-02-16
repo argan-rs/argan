@@ -74,22 +74,22 @@ pub(crate) enum ContentTypeError {
 
 // --------------------------------------------------
 
-fn split_header_value_elements(
+pub fn split_header_value(
 	header_value: &HeaderValue,
-) -> Result<Vec<(&str, f32)>, HeaderValueElementsError> {
+) -> Result<Vec<(&str, f32)>, SplitHeaderValueError> {
 	header_value
 		.to_str()?
 		.split(',')
-		.try_fold::<_, _, Result<_, HeaderValueElementsError>>(Vec::new(), |mut values, value| {
+		.try_fold::<_, _, Result<_, SplitHeaderValueError>>(Vec::new(), |mut values, value| {
 			let value = value.trim().split_once(';').map_or(
-				Result::<_, HeaderValueElementsError>::Ok((value, 1f32)),
+				Result::<_, SplitHeaderValueError>::Ok((value, 1f32)),
 				|segments| {
 					let value = segments.0.trim_end();
 					let quality = segments
 						.1
 						.trim_start()
 						.strip_prefix("q=")
-						.ok_or(HeaderValueElementsError::InvalidQualitySpecifier)?;
+						.ok_or(SplitHeaderValueError::InvalidQualitySpecifier)?;
 
 					let quality = quality.parse::<f32>()?;
 
@@ -109,7 +109,7 @@ fn split_header_value_elements(
 }
 
 #[derive(Debug, crate::ImplError)]
-pub enum HeaderValueElementsError {
+pub enum SplitHeaderValueError {
 	#[error(transparent)]
 	ToStrError(#[from] ToStrError),
 	#[error("invalid quality specifier")]
