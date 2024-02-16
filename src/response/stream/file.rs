@@ -42,7 +42,7 @@ pub struct FileStream {
 	current_range_index: usize,
 	current_range_remaining_size: u64,
 	ranges: Vec<RangeValue>,
-	some_boundary: Option<Arc<str>>,
+	some_boundary: Option<Box<str>>,
 	some_content_type_value: Option<HeaderValue>,
 	some_file_name: Option<String>,
 	option_flags: FileStreamOptions,
@@ -108,7 +108,7 @@ impl FileStream {
 		allow_descending: bool,
 	) -> Result<Self, FileStreamError> {
 		if range_header_value.is_empty() {
-			return Err(FileStreamError::InvalidValue);
+			return Err(FileStreamError::InvalidRangeValue);
 		}
 
 		let file = File::open(path)?;
@@ -137,7 +137,7 @@ impl FileStream {
 		allow_descending: bool,
 	) -> Result<Self, FileStreamError> {
 		if range_header_value.is_empty() {
-			return Err(FileStreamError::InvalidValue);
+			return Err(FileStreamError::InvalidRangeValue);
 		}
 
 		let metadata = file.metadata()?;
@@ -158,13 +158,13 @@ impl FileStream {
 		})
 	}
 
-	pub fn set_boundary(&mut self, boundary: Arc<str>) -> Result<(), FileStreamError> {
+	pub fn set_boundary(&mut self, boundary: Box<str>) -> Result<(), FileStreamError> {
 		if let MaybeCompressed::Gzip(_) = self.maybe_encoded_file {
 			return Err(FileStreamError::CannotSupportRanges);
 		}
 
 		if boundary.chars().any(|ch| !ch.is_ascii_graphic()) {
-			return Err(FileStreamError::InvalidValue);
+			return Err(FileStreamError::InvalidBoundary);
 		}
 
 		self.some_boundary = Some(boundary);
@@ -206,7 +206,7 @@ impl FileStream {
 }
 
 impl IntoResponse for FileStream {
-	fn into_response(mut self) -> crate::response::Response {
+	fn into_response(mut self) -> Response {
 		if self.some_boundary.is_some() {
 			multipart_ranges_response(self)
 		} else {
@@ -573,7 +573,7 @@ fn stream_multipart_ranges(
 	Poll::Pending
 }
 
-pub fn generate_boundary(length: u8) -> Result<Arc<str>, FileStreamError> {
+pub fn generate_boundary(length: u8) -> Result<Box<str>, FileStreamError> {
 	if length == 0 || length > 70 {
 		return Err(FileStreamError::InvalidValue);
 	}
@@ -640,7 +640,7 @@ fn parse_range_header_value(
 	allow_descending: bool,
 ) -> Result<Vec<RangeValue>, FileStreamError> {
 	let Some(ranges_str) = value.strip_prefix("bytes=") else {
-		return Err(FileStreamError::InvalidValue);
+		return Err(FileStreamError::InvalidRangeValue);
 	};
 
 	dbg!(ranges_str);
@@ -968,14 +968,14 @@ impl FromStr for RawRangeValue {
 
 	fn from_str(s: &str) -> Result<Self, Self::Err> {
 		let Some((start, end)) = s.split_once('-') else {
-			return Err(FileStreamError::InvalidValue);
+			return Err(FileStreamError::InvalidRangeValue);
 		};
 
 		let some_start_u64 = if !start.is_empty() {
 			if let Ok(start_u64) = start.parse::<u64>() {
 				Some(start_u64)
 			} else {
-				return Err(FileStreamError::InvalidValue);
+				return Err(FileStreamError::InvalidRangeValue);
 			}
 		} else {
 			None
@@ -985,7 +985,7 @@ impl FromStr for RawRangeValue {
 			if let Ok(end_64) = end.parse::<u64>() {
 				Some(end_64)
 			} else {
-				return Err(FileStreamError::InvalidValue);
+				return Err(FileStreamError::InvalidRangeValue);
 			}
 		} else {
 			None
@@ -1084,7 +1084,7 @@ impl TryFrom<RawRangeValue> for RangeValue {
 
 	fn try_from(value: RawRangeValue) -> Result<Self, Self::Error> {
 		if value.some_start.is_none() || value.some_end.is_none() {
-			return Err(FileStreamError::InvalidValue);
+			return Err(FileStreamError::InvalidRangeValue);
 		}
 
 		let start = value.some_start.expect(SCOPE_VALIDITY);
@@ -1111,12 +1111,30 @@ pub enum FileStreamError {
 	CannotSupportRanges,
 	// #[error("cannot encode content with ranges")]
 	// CannotEncode,
-	#[error("invalid value")]
-	InvalidValue,
+	#[error("invalid range value")]
+	InvalidRangeValue,
 	#[error("unsatisfiable range")]
 	UnsatisfiableRange,
+	#[error("invalid boundary")]
+	InvalidBoundary,
+	#[error("invalid value")]
+	InvalidValue,
 	#[error(transparent)]
 	IoError(#[from] IoError),
+}
+
+impl IntoResponse for FileStreamError {
+	fn into_response(self) -> Response {
+		match self {
+			Self::InternalError
+			| Self::CannotSupportRanges
+			| Self::InvalidBoundary
+			| Self::InvalidValue
+			| Self::IoError(_) => StatusCode::INTERNAL_SERVER_ERROR.into_response(),
+			Self::InvalidRangeValue => StatusCode::BAD_REQUEST.into_response(),
+			Self::UnsatisfiableRange => StatusCode::RANGE_NOT_SATISFIABLE.into_response(),
+		}
+	}
 }
 
 // --------------------------------------------------------------------------------
