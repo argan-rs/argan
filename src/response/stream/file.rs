@@ -189,7 +189,7 @@ impl IntoResponse for FileStream {
 		if self.some_boundary.is_some() {
 			multipart_ranges_response(self)
 		} else {
-			if !self.ranges.is_empty() {
+			if self.ranges.len() > 1 {
 				self.some_boundary = Some(
 					generate_boundary(48)
 						.expect("should be valid when the length is no longer than 70 characters"),
@@ -382,7 +382,7 @@ impl HttpBody for FileStream {
 		if self.some_boundary.is_some() {
 			stream_multipart_ranges(self, cx)
 		} else {
-			if !self.ranges.is_empty() {
+			if self.ranges.len() > 1 {
 				self.some_boundary = Some(
 					generate_boundary(48)
 						.expect("should be valid when the length is no longer than 70 characters"),
