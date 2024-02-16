@@ -12,6 +12,7 @@ use std::{
 };
 
 use bytes::{BufMut, Bytes, BytesMut};
+use flate2::{read::GzEncoder, Compression};
 use http::{
 	header::{ACCEPT_RANGES, CONTENT_DISPOSITION, CONTENT_LENGTH, CONTENT_RANGE, CONTENT_TYPE},
 	HeaderValue, StatusCode,
@@ -36,7 +37,7 @@ const BUFFER_SIZE: usize = 8 * 1024;
 // TODO: Add tests.
 
 pub struct FileStream {
-	file: File,
+	maybe_encoded_file: MaybeCompressed,
 	file_size: String,
 	current_range_index: usize,
 	current_range_remaining_size: u64,
@@ -48,14 +49,24 @@ pub struct FileStream {
 }
 
 impl FileStream {
-	pub fn open<P: AsRef<Path>>(path: P) -> Result<Self, FileStreamError> {
+	pub fn open<P: AsRef<Path>>(
+		path: P,
+		content_coding: ContentCoding,
+	) -> Result<Self, FileStreamError> {
 		let file = File::open(path)?;
 
 		let metadata = file.metadata()?;
 		let file_size = metadata.len();
 
+		let maybe_encoded_file = match content_coding {
+			ContentCoding::Identity => MaybeCompressed::Identity(file),
+			ContentCoding::Gzip(level) => {
+				MaybeCompressed::Gzip(GzEncoder::new(file, Compression::new(level)))
+			}
+		};
+
 		Ok(Self {
-			file,
+			maybe_encoded_file,
 			file_size: file_size.to_string(),
 			current_range_index: 0,
 			current_range_remaining_size: file_size,
@@ -67,12 +78,19 @@ impl FileStream {
 		})
 	}
 
-	pub fn from_file(file: File) -> Result<Self, FileStreamError> {
+	pub fn from_file(file: File, content_coding: ContentCoding) -> Result<Self, FileStreamError> {
 		let metadata = file.metadata()?;
 		let file_size = metadata.len();
 
+		let maybe_encoded_file = match content_coding {
+			ContentCoding::Identity => MaybeCompressed::Identity(file),
+			ContentCoding::Gzip(level) => {
+				MaybeCompressed::Gzip(GzEncoder::new(file, Compression::new(level)))
+			}
+		};
+
 		Ok(Self {
-			file,
+			maybe_encoded_file,
 			file_size: file_size.to_string(),
 			current_range_index: 0,
 			current_range_remaining_size: file_size,
@@ -101,7 +119,7 @@ impl FileStream {
 		let ranges = parse_range_header_value(range_header_value, file_size, allow_descending)?;
 
 		Ok(Self {
-			file,
+			maybe_encoded_file: MaybeCompressed::Identity(file),
 			file_size: file_size.to_string(),
 			current_range_index: 0,
 			current_range_remaining_size: ranges[0].size(),
@@ -128,7 +146,7 @@ impl FileStream {
 		let ranges = parse_range_header_value(range_header_value, file_size, allow_descending)?;
 
 		Ok(Self {
-			file,
+			maybe_encoded_file: MaybeCompressed::Identity(file),
 			file_size: file_size.to_string(),
 			current_range_index: 0,
 			current_range_remaining_size: ranges[0].size(),
@@ -140,8 +158,11 @@ impl FileStream {
 		})
 	}
 
-	#[inline(always)]
 	pub fn set_boundary(&mut self, boundary: Arc<str>) -> Result<(), FileStreamError> {
+		if let MaybeCompressed::Gzip(_) = self.maybe_encoded_file {
+			return Err(FileStreamError::CannotSupportRanges);
+		}
+
 		if boundary.chars().any(|ch| !ch.is_ascii_graphic()) {
 			return Err(FileStreamError::InvalidValue);
 		}
@@ -411,7 +432,7 @@ fn stream_single_range(
 	};
 
 	for _ in 0..3 {
-		match file_stream.file.read(&mut buffer) {
+		match file_stream.maybe_encoded_file.read(&mut buffer) {
 			Ok(size) => {
 				file_stream.current_range_remaining_size -= size as u64;
 				buffer.truncate(size);
@@ -523,7 +544,10 @@ fn stream_multipart_ranges(
 	};
 
 	for _ in 0..3 {
-		match file_stream.file.read(&mut buffer[start_index..]) {
+		match file_stream
+			.maybe_encoded_file
+			.read(&mut buffer[start_index..])
+		{
 			Ok(size) => {
 				file_stream.current_range_remaining_size -= size as u64;
 				buffer.resize(start_index + size, 0);
@@ -578,6 +602,27 @@ pub fn generate_boundary(length: u8) -> Result<Arc<str>, FileStreamError> {
 
 // ----------
 
+pub enum ContentCoding {
+	Identity,
+	Gzip(u32), // Contains level.
+}
+
+enum MaybeCompressed {
+	Identity(File),
+	Gzip(GzEncoder<File>),
+}
+
+impl std::io::Read for MaybeCompressed {
+	fn read(&mut self, buf: &mut [u8]) -> Result<usize, IoError> {
+		match self {
+			Self::Identity(file) => file.read(buf),
+			Self::Gzip(gz_encoder) => gz_encoder.read(buf),
+		}
+	}
+}
+
+// ----------
+
 bit_flags! {
 	#[derive(Default)]
 	pub FileStreamOptions: u8 {
@@ -617,14 +662,14 @@ fn parse_range_header_value(
 						return Ok(range);
 					}
 
-					Err(FileStreamError::UnSatisfiableRange)
+					Err(FileStreamError::UnsatisfiableRange)
 				})
 				.ok()
 		})
 		.collect::<Vec<RawRangeValue>>();
 
 	if raw_ranges.is_empty() {
-		return Err(FileStreamError::UnSatisfiableRange);
+		return Err(FileStreamError::UnsatisfiableRange);
 	}
 
 	let mut raw_ranges = dbg!(raw_ranges);
@@ -689,7 +734,7 @@ fn parse_range_header_value(
 	};
 
 	if !ascending_range && !allow_descending {
-		return Err(FileStreamError::UnSatisfiableRange);
+		return Err(FileStreamError::UnsatisfiableRange);
 	}
 
 	let (mut valid_ranges, some_biggest_suffix_range) =
@@ -725,10 +770,10 @@ fn get_valid_rangges(
 				// Here we're checking if they are mixed or not.
 				if current_start.0 < previous_start {
 					if ascending_range {
-						return Err(FileStreamError::UnSatisfiableRange);
+						return Err(FileStreamError::UnsatisfiableRange);
 					}
 				} else if !ascending_range {
-					return Err(FileStreamError::UnSatisfiableRange);
+					return Err(FileStreamError::UnsatisfiableRange);
 				}
 			}
 
@@ -759,7 +804,7 @@ fn get_valid_rangges(
 				if let Some(previous_end) = valid_ranges.last().map(|range| range.end.0) {
 					if current_start.0 < previous_end {
 						if overlap_count > 1 {
-							return Err(FileStreamError::UnSatisfiableRange);
+							return Err(FileStreamError::UnsatisfiableRange);
 						}
 
 						overlap_count += 1;
@@ -779,7 +824,7 @@ fn get_valid_rangges(
 				if let Some(previous_start) = valid_ranges.last().map(|range| range.start.0) {
 					if previous_start < current_end.0 {
 						if overlap_count > 1 {
-							return Err(FileStreamError::UnSatisfiableRange);
+							return Err(FileStreamError::UnsatisfiableRange);
 						}
 
 						overlap_count += 1;
@@ -949,7 +994,7 @@ impl FromStr for RawRangeValue {
 		if some_end_u64
 			.is_some_and(|end_u64| some_start_u64.is_some_and(|start_u64| end_u64 < start_u64))
 		{
-			return Err(FileStreamError::UnSatisfiableRange);
+			return Err(FileStreamError::UnsatisfiableRange);
 		}
 
 		Ok(RawRangeValue {
@@ -1058,27 +1103,21 @@ impl PartialEq for RangeValue {
 // ----------
 
 // ???
-#[derive(Debug)]
+#[derive(Debug, crate::ImplError)]
 pub enum FileStreamError {
-	InternalServerError,
+	#[error("FileStream internal error")]
+	InternalError,
+	#[error("cannot support ranges with content encoding")]
+	CannotSupportRanges,
+	// #[error("cannot encode content with ranges")]
+	// CannotEncode,
+	#[error("invalid value")]
 	InvalidValue,
-	UnSatisfiableRange,
-	IoError(IoError),
+	#[error("unsatisfiable range")]
+	UnsatisfiableRange,
+	#[error(transparent)]
+	IoError(#[from] IoError),
 }
-
-impl From<IoError> for FileStreamError {
-	fn from(error: IoError) -> Self {
-		Self::IoError(error)
-	}
-}
-
-impl Display for FileStreamError {
-	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-		write!(f, "{:?}", self)
-	}
-}
-
-impl std::error::Error for FileStreamError {}
 
 // --------------------------------------------------------------------------------
 // --------------------------------------------------------------------------------

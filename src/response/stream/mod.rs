@@ -4,7 +4,7 @@ mod event;
 mod file;
 
 pub use event::{Event, EventStream};
-pub use file::{generate_boundary, FileStream};
+pub use file::{generate_boundary, FileStream, ContentCoding};
 
 // --------------------------------------------------------------------------------
 // --------------------------------------------------------------------------------
