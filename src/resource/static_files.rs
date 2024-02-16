@@ -21,7 +21,10 @@ use crate::{
 	handler::{get, request_handlers::handle_mistargeted_request},
 	header::{split_header_value, SplitHeaderValueError},
 	request::Request,
-	response::{stream::{ContentCoding, FileStream}, IntoResponse, Response},
+	response::{
+		stream::{ContentCoding, FileStream, FileStreamError},
+		IntoResponse, Response,
+	},
 	routing::RoutingState,
 };
 
@@ -142,7 +145,8 @@ impl StaticFiles {
 
 // -------------------------
 
-/* pub */ trait Tagger: Send + Sync {
+/* pub */
+trait Tagger: Send + Sync {
 	fn tag(&self, path: &Path) -> Result<Arc<str>, BoxedError>;
 }
 
@@ -218,15 +222,11 @@ async fn get_handler(
 		) {
 			Ok(Some(ranges)) => match FileStream::open_ranges(path_buf, ranges, false) {
 				Ok(file_stream) => Ok(file_stream.into_response()),
-				Err(error) => {
-					todo!()
-				}
+				Err(error) => Err(error.into()),
 			},
 			Ok(None) => match FileStream::open(path_buf, ContentCoding::Identity) {
 				Ok(file_stream) => Ok(file_stream.into_response()),
-				Err(error) => {
-					todo!()
-				}
+				Err(error) => Err(error.into()),
 			},
 			Err(status_code) => Ok(status_code.into_response()),
 		}
@@ -238,9 +238,7 @@ async fn get_handler(
 
 		match FileStream::open(path_buf, content_coding) {
 			Ok(file_stream) => Ok(file_stream.into_response()),
-			Err(error) => {
-				todo!()
-			}
+			Err(error) => Err(error.into()),
 		}
 	}
 }
@@ -556,6 +554,8 @@ pub enum StaticFileError {
 	AcceptEncoding(&'static str),
 	#[error(transparent)]
 	IoError(#[from] IoError),
+	#[error(transparent)]
+	FileStreamFailure(#[from] FileStreamError),
 }
 
 impl IntoResponse for StaticFileError {
@@ -571,6 +571,7 @@ impl IntoResponse for StaticFileError {
 					.insert(ACCEPT_ENCODING, HeaderValue::from_static(codings));
 			}
 			Self::IoError(_) => *response.status_mut() = StatusCode::INTERNAL_SERVER_ERROR,
+			Self::FileStreamFailure(error) => return error.into_response(),
 		}
 
 		response
