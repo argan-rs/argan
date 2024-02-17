@@ -213,7 +213,7 @@ impl IntoResponse for FileStream {
 			if self.ranges.len() > 1 {
 				self.some_boundary = Some(
 					generate_boundary(48)
-						.expect("should be valid when the length is no longer than 70 characters"),
+						.expect("boundary should be valid when the length is no longer than 70 characters"),
 				);
 
 				multipart_ranges_response(self)
@@ -281,22 +281,26 @@ fn single_range_response(mut file_stream: FileStream) -> Response {
 			insert_header!(response, CONTENT_DISPOSITION, &content_disposition_value);
 		}
 
-		if file_stream
-			.option_flags
-			.has(FileStreamOptions::RANGE_SUPPORT)
-		{
-			response
-				.headers_mut()
-				.insert(ACCEPT_RANGES, HeaderValue::from_static("bytes"));
+		if let MaybeCompressed::Identity(_) = file_stream.maybe_encoded_file {
+			if file_stream
+				.option_flags
+				.has(FileStreamOptions::RANGE_SUPPORT)
+			{
+				response
+					.headers_mut()
+					.insert(ACCEPT_RANGES, HeaderValue::from_static("bytes"));
+			}
 		}
 	}
 
-	// current_range_remaining_size is either a file size or a single range size.
-	insert_header!(
-		response,
-		CONTENT_LENGTH,
-		&file_stream.current_range_remaining_size.to_string()
-	);
+	if let MaybeCompressed::Identity(_) = file_stream.maybe_encoded_file {
+		// current_range_remaining_size is either a file size or a single range size.
+		insert_header!(
+			response,
+			CONTENT_LENGTH,
+			&file_stream.current_range_remaining_size.to_string()
+		);
+	}
 
 	*response.body_mut() = Body::new(file_stream);
 
@@ -421,20 +425,27 @@ fn stream_single_range(
 	mut file_stream: Pin<&mut FileStream>,
 	cx: &mut Context<'_>,
 ) -> Poll<Option<Result<Frame<Bytes>, BoxedError>>> {
-	if file_stream.current_range_remaining_size == 0 {
-		return Poll::Ready(None);
-	}
-
-	let mut buffer = if file_stream.current_range_remaining_size < BUFFER_SIZE as u64 {
-		BytesMut::zeroed(file_stream.current_range_remaining_size as usize)
-	} else {
-		BytesMut::zeroed(BUFFER_SIZE)
-	};
-
 	for _ in 0..3 {
+		let mut buffer = if let MaybeCompressed::Identity(_) = &file_stream.maybe_encoded_file {
+			if file_stream.current_range_remaining_size == 0 {
+				return Poll::Ready(None);
+			}
+
+			if file_stream.current_range_remaining_size < BUFFER_SIZE as u64 {
+				BytesMut::zeroed(file_stream.current_range_remaining_size as usize)
+			} else {
+				BytesMut::zeroed(BUFFER_SIZE)
+			}
+		} else {
+			BytesMut::zeroed(BUFFER_SIZE)
+		};
+
 		match file_stream.maybe_encoded_file.read(&mut buffer) {
 			Ok(size) => {
+				// The current range remaining size is used only for identity files.
+				// It has no use with content encoding.
 				file_stream.current_range_remaining_size -= size as u64;
+
 				buffer.truncate(size);
 
 				return Poll::Ready(Some(Ok(Frame::data(buffer.freeze()))));
@@ -1102,7 +1113,6 @@ impl PartialEq for RangeValue {
 
 // ----------
 
-// ???
 #[derive(Debug, crate::ImplError)]
 pub enum FileStreamError {
 	#[error("FileStream internal error")]
