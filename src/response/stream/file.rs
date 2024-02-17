@@ -1,7 +1,8 @@
+use core::panic;
 use std::{
 	fmt::Display,
 	fs::File,
-	io::{Error as IoError, ErrorKind, Read},
+	io::{Error as IoError, ErrorKind, Read, Seek, SeekFrom},
 	path::Path,
 	pin::Pin,
 	str::FromStr,
@@ -74,7 +75,7 @@ impl FileStream {
 			some_boundary: None,
 			some_content_type_value: None,
 			some_file_name: None,
-			option_flags: FileStreamOptions::EMPTY,
+			option_flags: FileStreamOptions::NONE,
 		})
 	}
 
@@ -98,7 +99,7 @@ impl FileStream {
 			some_boundary: None,
 			some_content_type_value: None,
 			some_file_name: None,
-			option_flags: FileStreamOptions::EMPTY,
+			option_flags: FileStreamOptions::NONE,
 		})
 	}
 
@@ -200,8 +201,16 @@ impl FileStream {
 	}
 
 	#[inline(always)]
-	pub fn set_options(&mut self, options: FileStreamOptions) {
+	pub fn set_options(&mut self, options: FileStreamOptions) -> Result<(), FileStreamError> {
+		if options.has(FileStreamOptions::RANGE_SUPPORT) {
+			if let MaybeCompressed::Gzip(_) = self.maybe_encoded_file {
+				return Err(FileStreamError::CannotSupportRanges);
+			}
+		}
+
 		self.option_flags.add(options);
+
+		Ok(())
 	}
 }
 
@@ -426,9 +435,26 @@ fn stream_single_range(
 	cx: &mut Context<'_>,
 ) -> Poll<Option<Result<Frame<Bytes>, BoxedError>>> {
 	for _ in 0..3 {
-		let mut buffer = if let MaybeCompressed::Identity(_) = &file_stream.maybe_encoded_file {
+		let mut buffer = if let MaybeCompressed::Identity(_) = &mut file_stream.maybe_encoded_file {
 			if file_stream.current_range_remaining_size == 0 {
 				return Poll::Ready(None);
+			}
+
+			if file_stream.current_range_index == 0 && file_stream.ranges.len() == 1 {
+				let start_position = file_stream.ranges[0].start();
+				match file_stream
+					.maybe_encoded_file
+					.seek(std::io::SeekFrom::Start(start_position))
+				{
+					Ok(position) => {
+						if position != start_position {
+							return Poll::Ready(Some(Err(FileStreamError::InternalError.into())));
+						}
+					}
+					Err(error) => return Poll::Ready(Some(Err(error.into()))),
+				}
+
+				file_stream.current_range_index += 1;
 			}
 
 			if file_stream.current_range_remaining_size < BUFFER_SIZE as u64 {
@@ -442,11 +468,15 @@ fn stream_single_range(
 
 		match file_stream.maybe_encoded_file.read(&mut buffer) {
 			Ok(size) => {
-				// The current range remaining size is used only for identity files.
-				// It has no use with content encoding.
-				file_stream.current_range_remaining_size -= size as u64;
-
 				buffer.truncate(size);
+
+				if let MaybeCompressed::Identity(_) = file_stream.maybe_encoded_file {
+					file_stream.current_range_remaining_size -= size as u64;
+				} else {
+					if size == 0 {
+						return Poll::Ready(None);
+					}
+				}
 
 				return Poll::Ready(Some(Ok(Frame::data(buffer.freeze()))));
 			}
@@ -613,6 +643,7 @@ pub fn generate_boundary(length: u8) -> Result<Box<str>, FileStreamError> {
 
 // ----------
 
+#[derive(Debug, PartialEq)]
 pub enum ContentCoding {
 	Identity,
 	Gzip(u32), // Contains level.
@@ -623,11 +654,20 @@ enum MaybeCompressed {
 	Gzip(GzEncoder<File>),
 }
 
-impl std::io::Read for MaybeCompressed {
+impl Read for MaybeCompressed {
 	fn read(&mut self, buf: &mut [u8]) -> Result<usize, IoError> {
 		match self {
 			Self::Identity(file) => file.read(buf),
 			Self::Gzip(gz_encoder) => gz_encoder.read(buf),
+		}
+	}
+}
+
+impl Seek for MaybeCompressed {
+	fn seek(&mut self, pos: SeekFrom) -> Result<u64, IoError> {
+		match self {
+			Self::Identity(file) => file.seek(pos),
+			_ => panic!("cannot call seek on a file with content encoding"),
 		}
 	}
 }
@@ -637,7 +677,7 @@ impl std::io::Read for MaybeCompressed {
 bit_flags! {
 	#[derive(Default)]
 	pub FileStreamOptions: u8 {
-		EMPTY = 0b00;
+		NONE = 0b00;
 		pub ATTACHMENT = 0b01;
 		pub RANGE_SUPPORT = 0b10;
 	}
@@ -1523,5 +1563,273 @@ mod test {
 			let result = parse_range_header_value(case.0, case.1, case.2);
 			assert!(result.is_err());
 		}
+	}
+
+	// --------------------------------------------------
+
+	use http_body_util::Collected;
+
+	struct Defer<Func: FnMut()>(Func);
+
+	impl<Func: FnMut()> Drop for Defer<Func> {
+		fn drop(&mut self) {
+			(self.0)()
+		}
+	}
+
+	#[tokio::test]
+	async fn single_range_streaming() {
+		const FILE: &'static str = "test";
+		const FILE_SIZE: usize = 32 * 1024;
+		const FILE_SIZE_STR: &'static str = "32768";
+
+		let mut content = Vec::<u8>::with_capacity(FILE_SIZE);
+		for i in 0..FILE_SIZE {
+			content.push({ i % 3 } as u8);
+		}
+
+		let _ = std::fs::write(FILE, &content).unwrap();
+
+		let _defer = Defer(|| std::fs::remove_file(FILE).unwrap());
+
+		// -------------------------
+
+		let mut response = FileStream::open(FILE, ContentCoding::Identity)
+			.unwrap()
+			.into_response();
+
+		assert_eq!(StatusCode::OK, response.status());
+		assert!(response.headers().get(CONTENT_TYPE).is_none());
+		assert!(response.headers().get(CONTENT_DISPOSITION).is_none());
+		assert!(response.headers().get(ACCEPT_RANGES).is_none());
+		assert_eq!(
+			FILE_SIZE_STR,
+			response.headers().get(CONTENT_LENGTH).unwrap()
+		);
+
+		let body = response.into_body().collect().await.unwrap().to_bytes();
+		assert_eq!(FILE_SIZE, body.len());
+		assert_eq!(content, Into::<Vec<u8>>::into(body));
+
+		// -------------------------
+
+		let mut file_stream = FileStream::open(FILE, ContentCoding::Identity).unwrap();
+		file_stream.set_options(FileStreamOptions::ATTACHMENT);
+		file_stream.set_content_type(HeaderValue::from_static(mime::TEXT_PLAIN_UTF_8.as_ref()));
+
+		let response = file_stream.into_response();
+
+		assert_eq!(StatusCode::OK, response.status());
+		assert_eq!(
+			mime::TEXT_PLAIN_UTF_8.as_ref(),
+			response
+				.headers()
+				.get(CONTENT_TYPE)
+				.unwrap()
+				.to_str()
+				.unwrap()
+		);
+
+		assert_eq!(
+			"attachment",
+			response
+				.headers()
+				.get(CONTENT_DISPOSITION)
+				.unwrap()
+				.to_str()
+				.unwrap()
+		);
+
+		assert!(response.headers().get(ACCEPT_RANGES).is_none());
+		assert_eq!(
+			FILE_SIZE_STR,
+			response.headers().get(CONTENT_LENGTH).unwrap()
+		);
+
+		let body = response.into_body().collect().await.unwrap().to_bytes();
+		assert_eq!(FILE_SIZE, body.len());
+		assert_eq!(content, Into::<Vec<u8>>::into(body));
+
+		// -------------------------
+
+		let mut file_stream = FileStream::open(FILE, ContentCoding::Identity).unwrap();
+		file_stream.set_options(FileStreamOptions::ATTACHMENT);
+		file_stream.set_file_name("test");
+		file_stream.set_content_type(HeaderValue::from_static(mime::TEXT_PLAIN_UTF_8.as_ref()));
+
+		let response = file_stream.into_response();
+
+		assert_eq!(StatusCode::OK, response.status());
+		assert_eq!(
+			mime::TEXT_PLAIN_UTF_8.as_ref(),
+			response
+				.headers()
+				.get(CONTENT_TYPE)
+				.unwrap()
+				.to_str()
+				.unwrap()
+		);
+
+		assert_eq!(
+			"attachment; filename=\"test\"",
+			response
+				.headers()
+				.get(CONTENT_DISPOSITION)
+				.unwrap()
+				.to_str()
+				.unwrap()
+		);
+
+		assert!(response.headers().get(ACCEPT_RANGES).is_none());
+		assert_eq!(
+			FILE_SIZE_STR,
+			response.headers().get(CONTENT_LENGTH).unwrap()
+		);
+
+		let body = response.into_body().collect().await.unwrap().to_bytes();
+		assert_eq!(FILE_SIZE, body.len());
+		assert_eq!(content, Into::<Vec<u8>>::into(body));
+
+		// -------------------------
+
+		let mut file_stream = FileStream::open(FILE, ContentCoding::Identity).unwrap();
+		file_stream.set_file_name("test-Ω");
+
+		let response = file_stream.into_response();
+
+		assert_eq!(StatusCode::OK, response.status());
+		assert!(response.headers().get(CONTENT_TYPE).is_none());
+		assert_eq!(
+			"inline; filename*=utf-8''test%2D%CE%A9",
+			response
+				.headers()
+				.get(CONTENT_DISPOSITION)
+				.unwrap()
+				.to_str()
+				.unwrap()
+		);
+
+		assert!(response.headers().get(ACCEPT_RANGES).is_none());
+		assert_eq!(
+			FILE_SIZE_STR,
+			response.headers().get(CONTENT_LENGTH).unwrap()
+		);
+
+		let body = response.into_body().collect().await.unwrap().to_bytes();
+		assert_eq!(FILE_SIZE, body.len());
+		assert_eq!(content, Into::<Vec<u8>>::into(body));
+
+		// -------------------------
+
+		let mut file_stream = FileStream::open(FILE, ContentCoding::Identity).unwrap();
+		file_stream.set_options(FileStreamOptions::RANGE_SUPPORT);
+		file_stream.set_content_type(HeaderValue::from_static(mime::TEXT_PLAIN_UTF_8.as_ref()));
+
+		let response = file_stream.into_response();
+
+		assert_eq!(StatusCode::OK, response.status());
+		assert_eq!(
+			mime::TEXT_PLAIN_UTF_8.as_ref(),
+			response
+				.headers()
+				.get(CONTENT_TYPE)
+				.unwrap()
+				.to_str()
+				.unwrap()
+		);
+
+		assert!(response.headers().get(CONTENT_DISPOSITION).is_none());
+		assert_eq!(
+			"bytes",
+			response
+				.headers()
+				.get(ACCEPT_RANGES)
+				.unwrap()
+				.to_str()
+				.unwrap()
+		);
+
+		assert_eq!(
+			FILE_SIZE_STR,
+			response.headers().get(CONTENT_LENGTH).unwrap()
+		);
+
+		let body = response.into_body().collect().await.unwrap().to_bytes();
+		assert_eq!(FILE_SIZE, body.len());
+		assert_eq!(content, Into::<Vec<u8>>::into(body));
+
+		// -------------------------
+
+		let mut file_stream = FileStream::open_ranges(FILE, "bytes=1024-16383", false).unwrap();
+		file_stream.set_content_type(HeaderValue::from_static(mime::TEXT_PLAIN_UTF_8.as_ref()));
+
+		let response = file_stream.into_response();
+
+		assert_eq!(StatusCode::PARTIAL_CONTENT, response.status());
+		assert_eq!(
+			mime::TEXT_PLAIN_UTF_8.as_ref(),
+			response
+				.headers()
+				.get(CONTENT_TYPE)
+				.unwrap()
+				.to_str()
+				.unwrap()
+		);
+
+		assert_eq!(
+			"bytes 1024-16383/32768",
+			response
+				.headers()
+				.get(CONTENT_RANGE)
+				.unwrap()
+				.to_str()
+				.unwrap()
+		);
+
+		assert!(response.headers().get(CONTENT_DISPOSITION).is_none());
+		assert!(response.headers().get(ACCEPT_RANGES).is_none());
+
+		assert_eq!("15360", response.headers().get(CONTENT_LENGTH).unwrap());
+
+		let body = response.into_body().collect().await.unwrap().to_bytes();
+		assert_eq!(15360, body.len());
+
+		let mut range_content = Vec::with_capacity(50);
+		for i in 1024..16384 {
+			range_content.push({ i % 3 } as u8);
+		}
+
+		assert_eq!(range_content, Into::<Vec<u8>>::into(body));
+
+		// -------------------------
+
+		let mut file_stream = FileStream::open(FILE, ContentCoding::Gzip(6)).unwrap();
+		file_stream.set_content_type(HeaderValue::from_static(mime::TEXT_HTML_UTF_8.as_ref()));
+
+		assert!(file_stream.set_boundary("boundary".into()).is_err());
+		assert!(file_stream
+			.set_options(FileStreamOptions::RANGE_SUPPORT)
+			.is_err());
+
+		let response = file_stream.into_response();
+
+		assert_eq!(StatusCode::OK, response.status());
+		assert_eq!(
+			mime::TEXT_HTML_UTF_8.as_ref(),
+			response
+				.headers()
+				.get(CONTENT_TYPE)
+				.unwrap()
+				.to_str()
+				.unwrap()
+		);
+
+		assert!(response.headers().get(CONTENT_DISPOSITION).is_none());
+		assert!(response.headers().get(ACCEPT_RANGES).is_none());
+		assert!(response.headers().get(CONTENT_LENGTH).is_none());
+
+		let body = response.into_body().collect().await.unwrap().to_bytes();
+		assert!(FILE_SIZE > body.len());
+		assert_ne!(content, Into::<Vec<u8>>::into(body));
 	}
 }
