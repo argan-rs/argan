@@ -44,8 +44,6 @@ const BUFFER_SIZE: usize = 8 * 1024;
 
 // -------------------------
 
-// TODO: Add tests.
-
 pub struct FileStream {
 	maybe_encoded_file: MaybeEncoded,
 	file_size: Box<str>,
@@ -1888,10 +1886,12 @@ mod test {
 		// -------------------------
 
 		let mut file_stream = FileStream::open_ranges(FILE, "bytes=1024-16383", false).unwrap();
-		assert!(file_stream.configure([
-			content_encoding(content_encoding_value.clone()),
-			content_type(content_type_value.clone()),
-		]).is_ok());
+		assert!(file_stream
+			.configure([
+				content_encoding(content_encoding_value.clone()),
+				content_type(content_type_value.clone()),
+			])
+			.is_ok());
 
 		let response = file_stream.into_response();
 
@@ -1944,7 +1944,15 @@ mod test {
 		// -------------------------
 
 		let mut file_stream = FileStream::open_with_encoding(FILE, ContentCoding::Gzip(6)).unwrap();
-		assert!(file_stream.configure(content_type(content_type_value.clone())).is_ok());
+		assert!(file_stream
+			.configure(content_encoding(HeaderValue::from_static("br")))
+			.is_err());
+		assert!(file_stream
+			.configure(content_encoding(content_encoding_value.clone()))
+			.is_ok());
+		assert!(file_stream
+			.configure(content_type(content_type_value.clone()))
+			.is_ok());
 		assert!(file_stream.configure(boundary("boundary".into())).is_err());
 		assert!(file_stream.configure(support_partial_content()).is_err());
 
@@ -2057,8 +2065,8 @@ mod test {
 
 		let file_size_string = &FILE_SIZE.to_string();
 
-		let content_type_value = HeaderValue::from_static(mime::TEXT_PLAIN_UTF_8.as_ref());
 		let content_encoding_value = HeaderValue::from_static("gzip");
+		let content_type_value = HeaderValue::from_static(mime::TEXT_PLAIN_UTF_8.as_ref());
 		let boundary_value = "boundary";
 
 		//                 |     |       |     |
@@ -2068,9 +2076,13 @@ mod test {
 		// -------------------------
 
 		let mut file_stream = FileStream::open("test").unwrap();
-		assert!(file_stream.configure(boundary("boundary\r".into())).is_err());
+		assert!(file_stream
+			.configure(boundary("boundary\r".into()))
+			.is_err());
 		assert!(file_stream.configure(boundary("boundary".into())).is_ok());
-		assert!(file_stream.configure(content_encoding(content_encoding_value.clone())).is_ok());
+		assert!(file_stream
+			.configure(content_encoding(content_encoding_value.clone()))
+			.is_ok());
 
 		let response = file_stream.into_response();
 		assert_eq!(StatusCode::PARTIAL_CONTENT, response.status());
@@ -2094,7 +2106,8 @@ mod test {
 				.unwrap()
 		);
 
-		let part_header_size = super::part_header_size(boundary_value.len(), None, None, file_size_string);
+		let part_header_size =
+			super::part_header_size(boundary_value.len(), None, None, file_size_string);
 		let content_length = part_header_size + FILE_SIZE + end_line_len;
 		dbg!(content_length);
 		assert_eq!(
@@ -2113,10 +2126,12 @@ mod test {
 		// -------------------------
 
 		let mut file_stream = FileStream::open("test").unwrap();
-		assert!(file_stream.configure(boundary(boundary_value.into())).is_ok());
-
-		let content_type_value = HeaderValue::from_static(mime::TEXT_HTML_UTF_8.as_ref());
-		assert!(file_stream.configure(content_type(content_type_value.clone())).is_ok());
+		assert!(file_stream
+			.configure(boundary(boundary_value.into()))
+			.is_ok());
+		assert!(file_stream
+			.configure(content_type(content_type_value.clone()))
+			.is_ok());
 
 		let response = file_stream.into_response();
 		assert_eq!(StatusCode::PARTIAL_CONTENT, response.status());
@@ -2155,9 +2170,17 @@ mod test {
 		// -------------------------
 
 		let mut file_stream = FileStream::open_ranges("test", "bytes=12-24", false).unwrap();
-		assert!(file_stream.configure(content_encoding(content_encoding_value.clone())).is_ok());
-		assert!(file_stream.configure(boundary(boundary_value.into())).is_ok());
-		assert!(file_stream.configure(content_type(content_type_value.clone())).is_ok());
+		assert!(file_stream
+			.configure(content_encoding(content_encoding_value.clone()))
+			.is_ok());
+
+		assert!(file_stream
+			.configure(boundary(boundary_value.into()))
+			.is_ok());
+
+		assert!(file_stream
+			.configure(content_type(content_type_value.clone()))
+			.is_ok());
 
 		let response = file_stream.into_response();
 		assert_eq!(StatusCode::PARTIAL_CONTENT, response.status());
@@ -2204,5 +2227,627 @@ mod test {
 
 		let body = &response.into_body().collect().await.unwrap().to_bytes()[part_header_size..];
 		assert_eq!(contents[12..=24], body[..body.len() - end_line_len]);
+
+		// -------------------------
+
+		let mut file_stream = FileStream::open_ranges("test", "bytes=12-24, 1024-4095", false).unwrap();
+		assert!(file_stream
+			.configure(content_encoding(content_encoding_value.clone()))
+			.is_ok());
+
+		assert!(file_stream
+			.configure(boundary(boundary_value.into()))
+			.is_ok());
+
+		assert!(file_stream
+			.configure(content_type(content_type_value.clone()))
+			.is_ok());
+
+		let response = file_stream.into_response();
+		assert_eq!(StatusCode::PARTIAL_CONTENT, response.status());
+		assert_eq!(
+			"gzip",
+			response
+				.headers()
+				.get(CONTENT_ENCODING)
+				.unwrap()
+				.to_str()
+				.unwrap()
+		);
+
+		assert_eq!(
+			"multipart/byteranges; boundary=boundary",
+			response
+				.headers()
+				.get(CONTENT_TYPE)
+				.unwrap()
+				.to_str()
+				.unwrap()
+		);
+
+		let range_1 = RangeValue::new(12, 24);
+
+		let part_1_header_size = super::part_header_size(
+			boundary_value.len(),
+			Some(&content_type_value),
+			Some(&range_1),
+			file_size_string,
+		);
+
+		let range_2 = RangeValue::new(1024, 4095);
+
+		let part_2_header_size = super::part_header_size(
+			boundary_value.len(),
+			Some(&content_type_value),
+			Some(&range_2),
+			file_size_string,
+		);
+
+		let content_length = part_1_header_size
+			+ range_1.size() as usize
+			+ part_2_header_size
+			+ range_2.size() as usize
+			+ end_line_len;
+
+		dbg!(content_length);
+		assert_eq!(
+			content_length.to_string(),
+			response
+				.headers()
+				.get(CONTENT_LENGTH)
+				.unwrap()
+				.to_str()
+				.unwrap()
+		);
+
+		let full_body = response.into_body().collect().await.unwrap().to_bytes();
+
+		let body_1 = &full_body[part_1_header_size
+			..full_body.len() - (part_2_header_size + range_2.size() as usize + end_line_len)];
+		assert_eq!(&contents[12..=24], body_1);
+
+		let body_2 = &full_body[part_1_header_size + range_1.size() as usize + part_2_header_size
+			..full_body.len() - end_line_len];
+		assert_eq!(&contents[1024..=4095], body_2);
+
+		// -------------------------
+
+		let mut file_stream = FileStream::open_ranges("test", "bytes=1024-4095, 12-24", true).unwrap();
+		assert!(file_stream
+			.configure(content_encoding(content_encoding_value.clone()))
+			.is_ok());
+
+		assert!(file_stream
+			.configure(boundary(boundary_value.into()))
+			.is_ok());
+
+		assert!(file_stream
+			.configure(content_type(content_type_value.clone()))
+			.is_ok());
+
+		let response = file_stream.into_response();
+		assert_eq!(StatusCode::PARTIAL_CONTENT, response.status());
+		assert_eq!(
+			"gzip",
+			response
+				.headers()
+				.get(CONTENT_ENCODING)
+				.unwrap()
+				.to_str()
+				.unwrap()
+		);
+
+		assert_eq!(
+			"multipart/byteranges; boundary=boundary",
+			response
+				.headers()
+				.get(CONTENT_TYPE)
+				.unwrap()
+				.to_str()
+				.unwrap()
+		);
+
+		let range_1 = RangeValue::new(1024, 4095);
+
+		let part_1_header_size = super::part_header_size(
+			boundary_value.len(),
+			Some(&content_type_value),
+			Some(&range_1),
+			file_size_string,
+		);
+
+		let range_2 = RangeValue::new(12, 24);
+
+		let part_2_header_size = super::part_header_size(
+			boundary_value.len(),
+			Some(&content_type_value),
+			Some(&range_2),
+			file_size_string,
+		);
+
+		let content_length = part_1_header_size
+			+ range_1.size() as usize
+			+ part_2_header_size
+			+ range_2.size() as usize
+			+ end_line_len;
+
+		dbg!(content_length);
+		assert_eq!(
+			content_length.to_string(),
+			response
+				.headers()
+				.get(CONTENT_LENGTH)
+				.unwrap()
+				.to_str()
+				.unwrap()
+		);
+
+		let full_body = response.into_body().collect().await.unwrap().to_bytes();
+
+		let body_1 = &full_body[part_1_header_size
+			..full_body.len() - (part_2_header_size + range_2.size() as usize + end_line_len)];
+		assert_eq!(&contents[1024..=4095], body_1);
+
+		let body_2 = &full_body[part_1_header_size + range_1.size() as usize + part_2_header_size
+			..full_body.len() - end_line_len];
+		assert_eq!(&contents[12..=24], body_2);
+
+		// -------------------------
+
+		let mut file_stream =
+			FileStream::open_ranges("test", "bytes=12-2048, 1024-4095, -512", false).unwrap();
+		assert!(file_stream
+			.configure(boundary(boundary_value.into()))
+			.is_ok());
+
+		assert!(file_stream
+			.configure(content_type(content_type_value.clone()))
+			.is_ok());
+
+		let response = file_stream.into_response();
+		assert_eq!(StatusCode::PARTIAL_CONTENT, response.status());
+		assert_eq!(
+			"multipart/byteranges; boundary=boundary",
+			response
+				.headers()
+				.get(CONTENT_TYPE)
+				.unwrap()
+				.to_str()
+				.unwrap()
+		);
+
+		let range_1 = RangeValue::new(12, 4095);
+
+		let part_1_header_size = super::part_header_size(
+			boundary_value.len(),
+			Some(&content_type_value),
+			Some(&range_1),
+			file_size_string,
+		);
+
+		let range_2 = RangeValue::new(FILE_SIZE as u64 - 512, FILE_SIZE as u64 - 1);
+
+		let part_2_header_size = super::part_header_size(
+			boundary_value.len(),
+			Some(&content_type_value),
+			Some(&range_2),
+			file_size_string,
+		);
+
+		let content_length = part_1_header_size
+			+ range_1.size() as usize
+			+ part_2_header_size
+			+ range_2.size() as usize
+			+ end_line_len;
+
+		dbg!(content_length);
+		assert_eq!(
+			content_length.to_string(),
+			response
+				.headers()
+				.get(CONTENT_LENGTH)
+				.unwrap()
+				.to_str()
+				.unwrap()
+		);
+
+		let full_body = response.into_body().collect().await.unwrap().to_bytes();
+
+		let body_1 = &full_body[part_1_header_size
+			..full_body.len() - (part_2_header_size + range_2.size() as usize + end_line_len)];
+		assert_eq!(&contents[12..=4095], body_1);
+
+		let body_2 = &full_body[part_1_header_size + range_1.size() as usize + part_2_header_size
+			..full_body.len() - end_line_len];
+		assert_eq!(
+			&contents[range_2.start() as usize..=range_2.end() as usize],
+			body_2
+		);
+
+		// -------------------------
+
+		let mut file_stream =
+			FileStream::open_ranges("test", "bytes=1024-4095, 12-2048, -512", true).unwrap();
+		assert!(file_stream
+			.configure(boundary(boundary_value.into()))
+			.is_ok());
+
+		assert!(file_stream
+			.configure(content_type(content_type_value.clone()))
+			.is_ok());
+
+		let response = file_stream.into_response();
+		assert_eq!(StatusCode::PARTIAL_CONTENT, response.status());
+		assert_eq!(
+			"multipart/byteranges; boundary=boundary",
+			response
+				.headers()
+				.get(CONTENT_TYPE)
+				.unwrap()
+				.to_str()
+				.unwrap()
+		);
+
+		let range_1 = RangeValue::new(FILE_SIZE as u64 - 512, FILE_SIZE as u64 - 1);
+
+		let part_1_header_size = super::part_header_size(
+			boundary_value.len(),
+			Some(&content_type_value),
+			Some(&range_1),
+			file_size_string,
+		);
+
+		let range_2 = RangeValue::new(12, 4095);
+
+		let part_2_header_size = super::part_header_size(
+			boundary_value.len(),
+			Some(&content_type_value),
+			Some(&range_2),
+			file_size_string,
+		);
+
+		let content_length = part_1_header_size
+			+ range_1.size() as usize
+			+ part_2_header_size
+			+ range_2.size() as usize
+			+ end_line_len;
+
+		dbg!(content_length);
+		assert_eq!(
+			content_length.to_string(),
+			response
+				.headers()
+				.get(CONTENT_LENGTH)
+				.unwrap()
+				.to_str()
+				.unwrap()
+		);
+
+		let full_body = response.into_body().collect().await.unwrap().to_bytes();
+
+		let body_1 = &full_body[part_1_header_size
+			..full_body.len() - (part_2_header_size + range_2.size() as usize + end_line_len)];
+		assert_eq!(
+			&contents[range_1.start() as usize..=range_1.end() as usize],
+			body_1
+		);
+
+		let body_2 = &full_body[part_1_header_size + range_1.size() as usize + part_2_header_size
+			..full_body.len() - end_line_len];
+		assert_eq!(&contents[12..=4095], body_2);
+
+		// -------------------------
+
+		let mut file_stream = FileStream::open_ranges(
+			"test",
+			"bytes=100-100, 500-1000, 1100-7000, 5000-6000, -1500, 7000-8000, -500",
+			true,
+		)
+		.unwrap();
+
+		assert!(file_stream
+			.configure(boundary(boundary_value.into()))
+			.is_ok());
+
+		assert!(file_stream
+			.configure(content_type(content_type_value.clone()))
+			.is_ok());
+
+		let response = file_stream.into_response();
+		assert_eq!(StatusCode::PARTIAL_CONTENT, response.status());
+		assert_eq!(
+			"multipart/byteranges; boundary=boundary",
+			response
+				.headers()
+				.get(CONTENT_TYPE)
+				.unwrap()
+				.to_str()
+				.unwrap()
+		);
+
+		let range_1 = RangeValue::new(100, 100);
+
+		let part_1_header_size = super::part_header_size(
+			boundary_value.len(),
+			Some(&content_type_value),
+			Some(&range_1),
+			file_size_string,
+		);
+
+		let range_2 = RangeValue::new(500, 8000);
+
+		let part_2_header_size = super::part_header_size(
+			boundary_value.len(),
+			Some(&content_type_value),
+			Some(&range_2),
+			file_size_string,
+		);
+
+		let range_3 = RangeValue::new(FILE_SIZE as u64 - 1500, FILE_SIZE as u64 - 1);
+
+		let part_3_header_size = super::part_header_size(
+			boundary_value.len(),
+			Some(&content_type_value),
+			Some(&range_3),
+			file_size_string,
+		);
+
+		let content_length = part_1_header_size
+			+ range_1.size() as usize
+			+ part_2_header_size
+			+ range_2.size() as usize
+			+ part_3_header_size
+			+ range_3.size() as usize
+			+ end_line_len;
+
+		dbg!(content_length);
+		assert_eq!(
+			content_length.to_string(),
+			response
+				.headers()
+				.get(CONTENT_LENGTH)
+				.unwrap()
+				.to_str()
+				.unwrap()
+		);
+
+		let full_body = response.into_body().collect().await.unwrap().to_bytes();
+
+		let body_1 = &full_body[part_1_header_size
+			..full_body.len()
+				- (part_2_header_size
+					+ range_2.size() as usize
+					+ part_3_header_size
+					+ range_3.size() as usize
+					+ end_line_len)];
+		assert_eq!(
+			&contents[range_1.start() as usize..=range_1.end() as usize],
+			body_1
+		);
+
+		let body_2 = &full_body[part_1_header_size + range_1.size() as usize + part_2_header_size
+			..full_body.len() - (part_3_header_size + range_3.size() as usize + end_line_len)];
+		assert_eq!(
+			&contents[range_2.start() as usize..=range_2.end() as usize],
+			body_2
+		);
+
+		let body_3 = &full_body[part_1_header_size
+			+ range_1.size() as usize
+			+ part_2_header_size
+			+ range_2.size() as usize
+			+ part_3_header_size..full_body.len() - end_line_len];
+		assert_eq!(
+			&contents[range_3.start() as usize..=range_3.end() as usize],
+			body_3
+		);
+
+		// -------------------------
+
+		let mut file_stream = FileStream::open_ranges(
+			"test",
+			"bytes=-500, 7000-8000, -1500, 5000-6000, 1100-7000, 500-1000, 100-100",
+			true,
+		)
+		.unwrap();
+
+		assert!(file_stream
+			.configure(boundary(boundary_value.into()))
+			.is_ok());
+
+		assert!(file_stream
+			.configure(content_type(content_type_value.clone()))
+			.is_ok());
+
+		let response = file_stream.into_response();
+		assert_eq!(StatusCode::PARTIAL_CONTENT, response.status());
+		assert_eq!(
+			"multipart/byteranges; boundary=boundary",
+			response
+				.headers()
+				.get(CONTENT_TYPE)
+				.unwrap()
+				.to_str()
+				.unwrap()
+		);
+
+		let range_1 = RangeValue::new(FILE_SIZE as u64 - 1500, FILE_SIZE as u64 - 1);
+
+		let part_1_header_size = super::part_header_size(
+			boundary_value.len(),
+			Some(&content_type_value),
+			Some(&range_1),
+			file_size_string,
+		);
+
+		let range_2 = RangeValue::new(500, 8000);
+
+		let part_2_header_size = super::part_header_size(
+			boundary_value.len(),
+			Some(&content_type_value),
+			Some(&range_2),
+			file_size_string,
+		);
+
+		let range_3 = RangeValue::new(100, 100);
+
+		let part_3_header_size = super::part_header_size(
+			boundary_value.len(),
+			Some(&content_type_value),
+			Some(&range_3),
+			file_size_string,
+		);
+
+		let content_length = part_1_header_size
+			+ range_1.size() as usize
+			+ part_2_header_size
+			+ range_2.size() as usize
+			+ part_3_header_size
+			+ range_3.size() as usize
+			+ end_line_len;
+
+		dbg!(content_length);
+		assert_eq!(
+			content_length.to_string(),
+			response
+				.headers()
+				.get(CONTENT_LENGTH)
+				.unwrap()
+				.to_str()
+				.unwrap()
+		);
+
+		let full_body = response.into_body().collect().await.unwrap().to_bytes();
+
+		let body_1 = &full_body[part_1_header_size
+			..full_body.len()
+				- (part_2_header_size
+					+ range_2.size() as usize
+					+ part_3_header_size
+					+ range_3.size() as usize
+					+ end_line_len)];
+		assert_eq!(
+			&contents[range_1.start() as usize..=range_1.end() as usize],
+			body_1
+		);
+
+		let body_2 = &full_body[part_1_header_size + range_1.size() as usize + part_2_header_size
+			..full_body.len() - (part_3_header_size + range_3.size() as usize + end_line_len)];
+		assert_eq!(
+			&contents[range_2.start() as usize..=range_2.end() as usize],
+			body_2
+		);
+
+		let body_3 = &full_body[part_1_header_size
+			+ range_1.size() as usize
+			+ part_2_header_size
+			+ range_2.size() as usize
+			+ part_3_header_size..full_body.len() - end_line_len];
+		assert_eq!(
+			&contents[range_3.start() as usize..=range_3.end() as usize],
+			body_3
+		);
+
+		// -------------------------
+
+		let mut file_stream = FileStream::open_ranges(
+			"test",
+			"bytes=10-11, -0, 1000-7000, -40000, 8000-40000",
+			false,
+		)
+		.unwrap();
+
+		assert!(file_stream
+			.configure(boundary(boundary_value.into()))
+			.is_ok());
+
+		let response = file_stream.into_response();
+		assert_eq!(StatusCode::PARTIAL_CONTENT, response.status());
+		assert_eq!(
+			"multipart/byteranges; boundary=boundary",
+			response
+				.headers()
+				.get(CONTENT_TYPE)
+				.unwrap()
+				.to_str()
+				.unwrap()
+		);
+
+		let range = RangeValue::new(0, FILE_SIZE as u64 - 1);
+
+		let part_header_size =
+			super::part_header_size(boundary_value.len(), None, Some(&range), file_size_string);
+
+		let content_length = part_header_size + range.size() as usize + end_line_len;
+
+		dbg!(content_length);
+		assert_eq!(
+			content_length.to_string(),
+			response
+				.headers()
+				.get(CONTENT_LENGTH)
+				.unwrap()
+				.to_str()
+				.unwrap()
+		);
+
+		let full_body = response.into_body().collect().await.unwrap().to_bytes();
+
+		let body = &full_body[part_header_size..full_body.len() - end_line_len];
+		assert_eq!(
+			&contents[range.start() as usize..=range.end() as usize],
+			body
+		);
+
+		// -------------------------
+
+		let mut file_stream = FileStream::open_ranges(
+			"test",
+			"bytes=8000-40000, -40000, 1000-7000, -0, 10-11",
+			true,
+		)
+		.unwrap();
+
+		assert!(file_stream
+			.configure(boundary(boundary_value.into()))
+			.is_ok());
+
+		let response = file_stream.into_response();
+		assert_eq!(StatusCode::PARTIAL_CONTENT, response.status());
+		assert_eq!(
+			"multipart/byteranges; boundary=boundary",
+			response
+				.headers()
+				.get(CONTENT_TYPE)
+				.unwrap()
+				.to_str()
+				.unwrap()
+		);
+
+		let range = RangeValue::new(0, FILE_SIZE as u64 - 1);
+
+		let part_header_size =
+			super::part_header_size(boundary_value.len(), None, Some(&range), file_size_string);
+
+		let content_length = part_header_size + range.size() as usize + end_line_len;
+
+		dbg!(content_length);
+		assert_eq!(
+			content_length.to_string(),
+			response
+				.headers()
+				.get(CONTENT_LENGTH)
+				.unwrap()
+				.to_str()
+				.unwrap()
+		);
+
+		let full_body = response.into_body().collect().await.unwrap().to_bytes();
+
+		let body = &full_body[part_header_size..full_body.len() - end_line_len];
+		assert_eq!(
+			&contents[range.start() as usize..=range.end() as usize],
+			body
+		);
 	}
 }
