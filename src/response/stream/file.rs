@@ -31,12 +31,6 @@ use crate::{
 	response::{IntoResponse, Response},
 };
 
-// --------------------------------------------------
-
-mod config;
-
-use self::config::*;
-
 // --------------------------------------------------------------------------------
 // --------------------------------------------------------------------------------
 
@@ -186,7 +180,7 @@ impl FileStream {
 			some_content_type: None,
 			some_boundary: None,
 			some_file_name: None,
-			config_flags: ConfigFlags::RANGE_SUPPORT,
+			config_flags: ConfigFlags::PARTIAL_CONTENT_SUPPORT,
 		})
 	}
 
@@ -215,61 +209,80 @@ impl FileStream {
 			some_content_type: None,
 			some_boundary: None,
 			some_file_name: None,
-			config_flags: ConfigFlags::RANGE_SUPPORT,
+			config_flags: ConfigFlags::PARTIAL_CONTENT_SUPPORT,
 		})
 	}
 
-	pub fn configure<C, const N: usize>(&mut self, config_options: C) -> Result<(), FileStreamError>
-	where
-		C: IntoArray<FileStreamConfigOption, N>,
-	{
-		let config_options = config_options.into_array();
+	pub fn as_attachment(&mut self) {
+		self.config_flags.add(ConfigFlags::ATTACHMENT);
+	}
 
-		for config_option in config_options {
-			use self::config::FileStreamConfigOptionValue::*;
+	pub fn support_partial_content(&mut self) -> Result<(), FileStreamError> {
+		if let MaybeEncoded::Gzip(_) = self.maybe_encoded_file {
+			return Err(FileStreamError::CannotSupportPartialContent);
+		}
 
-			match config_option.0 {
-				Attachment => self.config_flags.add(ConfigFlags::ATTACHMENT),
-				SupportPartialContent => {
-					if let MaybeEncoded::Gzip(_) = self.maybe_encoded_file {
-						return Err(FileStreamError::CannotSupportPartialContent);
-					}
+		self.config_flags.add(ConfigFlags::PARTIAL_CONTENT_SUPPORT);
 
-					self.config_flags.add(ConfigFlags::RANGE_SUPPORT)
-				}
-				ContentEncoding(header_value) => {
-					if let MaybeEncoded::Gzip(_) = self.maybe_encoded_file {
-						if header_value.to_str().map_or(true, |value| value != "gzip") {
-							return Err(FileStreamError::UnmatchingContentEncoding(header_value));
-						}
-					}
+		Ok(())
+	}
 
-					self.some_content_encoding = Some(header_value);
-				}
-				ContentType(header_value) => self.some_content_type = Some(header_value),
-				Boundary(boundary) => {
-					if let MaybeEncoded::Gzip(_) = self.maybe_encoded_file {
-						return Err(FileStreamError::CannotSupportPartialContent);
-					}
-
-					if boundary.len() > 70 {
-						return Err(FileStreamError::BoundaryToLarge(boundary));
-					}
-
-					if boundary.chars().any(|ch| !ch.is_ascii_graphic()) {
-						return Err(FileStreamError::InvalidBoundary(boundary));
-					}
-
-					self.some_boundary = Some(boundary);
-					self.config_flags.add(ConfigFlags::RANGE_SUPPORT)
-				}
-				FileName(file_name) => {
-					self.some_file_name = Some(file_name);
-				}
+	pub fn set_content_encoding(&mut self, header_value: HeaderValue) -> Result<(), FileStreamError> {
+		if let MaybeEncoded::Gzip(_) = self.maybe_encoded_file {
+			if header_value.to_str().map_or(true, |value| value != "gzip") {
+				return Err(FileStreamError::UnmatchingContentEncoding(header_value));
 			}
 		}
 
+		self.some_content_encoding = Some(header_value);
+
 		Ok(())
+	}
+
+	pub fn set_content_type(&mut self, header_value: HeaderValue) {
+		self.some_content_type = Some(header_value);
+	}
+
+	pub fn set_boundary(&mut self, boundary: Box<str>) -> Result<(), FileStreamError> {
+		if let MaybeEncoded::Gzip(_) = self.maybe_encoded_file {
+			return Err(FileStreamError::CannotSupportPartialContent);
+		}
+
+		if boundary.len() > 70 {
+			return Err(FileStreamError::BoundaryToLarge(boundary));
+		}
+
+		if boundary.chars().any(|ch| !ch.is_ascii_graphic()) {
+			return Err(FileStreamError::InvalidBoundary(boundary));
+		}
+
+		self.some_boundary = Some(boundary);
+		self.config_flags.add(ConfigFlags::PARTIAL_CONTENT_SUPPORT);
+
+		Ok(())
+	}
+
+	pub fn set_file_name<F: AsRef<str>>(&mut self, file_name: F) {
+		let file_name = file_name.as_ref();
+
+		let mut file_name_string = String::new();
+		file_name_string.push_str("; filename");
+
+		if file_name
+			.as_bytes()
+			.iter()
+			.any(|ch| !ch.is_ascii_alphanumeric())
+		{
+			file_name_string.push_str("*=utf-8''");
+			file_name_string
+				.push_str(&percent_encode(file_name.as_bytes(), NON_ALPHANUMERIC).to_string());
+		} else {
+			file_name_string.push_str("=\"");
+			file_name_string.push_str(&file_name);
+			file_name_string.push('"');
+		}
+
+		self.some_file_name = Some(file_name_string.into());
 	}
 }
 
@@ -355,7 +368,10 @@ fn single_range_response(mut file_stream: FileStream) -> Response {
 		}
 
 		if let MaybeEncoded::Identity(_) = file_stream.maybe_encoded_file {
-			if file_stream.config_flags.has(ConfigFlags::RANGE_SUPPORT) {
+			if file_stream
+				.config_flags
+				.has(ConfigFlags::PARTIAL_CONTENT_SUPPORT)
+			{
 				response
 					.headers_mut()
 					.insert(ACCEPT_RANGES, HeaderValue::from_static("bytes"));
@@ -1238,7 +1254,26 @@ impl PartialEq for RangeValue {
 	}
 }
 
-// ----------
+// -------------------------
+
+#[non_exhaustive]
+#[derive(Debug, PartialEq)]
+pub enum ContentCoding {
+	Gzip(u32), // Contains level.
+}
+
+// -------------------------
+
+bit_flags! {
+	#[derive(Default)]
+	pub(super) ConfigFlags: u8 {
+		pub(super) NONE = 0b00;
+		pub(super) ATTACHMENT = 0b0001;
+		pub(super) PARTIAL_CONTENT_SUPPORT = 0b0010;
+	}
+}
+
+// -------------------------
 
 #[non_exhaustive]
 #[derive(Debug, crate::ImplError)]
@@ -1707,9 +1742,8 @@ mod test {
 		// -------------------------
 
 		let mut file_stream = FileStream::open(FILE).unwrap();
-		assert!(file_stream
-			.configure([as_attachment(), content_type(content_type_value.clone()),])
-			.is_ok());
+		file_stream.as_attachment();
+		file_stream.set_content_type(content_type_value.clone());
 
 		let response = file_stream.into_response();
 
@@ -1749,13 +1783,12 @@ mod test {
 
 		let mut file_stream = FileStream::open(FILE).unwrap();
 		assert!(file_stream
-			.configure([
-				content_encoding(content_encoding_value.clone()),
-				content_type(content_type_value.clone()),
-				as_attachment(),
-				file_name("test"),
-			])
+			.set_content_encoding(content_encoding_value.clone())
 			.is_ok());
+
+		file_stream.set_content_type(content_type_value.clone());
+		file_stream.as_attachment();
+		file_stream.set_file_name("test");
 
 		let response = file_stream.into_response();
 
@@ -1802,7 +1835,7 @@ mod test {
 		// -------------------------
 
 		let mut file_stream = FileStream::open(FILE).unwrap();
-		assert!(file_stream.configure(file_name("test-Ω")).is_ok());
+		file_stream.set_file_name("test-Ω");
 
 		let response = file_stream.into_response();
 
@@ -1832,12 +1865,11 @@ mod test {
 		// -------------------------
 
 		let mut file_stream = FileStream::open(FILE).unwrap();
+		file_stream.set_content_type(content_type_value.clone());
+
+		assert!(file_stream.support_partial_content().is_ok());
 		assert!(file_stream
-			.configure([
-				support_partial_content(),
-				content_encoding(content_encoding_value.clone()),
-				content_type(content_type_value.clone()),
-			])
+			.set_content_encoding(content_encoding_value.clone())
 			.is_ok());
 
 		let response = file_stream.into_response();
@@ -1886,11 +1918,10 @@ mod test {
 		// -------------------------
 
 		let mut file_stream = FileStream::open_ranges(FILE, "bytes=1024-16383", false).unwrap();
+		file_stream.set_content_type(content_type_value.clone());
+
 		assert!(file_stream
-			.configure([
-				content_encoding(content_encoding_value.clone()),
-				content_type(content_type_value.clone()),
-			])
+			.set_content_encoding(content_encoding_value.clone())
 			.is_ok());
 
 		let response = file_stream.into_response();
@@ -1944,17 +1975,16 @@ mod test {
 		// -------------------------
 
 		let mut file_stream = FileStream::open_with_encoding(FILE, ContentCoding::Gzip(6)).unwrap();
+		file_stream.set_content_type(content_type_value.clone());
+
 		assert!(file_stream
-			.configure(content_encoding(HeaderValue::from_static("br")))
+			.set_content_encoding(HeaderValue::from_static("br"))
 			.is_err());
 		assert!(file_stream
-			.configure(content_encoding(content_encoding_value.clone()))
+			.set_content_encoding(content_encoding_value.clone())
 			.is_ok());
-		assert!(file_stream
-			.configure(content_type(content_type_value.clone()))
-			.is_ok());
-		assert!(file_stream.configure(boundary("boundary".into())).is_err());
-		assert!(file_stream.configure(support_partial_content()).is_err());
+		assert!(file_stream.set_boundary("boundary".into()).is_err());
+		assert!(file_stream.support_partial_content().is_err());
 
 		let response = file_stream.into_response();
 
@@ -2076,12 +2106,10 @@ mod test {
 		// -------------------------
 
 		let mut file_stream = FileStream::open("test").unwrap();
+		assert!(file_stream.set_boundary("boundary\r".into()).is_err());
+		assert!(file_stream.set_boundary("boundary".into()).is_ok());
 		assert!(file_stream
-			.configure(boundary("boundary\r".into()))
-			.is_err());
-		assert!(file_stream.configure(boundary("boundary".into())).is_ok());
-		assert!(file_stream
-			.configure(content_encoding(content_encoding_value.clone()))
+			.set_content_encoding(content_encoding_value.clone())
 			.is_ok());
 
 		let response = file_stream.into_response();
@@ -2126,12 +2154,9 @@ mod test {
 		// -------------------------
 
 		let mut file_stream = FileStream::open("test").unwrap();
-		assert!(file_stream
-			.configure(boundary(boundary_value.into()))
-			.is_ok());
-		assert!(file_stream
-			.configure(content_type(content_type_value.clone()))
-			.is_ok());
+		file_stream.set_content_type(content_type_value.clone());
+
+		assert!(file_stream.set_boundary(boundary_value.into()).is_ok());
 
 		let response = file_stream.into_response();
 		assert_eq!(StatusCode::PARTIAL_CONTENT, response.status());
@@ -2170,17 +2195,12 @@ mod test {
 		// -------------------------
 
 		let mut file_stream = FileStream::open_ranges("test", "bytes=12-24", false).unwrap();
-		assert!(file_stream
-			.configure(content_encoding(content_encoding_value.clone()))
-			.is_ok());
+		file_stream.set_content_type(content_type_value.clone());
 
 		assert!(file_stream
-			.configure(boundary(boundary_value.into()))
+			.set_content_encoding(content_encoding_value.clone())
 			.is_ok());
-
-		assert!(file_stream
-			.configure(content_type(content_type_value.clone()))
-			.is_ok());
+		assert!(file_stream.set_boundary(boundary_value.into()).is_ok());
 
 		let response = file_stream.into_response();
 		assert_eq!(StatusCode::PARTIAL_CONTENT, response.status());
@@ -2231,17 +2251,12 @@ mod test {
 		// -------------------------
 
 		let mut file_stream = FileStream::open_ranges("test", "bytes=12-24, 1024-4095", false).unwrap();
-		assert!(file_stream
-			.configure(content_encoding(content_encoding_value.clone()))
-			.is_ok());
+		file_stream.set_content_type(content_type_value.clone());
 
 		assert!(file_stream
-			.configure(boundary(boundary_value.into()))
+			.set_content_encoding(content_encoding_value.clone())
 			.is_ok());
-
-		assert!(file_stream
-			.configure(content_type(content_type_value.clone()))
-			.is_ok());
+		assert!(file_stream.set_boundary(boundary_value.into()).is_ok());
 
 		let response = file_stream.into_response();
 		assert_eq!(StatusCode::PARTIAL_CONTENT, response.status());
@@ -2313,17 +2328,12 @@ mod test {
 		// -------------------------
 
 		let mut file_stream = FileStream::open_ranges("test", "bytes=1024-4095, 12-24", true).unwrap();
-		assert!(file_stream
-			.configure(content_encoding(content_encoding_value.clone()))
-			.is_ok());
+		file_stream.set_content_type(content_type_value.clone());
 
 		assert!(file_stream
-			.configure(boundary(boundary_value.into()))
+			.set_content_encoding(content_encoding_value.clone())
 			.is_ok());
-
-		assert!(file_stream
-			.configure(content_type(content_type_value.clone()))
-			.is_ok());
+		assert!(file_stream.set_boundary(boundary_value.into()).is_ok());
 
 		let response = file_stream.into_response();
 		assert_eq!(StatusCode::PARTIAL_CONTENT, response.status());
@@ -2396,13 +2406,10 @@ mod test {
 
 		let mut file_stream =
 			FileStream::open_ranges("test", "bytes=12-2048, 1024-4095, -512", false).unwrap();
-		assert!(file_stream
-			.configure(boundary(boundary_value.into()))
-			.is_ok());
 
-		assert!(file_stream
-			.configure(content_type(content_type_value.clone()))
-			.is_ok());
+		file_stream.set_content_type(content_type_value.clone());
+
+		assert!(file_stream.set_boundary(boundary_value.into()).is_ok());
 
 		let response = file_stream.into_response();
 		assert_eq!(StatusCode::PARTIAL_CONTENT, response.status());
@@ -2468,13 +2475,10 @@ mod test {
 
 		let mut file_stream =
 			FileStream::open_ranges("test", "bytes=1024-4095, 12-2048, -512", true).unwrap();
-		assert!(file_stream
-			.configure(boundary(boundary_value.into()))
-			.is_ok());
 
-		assert!(file_stream
-			.configure(content_type(content_type_value.clone()))
-			.is_ok());
+		file_stream.set_content_type(content_type_value.clone());
+
+		assert!(file_stream.set_boundary(boundary_value.into()).is_ok());
 
 		let response = file_stream.into_response();
 		assert_eq!(StatusCode::PARTIAL_CONTENT, response.status());
@@ -2545,13 +2549,9 @@ mod test {
 		)
 		.unwrap();
 
-		assert!(file_stream
-			.configure(boundary(boundary_value.into()))
-			.is_ok());
+		file_stream.set_content_type(content_type_value.clone());
 
-		assert!(file_stream
-			.configure(content_type(content_type_value.clone()))
-			.is_ok());
+		assert!(file_stream.set_boundary(boundary_value.into()).is_ok());
 
 		let response = file_stream.into_response();
 		assert_eq!(StatusCode::PARTIAL_CONTENT, response.status());
@@ -2651,13 +2651,9 @@ mod test {
 		)
 		.unwrap();
 
-		assert!(file_stream
-			.configure(boundary(boundary_value.into()))
-			.is_ok());
+		file_stream.set_content_type(content_type_value.clone());
 
-		assert!(file_stream
-			.configure(content_type(content_type_value.clone()))
-			.is_ok());
+		assert!(file_stream.set_boundary(boundary_value.into()).is_ok());
 
 		let response = file_stream.into_response();
 		assert_eq!(StatusCode::PARTIAL_CONTENT, response.status());
@@ -2757,9 +2753,7 @@ mod test {
 		)
 		.unwrap();
 
-		assert!(file_stream
-			.configure(boundary(boundary_value.into()))
-			.is_ok());
+		assert!(file_stream.set_boundary(boundary_value.into()).is_ok());
 
 		let response = file_stream.into_response();
 		assert_eq!(StatusCode::PARTIAL_CONTENT, response.status());
@@ -2808,9 +2802,7 @@ mod test {
 		)
 		.unwrap();
 
-		assert!(file_stream
-			.configure(boundary(boundary_value.into()))
-			.is_ok());
+		assert!(file_stream.set_boundary(boundary_value.into()).is_ok());
 
 		let response = file_stream.into_response();
 		assert_eq!(StatusCode::PARTIAL_CONTENT, response.status());
