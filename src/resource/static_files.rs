@@ -20,7 +20,7 @@ use crate::{
 	common::{patterns_to_route, strip_double_quotes, BoxedError, Uncloneable, SCOPE_VALIDITY},
 	handler::{get, request_handlers::handle_mistargeted_request},
 	header::{split_header_value, SplitHeaderValueError},
-	request::Request,
+	request::{content_type, Request},
 	response::{
 		stream::{ContentCoding, FileStream, FileStreamError},
 		IntoResponse, Response,
@@ -33,8 +33,8 @@ use super::Resource;
 // --------------------------------------------------------------------------------
 // --------------------------------------------------------------------------------
 
-const UNCOMPRESSED: &'static str = "uncompressed";
-const COMPRESSED: &'static str = "compressed";
+const UNENCODED: &'static str = "unencoded";
+const ENCODED: &'static str = "encoded";
 
 // --------------------------------------------------
 
@@ -42,8 +42,9 @@ pub struct StaticFiles {
 	some_resource: Option<Resource>,
 	some_files_dir: Option<Box<Path>>,
 	some_tagger: Option<Arc<dyn Tagger>>,
-	min_size_to_compress: u64,
-	max_size_to_compress: u64,
+	min_size_to_encode: u64,
+	max_size_to_encode: u64,
+	level_to_encode: u32,
 	flags: Flags,
 }
 
@@ -66,8 +67,9 @@ impl StaticFiles {
 			some_resource: Some(resource),
 			some_files_dir: Some(files_dir.into()),
 			some_tagger: None,
-			min_size_to_compress: 1024,
-			max_size_to_compress: 8 * 1024 * 1024,
+			min_size_to_encode: 1024,
+			max_size_to_encode: 8 * 1024 * 1024,
+			level_to_encode: 6,
 			flags: Flags::GET,
 		}
 	}
@@ -91,14 +93,32 @@ impl StaticFiles {
 	// 	self
 	// }
 
-	pub fn with_dynamic_compression(mut self) -> Self {
-		self.flags.add(Flags::DYNAMIC_COMPRESSION);
+	pub fn as_attachments(mut self) -> Self {
+		self.flags.add(Flags::ATTACHMENTS);
 
 		self
 	}
 
-	pub fn as_attachments(mut self) -> Self {
-		self.flags.add(Flags::ATTACHMENTS);
+	pub fn with_dynamic_encoding(mut self) -> Self {
+		self.flags.add(Flags::DYNAMIC_ENCODING);
+
+		self
+	}
+
+	pub fn with_level_to_encode(mut self, level: u32) -> Self {
+		self.level_to_encode = level;
+
+		self
+	}
+
+	pub fn with_min_size_to_encode(mut self, min_size_to_encode: u64) -> Self {
+		self.min_size_to_encode = min_size_to_encode;
+
+		self
+	}
+
+	pub fn with_max_size_to_encode(mut self, max_size_to_encode: u64) -> Self {
+		self.max_size_to_encode = max_size_to_encode;
 
 		self
 	}
@@ -115,23 +135,25 @@ impl StaticFiles {
 			.expect("files' dir should be added in the constructor");
 
 		let some_hash_storage = self.some_tagger.take();
-		let dynamic_compression = self.flags.has(Flags::DYNAMIC_COMPRESSION);
 		let attachments = self.flags.has(Flags::ATTACHMENTS);
-		let min_size_to_compress = self.min_size_to_compress;
-		let max_size_to_compress = self.max_size_to_compress;
+		let dynamic_encoding_props = DynamicEncodingProps {
+			enabled: self.flags.has(Flags::DYNAMIC_ENCODING),
+			min_file_size: self.min_size_to_encode,
+			max_file_size: self.max_size_to_encode,
+			level: self.level_to_encode,
+		};
 
 		let get_handler = move |request: Request| {
 			let files_dir = files_dir.clone();
 			let some_hash_storage = some_hash_storage.clone();
+			let dynamic_encoding_props = dynamic_encoding_props.clone();
 
 			get_handler(
 				request,
 				files_dir,
 				some_hash_storage,
 				attachments,
-				dynamic_compression,
-				min_size_to_compress,
-				max_size_to_compress,
+				dynamic_encoding_props,
 			)
 		};
 
@@ -147,7 +169,7 @@ impl StaticFiles {
 
 /* pub */
 trait Tagger: Send + Sync {
-	fn tag(&self, path: &Path) -> Result<Arc<str>, BoxedError>;
+	fn get(&self, path: &Path) -> Result<Arc<str>, BoxedError>;
 }
 
 // -------------------------
@@ -155,12 +177,22 @@ trait Tagger: Send + Sync {
 bit_flags! {
 	#[derive(Default, Clone)]
 	Flags: u8 {
-		DYNAMIC_COMPRESSION = 0b0_0001;
-		ATTACHMENTS = 0b0_0010;
+		ATTACHMENTS = 0b0_0001;
+		DYNAMIC_ENCODING = 0b0_0010;
 		GET = 0b0_0100;
 		POST = 0b0_1000;
 		DELETE = 0b1_0000;
 	}
+}
+
+// -------------------------
+
+#[derive(Debug, Clone)]
+struct DynamicEncodingProps {
+	enabled: bool,
+	min_file_size: u64,
+	max_file_size: u64,
+	level: u32,
 }
 
 // --------------------------------------------------
@@ -170,9 +202,7 @@ async fn get_handler(
 	files_dir: Box<Path>,
 	some_hash_storage: Option<Arc<dyn Tagger>>,
 	attachments: bool,
-	dynamic_compression: bool,
-	min_size_to_compress: u64,
-	max_size_to_compress: u64,
+	dynamic_encoding_props: DynamicEncodingProps,
 ) -> Result<Response, StaticFileError> {
 	// TODO: We don't need routing state here. Write an extractor to get reamining path segments.
 	let routing_state = request
@@ -188,19 +218,19 @@ async fn get_handler(
 		.path_traversal
 		.remaining_segments(request_path)
 	else {
-		return Err(StaticFileError::NotFound);
+		return Err(StaticFileError::FileNotFound);
 	};
 
 	// TODO: Canonicalize must be tested. We may need to implement it ourselves.
 	let relative_path_to_file = AsRef::<Path>::as_ref(remaining_segments).canonicalize()?;
 
-	let (coding, path_buf, should_compress) = evaluate_optimal_coding(
+	let (coding, path_buf, should_encode) = evaluate_optimal_coding(
 		request.headers(),
 		files_dir.as_ref(),
 		remaining_segments,
-		dynamic_compression,
-		min_size_to_compress,
-		max_size_to_compress,
+		dynamic_encoding_props.enabled,
+		dynamic_encoding_props.min_file_size,
+		dynamic_encoding_props.max_file_size,
 	)?;
 
 	let path_metadata = match path_buf.metadata() {
@@ -208,39 +238,59 @@ async fn get_handler(
 		Err(error) => return Err(StaticFileError::IoError(error)),
 	};
 
-	// if !path_metadata.is_file() {
-	// 	return Err(StaticFileError::NotFound);
-	// }
-
-	if coding.is_empty() {
-		match evaluate_preconditions(
-			request.headers(),
-			request.method(),
-			some_hash_storage,
-			&path_buf,
-			&path_metadata,
-		) {
-			Ok(Some(ranges)) => match FileStream::open_ranges(path_buf, ranges, false) {
-				Ok(file_stream) => Ok(file_stream.into_response()),
-				Err(error) => Err(error.into()),
-			},
-			Ok(None) => match FileStream::open(path_buf, ContentCoding::Identity) {
-				Ok(file_stream) => Ok(file_stream.into_response()),
-				Err(error) => Err(error.into()),
-			},
-			Err(status_code) => Ok(status_code.into_response()),
-		}
+	let some_file_name = if path_buf.ends_with("gz") {
+		path_buf.file_stem()
 	} else {
-		let content_coding = match coding {
-			"gzip" => ContentCoding::Gzip(6), // TODO: Level.
-			_ => ContentCoding::Identity,
-		};
+		path_buf.file_name()
+	};
 
-		match FileStream::open(path_buf, content_coding) {
-			Ok(file_stream) => Ok(file_stream.into_response()),
-			Err(error) => Err(error.into()),
+	let content_type_value = if let Some(file_name) = some_file_name {
+		let mime = mime_guess::from_path(file_name).first_or_else(|| mime::APPLICATION_OCTET_STREAM);
+
+		HeaderValue::from_str(mime.as_ref()).expect("guessed mime type must be a valid header value")
+	} else {
+		HeaderValue::from_static(mime::APPLICATION_OCTET_STREAM.as_ref())
+	};
+
+	let mut file_stream = {
+		if dynamic_encoding_props.enabled && should_encode && coding == "gzip" {
+			FileStream::open_with_encoding(path_buf, ContentCoding::Gzip(dynamic_encoding_props.level))
+				.map_err(Into::<StaticFileError>::into)?
+		} else {
+			match evaluate_preconditions(
+				request.headers(),
+				request.method(),
+				some_hash_storage,
+				&path_buf,
+				&path_metadata,
+			) {
+				PreconditionsResult::None => {
+					FileStream::open(path_buf).map_err(Into::<StaticFileError>::into)?
+				}
+				PreconditionsResult::Ranges(ranges) => {
+					FileStream::open_ranges(path_buf, ranges, true).map_err(Into::<StaticFileError>::into)?
+				}
+				PreconditionsResult::NotModified => return Ok(StatusCode::NOT_MODIFIED.into_response()),
+				PreconditionsResult::Failed => return Ok(StatusCode::PRECONDITION_FAILED.into_response()),
+				PreconditionsResult::InvalidDate => return Err(StaticFileError::InvalidHttpDate),
+				PreconditionsResult::IoError(error) => return Err(StaticFileError::IoError(error)),
+			}
 		}
+	};
+
+	if attachments {
+		file_stream.as_attachment();
 	}
+
+	file_stream.set_content_type(content_type_value);
+
+	if coding == "gzip" {
+		let _ = file_stream
+			.set_content_encoding(HeaderValue::from_static("gzip"))
+			.map_err(Into::<StaticFileError>::into)?;
+	}
+
+	Ok(file_stream.into_response())
 }
 
 // ----------
@@ -280,7 +330,7 @@ fn evaluate_optimal_coding<'h, P1: AsRef<Path>, P2: AsRef<Path>>(
 
 			let some_path_buf = if preferred_encoding.1 > 0.0 {
 				let mut path_buf = files_dir
-					.join(COMPRESSED)
+					.join(ENCODED)
 					.join(preferred_encoding.0)
 					.join(relative_path_to_file);
 
@@ -310,16 +360,16 @@ fn evaluate_optimal_coding<'h, P1: AsRef<Path>, P2: AsRef<Path>>(
 				path_buf.clear();
 
 				path_buf.push(files_dir);
-				path_buf.push(UNCOMPRESSED);
+				path_buf.push(UNENCODED);
 				path_buf.push(relative_path_to_file);
 
 				path_buf
 			} else {
-				files_dir.join(UNCOMPRESSED).join(relative_path_to_file)
+				files_dir.join(UNENCODED).join(relative_path_to_file)
 			};
 
 			if !path_buf.is_file() {
-				return Err(StaticFileError::NotFound);
+				return Err(StaticFileError::FileNotFound);
 			}
 
 			match path_buf.metadata() {
@@ -350,12 +400,16 @@ fn evaluate_optimal_coding<'h, P1: AsRef<Path>, P2: AsRef<Path>>(
 				|| (value.eq_ignore_ascii_case("*") && *weight == 0.0)
 		}) {
 			if some_path_buf.is_some() {
+				// Identity is forbidden. Elements cointain gzip, but we don't have
+				// the compressed file, and we can't dynamically compress.
 				return Err(StaticFileError::AcceptEncoding("identity"));
 			}
 
-			let path_buf = files_dir.join(UNCOMPRESSED).join(relative_path_to_file);
+			// Elements don't have gzip, and identity is forbidden.
+
+			let path_buf = files_dir.join(UNENCODED).join(relative_path_to_file);
 			if !path_buf.is_file() {
-				return Err(StaticFileError::NotFound);
+				return Err(StaticFileError::FileNotFound);
 			}
 
 			/* return Err(StaticFileError::AcceptEncoding("br, gzip, identity")); */
@@ -367,9 +421,9 @@ fn evaluate_optimal_coding<'h, P1: AsRef<Path>, P2: AsRef<Path>>(
 		}
 	}
 
-	let path_buf = files_dir.join(UNCOMPRESSED).join(relative_path_to_file);
+	let path_buf = files_dir.join(UNENCODED).join(relative_path_to_file);
 	if !path_buf.is_file() {
-		return Err(StaticFileError::NotFound);
+		return Err(StaticFileError::FileNotFound);
 	}
 
 	Ok(("", path_buf, false))
@@ -381,106 +435,117 @@ fn evaluate_preconditions<'r>(
 	some_hash_storage: Option<Arc<dyn Tagger>>,
 	path: &Path,
 	path_metadata: &Metadata,
-) -> Result<Option<&'r str>, StatusCode> {
+) -> PreconditionsResult<'r> {
+	let mut check_the_next_step = true;
 	let mut some_file_hash = None;
+
 	if let Some(hash_storage) = some_hash_storage.as_ref() {
 		if let Some(hashes_to_match) = request_headers.get(IF_MATCH).map(|value| value.as_bytes()) {
 			// step 1
-			match hash_storage.tag(&path) {
-				Ok(file_hash) => {
-					if hashes_to_match != b"*" {
+			if hashes_to_match != b"*" {
+				match hash_storage.get(&path) {
+					Ok(file_hash) => {
 						if !hashes_to_match
 							.split(|ch| *ch == b',')
 							.any(|hash_to_match| file_hash.as_bytes() == strip_double_quotes(hash_to_match))
 						{
-							return Err(StatusCode::PRECONDITION_FAILED);
+							return PreconditionsResult::Failed;
 						}
-					}
 
-					some_file_hash = Some(file_hash);
+						some_file_hash = Some(file_hash);
+					}
+					Err(_) => return PreconditionsResult::Failed,
 				}
-				Err(_) => return Err(StatusCode::NOT_FOUND), // No such file.
 			}
+
+			// When IF-MATCH exists, we ignore the step 2 IF-UNMODIFIED-SINCE.
+			check_the_next_step = false;
 		}
 	}
 
-	// The only way some_file_hash is Some is when If-Match exists.
-	if some_file_hash.is_none() {
+	if check_the_next_step {
 		if let Some(time_to_match) = request_headers
 			.get(IF_UNMODIFIED_SINCE)
 			.and_then(|value| value.to_str().ok())
 		{
 			// step 2
-			let Ok(modified_time) = path_metadata.modified() else {
-				return Err(StatusCode::INTERNAL_SERVER_ERROR); // ???
+			let modified_time = match path_metadata.modified() {
+				Ok(modified_time) => modified_time,
+				Err(error) => return PreconditionsResult::IoError(error),
 			};
 
 			let Ok(http_date_to_match) = HttpDate::from_str(time_to_match) else {
-				return Err(StatusCode::BAD_REQUEST);
+				return PreconditionsResult::InvalidDate;
 			};
 
 			if HttpDate::from(modified_time) != http_date_to_match {
-				return Err(StatusCode::PRECONDITION_FAILED);
+				return PreconditionsResult::Failed;
 			}
 		}
 	}
 
-	let mut no_if_none_match_header = true;
+	check_the_next_step = true;
+
 	if let Some(hash_storage) = some_hash_storage.as_ref() {
 		if let Some(hashes_to_match) = request_headers
 			.get(IF_NONE_MATCH)
 			.map(|value| value.as_bytes())
 		{
 			// step 3
-			if some_file_hash.is_none() {
-				some_file_hash = hash_storage.tag(&path).ok();
-			};
-
-			let unmodified = if let Some(file_hash) = some_file_hash.as_ref() {
-				hashes_to_match
-					.split(|ch| *ch == b',')
-					.any(|hash_to_match| {
-						let hash_to_match = if hash_to_match.starts_with(b"W/") {
-							&hash_to_match[2..]
-						} else {
-							hash_to_match
-						};
-
-						file_hash.as_bytes() == strip_double_quotes(hash_to_match)
-					})
+			let precondition_failed = if hashes_to_match == b"*" {
+				true
 			} else {
-				hashes_to_match != b"*"
+				if some_file_hash.is_none() {
+					some_file_hash = hash_storage.get(&path).ok();
+				};
+
+				if let Some(file_hash) = some_file_hash.as_ref() {
+					hashes_to_match
+						.split(|ch| *ch == b',')
+						.any(|hash_to_match| {
+							let hash_to_match = if hash_to_match.starts_with(b"W/") {
+								&hash_to_match[2..]
+							} else {
+								hash_to_match
+							};
+
+							file_hash.as_bytes() == strip_double_quotes(hash_to_match)
+						})
+				} else {
+					false
+				}
 			};
 
-			if unmodified {
+			if precondition_failed {
 				if request_method == Method::GET || request_method == Method::HEAD {
-					return Err(StatusCode::NOT_MODIFIED);
-				} else {
-					return Err(StatusCode::PRECONDITION_FAILED);
+					return PreconditionsResult::NotModified;
 				}
+
+				return PreconditionsResult::Failed;
 			}
 
-			no_if_none_match_header = false;
+			check_the_next_step = false;
 		}
 	}
 
-	if no_if_none_match_header {
+	if check_the_next_step {
 		if request_method == Method::GET || request_method == Method::HEAD {
 			// step 4
 			if let Some(time_to_match) = request_headers
 				.get(IF_MODIFIED_SINCE)
 				.and_then(|value| value.to_str().ok())
 			{
-				let Ok(modified_time) = path_metadata.modified() else {
-					return Err(StatusCode::INTERNAL_SERVER_ERROR); // ???
+				let modified_time = match path_metadata.modified() {
+					Ok(modified_time) => modified_time,
+					Err(error) => return PreconditionsResult::IoError(error),
 				};
 
 				let Ok(http_date_to_match) = HttpDate::from_str(time_to_match) else {
-					return Err(StatusCode::BAD_REQUEST);
+					return PreconditionsResult::InvalidDate;
 				};
 
 				if HttpDate::from(modified_time) == http_date_to_match {
-					return Err(StatusCode::NOT_MODIFIED);
+					return PreconditionsResult::NotModified;
 				}
 			}
 		}
@@ -498,12 +563,12 @@ fn evaluate_preconditions<'r>(
 				.and_then(|value| value.to_str().ok())
 			{
 				if range_precondition.starts_with("W/") {
-					return Ok(None);
+					return PreconditionsResult::None;
 				}
 
 				if range_precondition.starts_with('"') {
 					let Some(hash_storage) = some_hash_storage else {
-						return Ok(None);
+						return PreconditionsResult::None;
 					};
 
 					let hash_to_match = strip_double_quotes(range_precondition.as_bytes());
@@ -511,45 +576,58 @@ fn evaluate_preconditions<'r>(
 					let file_hash = if let Some(file_hash) = some_file_hash {
 						file_hash
 					} else {
-						match hash_storage.tag(&path) {
+						match hash_storage.get(&path) {
 							Ok(file_hash) => file_hash,
-							Err(_) => return Err(StatusCode::NOT_FOUND),
+							Err(_) => return PreconditionsResult::None,
 						}
 					};
 
 					if file_hash.as_bytes() == hash_to_match {
-						return Ok(some_ranges_str);
+						return PreconditionsResult::Ranges(some_ranges_str.expect(SCOPE_VALIDITY));
 					}
 				} else {
-					let Ok(modified_time) = path_metadata.modified() else {
-						return Err(StatusCode::INTERNAL_SERVER_ERROR); // ???
+					let modified_time = match path_metadata.modified() {
+						Ok(modified_time) => modified_time,
+						Err(error) => return PreconditionsResult::IoError(error),
 					};
 
 					let Ok(http_date_to_match) = HttpDate::from_str(range_precondition) else {
-						return Err(StatusCode::BAD_REQUEST);
+						return PreconditionsResult::InvalidDate;
 					};
 
 					if HttpDate::from(modified_time) == http_date_to_match {
-						return Ok(some_ranges_str);
+						return PreconditionsResult::Ranges(some_ranges_str.expect(SCOPE_VALIDITY));
 					}
 				}
 			} else {
-				return Ok(some_ranges_str);
+				return PreconditionsResult::Ranges(some_ranges_str.expect(SCOPE_VALIDITY));
 			}
 		}
 	}
 
-	Ok(None)
+	PreconditionsResult::None
+}
+
+enum PreconditionsResult<'r> {
+	None,
+	Ranges(&'r str),
+	NotModified,
+	Failed,
+	IoError(IoError),
+	InvalidDate,
 }
 
 // --------------------------------------------------
 
+#[non_exhaustive]
 #[derive(Debug, crate::ImplError)]
 pub enum StaticFileError {
 	#[error(transparent)]
 	InvalidAcceptEncoding(#[from] SplitHeaderValueError),
+	#[error("invalid HTTP date")]
+	InvalidHttpDate,
 	#[error("file not found")]
-	NotFound,
+	FileNotFound,
 	#[error("Accept-Encoding must be {0}")]
 	AcceptEncoding(&'static str),
 	#[error(transparent)]
@@ -563,8 +641,10 @@ impl IntoResponse for StaticFileError {
 		let mut response = Response::default();
 
 		match self {
-			Self::InvalidAcceptEncoding(_) => *response.status_mut() = StatusCode::BAD_REQUEST,
-			Self::NotFound => *response.status_mut() = StatusCode::NOT_FOUND,
+			Self::InvalidAcceptEncoding(_) | Self::InvalidHttpDate => {
+				*response.status_mut() = StatusCode::BAD_REQUEST
+			}
+			Self::FileNotFound => *response.status_mut() = StatusCode::NOT_FOUND,
 			Self::AcceptEncoding(codings) => {
 				response
 					.headers_mut()
@@ -579,3 +659,6 @@ impl IntoResponse for StaticFileError {
 }
 
 // --------------------------------------------------------------------------------
+
+#[cfg(test)]
+mod test {}

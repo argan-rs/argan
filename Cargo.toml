@@ -17,6 +17,7 @@ httparse = "1.8.0"
 httpdate = "1.0.3"
 hyper = { version = "1.1.0", features = ["full"] }
 mime = "0.3.17"
+mime_guess = "2.0.4"
 multer = { version = "3.0.0", features = ["json"] }
 percent-encoding = "2.3.0"
 pin-project = "1.1.3"
