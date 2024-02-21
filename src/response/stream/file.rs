@@ -1696,13 +1696,7 @@ mod test {
 
 	use http_body_util::Collected;
 
-	struct Defer<Func: FnMut()>(Func);
-
-	impl<Func: FnMut()> Drop for Defer<Func> {
-		fn drop(&mut self) {
-			(self.0)()
-		}
-	}
+	use crate::common::Deferred;
 
 	const FILE: &'static str = "test";
 	const FILE_SIZE: usize = 32 * 1024;
@@ -1716,7 +1710,7 @@ mod test {
 
 		let _ = std::fs::write(FILE, &contents).unwrap();
 
-		let _defer = Defer(|| std::fs::remove_file(FILE).unwrap());
+		let _deferred = Deferred::call(|| std::fs::remove_file(FILE).unwrap());
 
 		let content_encoding_value = HeaderValue::from_static("gzip");
 		let content_type_value = HeaderValue::from_static(mime::TEXT_PLAIN_UTF_8.as_ref());
@@ -2089,9 +2083,9 @@ mod test {
 			contents.push({ i % 7 } as u8);
 		}
 
-		let _ = std::fs::write("test", &contents);
+		let _ = std::fs::write(FILE, &contents).unwrap();
 
-		let _defer = Defer(|| std::fs::remove_file("test").unwrap());
+		let _deferred = Deferred::call(|| std::fs::remove_file("test").unwrap());
 
 		let file_size_string = &FILE_SIZE.to_string();
 
