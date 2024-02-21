@@ -168,3 +168,21 @@ pub(crate) fn strip_double_quotes(slice: &[u8]) -> &[u8] {
 		slice
 	}
 }
+
+// --------------------------------------------------------------------------------
+
+pub(crate) struct Deferred<Func: FnMut()>(Func);
+
+impl<Func: FnMut()> Deferred<Func> {
+	pub(crate) fn call(func: Func) -> Self {
+		Self(func)
+	}
+}
+
+impl<Func: FnMut()> Drop for Deferred<Func> {
+	fn drop(&mut self) {
+		(self.0)()
+	}
+}
+
+// --------------------------------------------------------------------------------
