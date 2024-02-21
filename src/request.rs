@@ -288,6 +288,52 @@ where
 	}
 }
 
+// --------------------------------------------------
+// Remaining path
+
+pub enum RemainingPath {
+	Value(Box<str>),
+	None,
+}
+
+impl<E> FromRequestHead<E> for RemainingPath
+where
+	E: Sync,
+{
+	type Error = Infallible;
+
+	async fn from_request_head(
+		head: &mut RequestHead,
+		args: &mut Args<'_, E>,
+	) -> Result<Self, Self::Error> {
+		args
+			.routing_state
+			.path_traversal
+			.remaining_segments(head.uri.path())
+			.map_or(Ok(RemainingPath::None), |remaining_path| {
+				Ok(RemainingPath::Value(remaining_path.into()))
+			})
+	}
+}
+
+impl<B, E> FromRequest<B, E> for RemainingPath
+where
+	B: Send,
+	E: Sync,
+{
+	type Error = Infallible;
+
+	async fn from_request(request: Request<B>, args: &mut Args<'_, E>) -> Result<Self, Self::Error> {
+		args
+			.routing_state
+			.path_traversal
+			.remaining_segments(request.uri().path())
+			.map_or(Ok(RemainingPath::None), |remaining_path| {
+				Ok(RemainingPath::Value(remaining_path.into()))
+			})
+	}
+}
+
 // --------------------------------------------------------------------------------
 
 macro_rules! impl_extractions_for_tuples {
