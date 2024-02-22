@@ -1,4 +1,5 @@
 use std::{
+	ffi::OsStr,
 	fs::Metadata,
 	io::Error as IoError,
 	os::unix::fs::MetadataExt,
@@ -20,7 +21,7 @@ use crate::{
 	common::{patterns_to_route, strip_double_quotes, BoxedError, Uncloneable, SCOPE_VALIDITY},
 	handler::{get, request_handlers::handle_mistargeted_request},
 	header::{split_header_value, SplitHeaderValueError},
-	request::{content_type, Request},
+	request::{content_type, FromRequest, RemainingPath, Request},
 	response::{
 		stream::{ContentCoding, FileStream, FileStreamError},
 		IntoResponse, Response,
@@ -28,7 +29,7 @@ use crate::{
 	routing::RoutingState,
 };
 
-use super::Resource;
+use super::{config::subtree_handler, Resource};
 
 // --------------------------------------------------------------------------------
 // --------------------------------------------------------------------------------
@@ -70,7 +71,7 @@ impl StaticFiles {
 			min_size_to_encode: 1024,
 			max_size_to_encode: 8 * 1024 * 1024,
 			level_to_encode: 6,
-			flags: Flags::GET,
+			flags: Flags::PARTIAL_CONTENT | Flags::DYNAMIC_ENCODING | Flags::GET,
 		}
 	}
 
@@ -99,13 +100,7 @@ impl StaticFiles {
 		self
 	}
 
-	pub fn with_dynamic_encoding(mut self) -> Self {
-		self.flags.add(Flags::DYNAMIC_ENCODING);
-
-		self
-	}
-
-	pub fn with_level_to_encode(mut self, level: u32) -> Self {
+	pub fn with_encoding_level(mut self, level: u32) -> Self {
 		self.level_to_encode = level;
 
 		self
@@ -129,13 +124,16 @@ impl StaticFiles {
 			.take()
 			.expect("resource should be created in the constructor");
 
+		resource.set_config(subtree_handler());
+
 		let files_dir = self
 			.some_files_dir
 			.take()
 			.expect("files' dir should be added in the constructor");
 
-		let some_hash_storage = self.some_tagger.take();
+		// let some_tagger = self.some_tagger.take();
 		let attachments = self.flags.has(Flags::ATTACHMENTS);
+		let partial_content_support = self.flags.has(Flags::PARTIAL_CONTENT);
 		let dynamic_encoding_props = DynamicEncodingProps {
 			enabled: self.flags.has(Flags::DYNAMIC_ENCODING),
 			min_file_size: self.min_size_to_encode,
@@ -143,18 +141,16 @@ impl StaticFiles {
 			level: self.level_to_encode,
 		};
 
-		let get_handler = move |request: Request| {
-			let files_dir = files_dir.clone();
-			let some_hash_storage = some_hash_storage.clone();
-			let dynamic_encoding_props = dynamic_encoding_props.clone();
-
-			get_handler(
-				request,
-				files_dir,
-				some_hash_storage,
+		let get_handler = move |remaining_path: RemainingPath, request: Request| {
+			let handler_props = HandlerProps {
+				files_dir: files_dir.clone(),
+				some_tagger: None, /* some_tagger.clone() */
 				attachments,
-				dynamic_encoding_props,
-			)
+				partial_content_support,
+				dynamic_encoding_props: dynamic_encoding_props.clone(),
+			};
+
+			get_handler(request, remaining_path, handler_props)
 		};
 
 		if self.flags.has(Flags::GET) {
@@ -169,7 +165,7 @@ impl StaticFiles {
 
 /* pub */
 trait Tagger: Send + Sync {
-	fn get(&self, path: &Path) -> Result<Arc<str>, BoxedError>;
+	fn get(&self, path: &Path) -> Result<Box<str>, BoxedError>;
 }
 
 // -------------------------
@@ -177,15 +173,25 @@ trait Tagger: Send + Sync {
 bit_flags! {
 	#[derive(Default, Clone)]
 	Flags: u8 {
-		ATTACHMENTS = 0b0_0001;
-		DYNAMIC_ENCODING = 0b0_0010;
-		GET = 0b0_0100;
-		POST = 0b0_1000;
-		DELETE = 0b1_0000;
+		ATTACHMENTS = 0b00_0001;
+		PARTIAL_CONTENT = 0b00_0010;
+		DYNAMIC_ENCODING = 0b00_0100;
+		GET = 0b00_1000;
+		POST = 0b01_0000;
+		DELETE = 0b10_0000;
 	}
 }
 
 // -------------------------
+
+#[derive(Clone)]
+struct HandlerProps {
+	files_dir: Box<Path>,
+	some_tagger: Option<Arc<dyn Tagger>>,
+	attachments: bool,
+	partial_content_support: bool,
+	dynamic_encoding_props: DynamicEncodingProps,
+}
 
 #[derive(Debug, Clone)]
 struct DynamicEncodingProps {
@@ -199,35 +205,25 @@ struct DynamicEncodingProps {
 
 async fn get_handler(
 	mut request: Request,
-	files_dir: Box<Path>,
-	some_hash_storage: Option<Arc<dyn Tagger>>,
-	attachments: bool,
-	dynamic_encoding_props: DynamicEncodingProps,
+	remaining_path: RemainingPath,
+	HandlerProps {
+		files_dir,
+		some_tagger,
+		attachments,
+		partial_content_support,
+		dynamic_encoding_props,
+	}: HandlerProps,
 ) -> Result<Response, StaticFileError> {
-	// TODO: We don't need routing state here. Write an extractor to get reamining path segments.
-	let routing_state = request
-		.extensions_mut()
-		.remove::<Uncloneable<RoutingState>>()
-		.expect("Uncloneable<RoutingState> should be inserted before routing starts")
-		.into_inner()
-		.expect("RoutingState should always exist in Uncloneable");
-
-	let request_path = request.uri().path();
-
-	let Some(remaining_segments) = routing_state
-		.path_traversal
-		.remaining_segments(request_path)
-	else {
+	let RemainingPath::Value(remaining_path) = remaining_path else {
 		return Err(StaticFileError::FileNotFound);
 	};
 
-	// TODO: Canonicalize must be tested. We may need to implement it ourselves.
-	let relative_path_to_file = AsRef::<Path>::as_ref(remaining_segments).canonicalize()?;
+	// TODO: Canonicalize remaining path and get the relative path.
 
 	let (coding, path_buf, should_encode) = evaluate_optimal_coding(
 		request.headers(),
 		files_dir.as_ref(),
-		remaining_segments,
+		&remaining_path,
 		dynamic_encoding_props.enabled,
 		dynamic_encoding_props.min_file_size,
 		dynamic_encoding_props.max_file_size,
@@ -238,29 +234,21 @@ async fn get_handler(
 		Err(error) => return Err(StaticFileError::IoError(error)),
 	};
 
-	let some_file_name = if path_buf.ends_with("gz") {
-		path_buf.file_stem()
-	} else {
-		path_buf.file_name()
-	};
+	let mime =
+		mime_guess::from_path(remaining_path.as_ref()).first_or_else(|| mime::APPLICATION_OCTET_STREAM);
 
-	let content_type_value = if let Some(file_name) = some_file_name {
-		let mime = mime_guess::from_path(file_name).first_or_else(|| mime::APPLICATION_OCTET_STREAM);
-
-		HeaderValue::from_str(mime.as_ref()).expect("guessed mime type must be a valid header value")
-	} else {
-		HeaderValue::from_static(mime::APPLICATION_OCTET_STREAM.as_ref())
-	};
+	let content_type_value =
+		HeaderValue::from_str(mime.as_ref()).expect("guessed mime type must be a valid header value");
 
 	let mut file_stream = {
 		if dynamic_encoding_props.enabled && should_encode && coding == "gzip" {
 			FileStream::open_with_encoding(path_buf, ContentCoding::Gzip(dynamic_encoding_props.level))
 				.map_err(Into::<StaticFileError>::into)?
 		} else {
-			match evaluate_preconditions(
+			let mut file_stream = match evaluate_preconditions(
 				request.headers(),
 				request.method(),
-				some_hash_storage,
+				some_tagger,
 				&path_buf,
 				&path_metadata,
 			) {
@@ -274,7 +262,11 @@ async fn get_handler(
 				PreconditionsResult::Failed => return Ok(StatusCode::PRECONDITION_FAILED.into_response()),
 				PreconditionsResult::InvalidDate => return Err(StaticFileError::InvalidHttpDate),
 				PreconditionsResult::IoError(error) => return Err(StaticFileError::IoError(error)),
-			}
+			};
+
+			file_stream.support_partial_content();
+
+			file_stream
 		}
 	};
 
@@ -295,7 +287,7 @@ async fn get_handler(
 
 // ----------
 
-fn evaluate_optimal_coding<'h, P1: AsRef<Path>, P2: AsRef<Path>>(
+fn evaluate_optimal_coding<'h, P1: AsRef<Path>, P2: AsRef<str>>(
 	request_headers: &'h HeaderMap,
 	files_dir: P1,
 	relative_path_to_file: P2,
@@ -329,6 +321,17 @@ fn evaluate_optimal_coding<'h, P1: AsRef<Path>, P2: AsRef<Path>>(
 			// };
 
 			let some_path_buf = if preferred_encoding.1 > 0.0 {
+				let relative_path_to_file = match preferred_encoding.0 {
+					"gzip" => {
+						let mut relative_path_to_file = relative_path_to_file.to_string();
+						relative_path_to_file.push_str(".gz");
+
+						relative_path_to_file
+					}
+
+					_ => relative_path_to_file.to_string(),
+				};
+
 				let mut path_buf = files_dir
 					.join(ENCODED)
 					.join(preferred_encoding.0)
@@ -661,4 +664,705 @@ impl IntoResponse for StaticFileError {
 // --------------------------------------------------------------------------------
 
 #[cfg(test)]
-mod test {}
+mod test {
+	use std::fs;
+
+	use bytes::Bytes;
+	use http::header::{
+		ACCEPT_RANGES, CONTENT_ENCODING, CONTENT_LENGTH, CONTENT_RANGE, CONTENT_TYPE,
+	};
+	use http_body_util::{BodyExt, Empty};
+	use hyper::service::Service;
+
+	use crate::common::Deferred;
+
+	use super::*;
+
+	// --------------------------------------------------------------------------------
+	// --------------------------------------------------------------------------------
+
+	const FILE_SIZE: usize = 32 * 1024 * 1024;
+
+	// --------------------------------------------------
+
+	#[tokio::test]
+	async fn static_files() {
+		// ----------
+		// Dirs
+
+		let root_dir: PathBuf = "test/".into();
+		let unencoded_dir = root_dir.join(UNENCODED);
+		let encoded_dir = root_dir.join(ENCODED).join("gzip");
+
+		let unencoded_small_dir = unencoded_dir.join("small");
+		let encoded_small_dir = encoded_dir.join("small");
+
+		fs::create_dir_all(&unencoded_dir).unwrap();
+		fs::create_dir_all(&encoded_dir).unwrap();
+
+		fs::create_dir_all(&unencoded_small_dir).unwrap();
+		fs::create_dir_all(&encoded_small_dir).unwrap();
+
+		// ----------
+		// Contents
+
+		let mut contents_32m = Vec::with_capacity(FILE_SIZE);
+		for i in 0..FILE_SIZE {
+			contents_32m.push({ i % 7 } as u8);
+		}
+
+		let mut contents_16m = Vec::with_capacity(FILE_SIZE / 2);
+		for i in 0..FILE_SIZE / 2 {
+			contents_16m.push({ i % 7 } as u8);
+		}
+
+		let mut contents_8m = Vec::with_capacity(FILE_SIZE / 4);
+		for i in 0..FILE_SIZE / 4 {
+			contents_8m.push({ i % 7 } as u8);
+		}
+
+		let mut contents_4m = Vec::with_capacity(FILE_SIZE / 8);
+		for i in 0..FILE_SIZE / 8 {
+			contents_4m.push({ i % 7 } as u8);
+		}
+
+		let mut contents_2m = Vec::with_capacity(FILE_SIZE / 16);
+		for i in 0..FILE_SIZE / 16 {
+			contents_2m.push({ i % 7 } as u8);
+		}
+
+		let mut contents_1m = Vec::with_capacity(FILE_SIZE / 32);
+		for i in 0..FILE_SIZE / 32 {
+			contents_1m.push({ i % 7 } as u8);
+		}
+
+		// ----------
+		// Files
+
+		let _ = fs::write(unencoded_dir.join("text_32m.txt"), &contents_32m);
+		let _ = fs::write(unencoded_dir.join("html_32m.html"), &contents_32m);
+		let _ = fs::write(unencoded_dir.join("text_16m.txt"), &contents_16m);
+		let _ = fs::write(unencoded_dir.join("html_16m.html"), &contents_16m);
+		let _ = fs::write(unencoded_small_dir.join("text_8m.txt"), &contents_8m);
+		let _ = fs::write(unencoded_small_dir.join("html_8m.html"), &contents_8m);
+		let _ = fs::write(unencoded_small_dir.join("text_4m.txt"), &contents_4m);
+		let _ = fs::write(unencoded_small_dir.join("html_4m.html"), &contents_4m);
+		let _ = fs::write(unencoded_small_dir.join("text_2m.txt"), &contents_2m);
+		let _ = fs::write(unencoded_small_dir.join("html_2m.html"), &contents_2m);
+		let _ = fs::write(unencoded_small_dir.join("text_1m.txt"), &contents_1m);
+		let _ = fs::write(unencoded_small_dir.join("html_1m.html"), &contents_1m);
+
+		let _ = fs::write(encoded_dir.join("text_32m.txt.gz"), &contents_32m);
+		let _ = fs::write(encoded_dir.join("html_32m.html.gz"), &contents_32m);
+		let _ = fs::write(encoded_small_dir.join("text_8m.txt.gz"), &contents_8m);
+		let _ = fs::write(encoded_small_dir.join("html_8m.html.gz"), &contents_8m);
+
+		let _deferred = Deferred::call(|| fs::remove_dir_all(&root_dir).unwrap());
+
+		// --------------------------------------------------
+
+		let mut static_files = StaticFiles::new("/files", &root_dir)
+			.into_resource()
+			.into_service();
+
+		// -------------------------
+
+		let request = Request::get("/files").body(Empty::default()).unwrap();
+		let response = static_files.call(request).await.unwrap();
+		assert_eq!(StatusCode::NOT_FOUND, response.status());
+
+		// -------------------------
+
+		let request = Request::get("/files/text_32m.txt")
+			.body(Empty::default())
+			.unwrap();
+
+		let response = static_files.call(request).await.unwrap();
+		assert_eq!(StatusCode::OK, response.status());
+		assert_eq!(
+			mime::TEXT_PLAIN.as_ref(),
+			response
+				.headers()
+				.get(CONTENT_TYPE)
+				.unwrap()
+				.to_str()
+				.unwrap()
+		);
+
+		assert_eq!(
+			"bytes",
+			response
+				.headers()
+				.get(ACCEPT_RANGES)
+				.unwrap()
+				.to_str()
+				.unwrap()
+		);
+
+		assert_eq!(
+			contents_32m.len().to_string(),
+			response
+				.headers()
+				.get(CONTENT_LENGTH)
+				.unwrap()
+				.to_str()
+				.unwrap()
+		);
+
+		dbg!(response.headers());
+
+		// ----------
+
+		let request = Request::get("/files/text_32m.txt")
+			.header(ACCEPT_ENCODING, "gzip")
+			.body(Empty::default())
+			.unwrap();
+
+		let response = static_files.call(request).await.unwrap();
+		assert_eq!(StatusCode::OK, response.status());
+		assert_eq!(
+			mime::TEXT_PLAIN.as_ref(),
+			response
+				.headers()
+				.get(CONTENT_TYPE)
+				.unwrap()
+				.to_str()
+				.unwrap()
+		);
+
+		assert_eq!(
+			"bytes",
+			response
+				.headers()
+				.get(ACCEPT_RANGES)
+				.unwrap()
+				.to_str()
+				.unwrap()
+		);
+
+		assert_eq!(
+			contents_32m.len().to_string(),
+			response
+				.headers()
+				.get(CONTENT_LENGTH)
+				.unwrap()
+				.to_str()
+				.unwrap()
+		);
+
+		// text_32m.txt does have an encoded copy.
+		assert_eq!(
+			"gzip",
+			response
+				.headers()
+				.get(CONTENT_ENCODING)
+				.unwrap()
+				.to_str()
+				.unwrap()
+		);
+
+		dbg!(response.headers());
+
+		// -------------------------
+
+		let request = Request::get("/files/html_32m.html")
+			.header(RANGE, "bytes=-1024")
+			.body(Empty::default())
+			.unwrap();
+
+		let response = static_files.call(request).await.unwrap();
+		assert_eq!(StatusCode::PARTIAL_CONTENT, response.status());
+		assert_eq!(
+			mime::TEXT_HTML.as_ref(),
+			response
+				.headers()
+				.get(CONTENT_TYPE)
+				.unwrap()
+				.to_str()
+				.unwrap()
+		);
+
+		assert_eq!(
+			"1024",
+			response
+				.headers()
+				.get(CONTENT_LENGTH)
+				.unwrap()
+				.to_str()
+				.unwrap()
+		);
+
+		assert!(response.headers().get(CONTENT_ENCODING).is_none());
+
+		dbg!(response.headers());
+
+		// ----------
+
+		let request = Request::get("/files/html_32m.html")
+			.header(ACCEPT_ENCODING, "gzip")
+			.header(RANGE, "bytes=-1024")
+			.body(Empty::default())
+			.unwrap();
+
+		let response = static_files.call(request).await.unwrap();
+		assert_eq!(StatusCode::PARTIAL_CONTENT, response.status());
+		assert_eq!(
+			mime::TEXT_HTML.as_ref(),
+			response
+				.headers()
+				.get(CONTENT_TYPE)
+				.unwrap()
+				.to_str()
+				.unwrap()
+		);
+
+		assert_eq!(
+			"1024",
+			response
+				.headers()
+				.get(CONTENT_LENGTH)
+				.unwrap()
+				.to_str()
+				.unwrap()
+		);
+
+		// html_32m.html does have an encoded copy.
+		assert_eq!(
+			"gzip",
+			response
+				.headers()
+				.get(CONTENT_ENCODING)
+				.unwrap()
+				.to_str()
+				.unwrap()
+		);
+
+		dbg!(response.headers());
+
+		// -------------------------
+
+		let request = Request::get("/files/text_16m.txt")
+			.body(Empty::default())
+			.unwrap();
+
+		let response = static_files.call(request).await.unwrap();
+		assert_eq!(StatusCode::OK, response.status());
+		assert_eq!(
+			mime::TEXT_PLAIN.as_ref(),
+			response
+				.headers()
+				.get(CONTENT_TYPE)
+				.unwrap()
+				.to_str()
+				.unwrap()
+		);
+
+		assert_eq!(
+			"bytes",
+			response
+				.headers()
+				.get(ACCEPT_RANGES)
+				.unwrap()
+				.to_str()
+				.unwrap()
+		);
+
+		assert_eq!(
+			contents_16m.len().to_string(),
+			response
+				.headers()
+				.get(CONTENT_LENGTH)
+				.unwrap()
+				.to_str()
+				.unwrap()
+		);
+
+		dbg!(response.headers());
+
+		// ----------
+
+		let request = Request::get("/files/text_16m.txt")
+			.header(ACCEPT_ENCODING, "gzip")
+			.body(Empty::default())
+			.unwrap();
+
+		let response = static_files.call(request).await.unwrap();
+		assert_eq!(StatusCode::OK, response.status());
+		assert_eq!(
+			mime::TEXT_PLAIN.as_ref(),
+			response
+				.headers()
+				.get(CONTENT_TYPE)
+				.unwrap()
+				.to_str()
+				.unwrap()
+		);
+
+		assert_eq!(
+			"bytes",
+			response
+				.headers()
+				.get(ACCEPT_RANGES)
+				.unwrap()
+				.to_str()
+				.unwrap()
+		);
+
+		assert_eq!(
+			contents_16m.len().to_string(),
+			response
+				.headers()
+				.get(CONTENT_LENGTH)
+				.unwrap()
+				.to_str()
+				.unwrap()
+		);
+
+		// text_16m.txt doesn't have an encoded copy.
+		assert!(response.headers().get(CONTENT_ENCODING).is_none());
+
+		dbg!(response.headers());
+
+		// -------------------------
+
+		let request = Request::get("/files/small/html_8m.html")
+			.body(Empty::default())
+			.unwrap();
+
+		let response = static_files.call(request).await.unwrap();
+		assert_eq!(StatusCode::OK, response.status());
+		assert_eq!(
+			mime::TEXT_HTML.as_ref(),
+			response
+				.headers()
+				.get(CONTENT_TYPE)
+				.unwrap()
+				.to_str()
+				.unwrap()
+		);
+
+		assert_eq!(
+			"bytes",
+			response
+				.headers()
+				.get(ACCEPT_RANGES)
+				.unwrap()
+				.to_str()
+				.unwrap()
+		);
+
+		assert_eq!(
+			contents_8m.len().to_string(),
+			response
+				.headers()
+				.get(CONTENT_LENGTH)
+				.unwrap()
+				.to_str()
+				.unwrap()
+		);
+
+		assert!(response.headers().get(CONTENT_RANGE).is_none());
+		assert!(response.headers().get(CONTENT_ENCODING).is_none());
+
+		dbg!(response.headers());
+
+		assert_eq!(
+			contents_8m.len(),
+			response.collect().await.unwrap().to_bytes().len()
+		);
+
+		// ----------
+
+		let request = Request::get("/files/small/html_8m.html")
+			.header(ACCEPT_ENCODING, "gzip")
+			.body(Empty::default())
+			.unwrap();
+
+		let response = static_files.call(request).await.unwrap();
+		assert_eq!(StatusCode::OK, response.status());
+		assert_eq!(
+			mime::TEXT_HTML.as_ref(),
+			response
+				.headers()
+				.get(CONTENT_TYPE)
+				.unwrap()
+				.to_str()
+				.unwrap()
+		);
+
+		assert_eq!(
+			"bytes",
+			response
+				.headers()
+				.get(ACCEPT_RANGES)
+				.unwrap()
+				.to_str()
+				.unwrap()
+		);
+
+		assert_eq!(
+			contents_8m.len().to_string(),
+			response
+				.headers()
+				.get(CONTENT_LENGTH)
+				.unwrap()
+				.to_str()
+				.unwrap()
+		);
+
+		assert!(response.headers().get(CONTENT_RANGE).is_none());
+		assert_eq!(
+			"gzip",
+			response
+				.headers()
+				.get(CONTENT_ENCODING)
+				.unwrap()
+				.to_str()
+				.unwrap()
+		);
+
+		dbg!(response.headers());
+
+		assert_eq!(
+			contents_8m.len(),
+			response.collect().await.unwrap().to_bytes().len()
+		);
+
+		// -------------------------
+
+		let request = Request::get("/files/small/html_8m.html")
+			.header(RANGE, "bytes=0-512, 256-1024, -1024")
+			.body(Empty::default())
+			.unwrap();
+
+		let response = static_files.call(request).await.unwrap();
+		assert_eq!(StatusCode::PARTIAL_CONTENT, response.status());
+		assert!(response
+			.headers()
+			.get(CONTENT_TYPE)
+			.unwrap()
+			.to_str()
+			.unwrap()
+			.starts_with("multipart/byteranges; boundary="));
+
+		let content_length = response
+			.headers()
+			.get(CONTENT_LENGTH)
+			.unwrap()
+			.to_str()
+			.unwrap()
+			.parse::<usize>()
+			.unwrap();
+
+		assert!(content_length > 2048 && content_length < 8 * 1024);
+
+		dbg!(response.headers());
+
+		// ----------
+
+		let request = Request::get("/files/small/html_8m.html")
+			.header(ACCEPT_ENCODING, "gzip")
+			.header(RANGE, "bytes=0-512, 256-1024, -1024")
+			.body(Empty::default())
+			.unwrap();
+
+		let response = static_files.call(request).await.unwrap();
+		assert_eq!(StatusCode::PARTIAL_CONTENT, response.status());
+
+		assert!(response
+			.headers()
+			.get(CONTENT_TYPE)
+			.unwrap()
+			.to_str()
+			.unwrap()
+			.starts_with("multipart/byteranges; boundary="));
+
+		let content_length = response
+			.headers()
+			.get(CONTENT_LENGTH)
+			.unwrap()
+			.to_str()
+			.unwrap()
+			.parse::<usize>()
+			.unwrap();
+
+		assert!(content_length > 2048 && content_length < 8 * 1024);
+
+		// html_4m.html does have an encoded copy.
+		assert_eq!(
+			"gzip",
+			response
+				.headers()
+				.get(CONTENT_ENCODING)
+				.unwrap()
+				.to_str()
+				.unwrap()
+		);
+
+		dbg!(response.headers());
+
+		// -------------------------
+
+		let request = Request::get("/files/small/html_4m.html")
+			.header(RANGE, "bytes=-1024")
+			.body(Empty::default())
+			.unwrap();
+
+		let response = static_files.call(request).await.unwrap();
+		assert_eq!(StatusCode::PARTIAL_CONTENT, response.status());
+		assert_eq!(
+			mime::TEXT_HTML.as_ref(),
+			response
+				.headers()
+				.get(CONTENT_TYPE)
+				.unwrap()
+				.to_str()
+				.unwrap()
+		);
+
+		assert_eq!(
+			"1024",
+			response
+				.headers()
+				.get(CONTENT_LENGTH)
+				.unwrap()
+				.to_str()
+				.unwrap()
+		);
+
+		assert_eq!(
+			"bytes 4193280-4194303/4194304",
+			response
+				.headers()
+				.get(CONTENT_RANGE)
+				.unwrap()
+				.to_str()
+				.unwrap()
+		);
+
+		assert!(response.headers().get(CONTENT_ENCODING).is_none());
+
+		dbg!(response.headers());
+
+		// ----------
+
+		let request = Request::get("/files/small/html_4m.html")
+			.header(ACCEPT_ENCODING, "gzip")
+			.header(RANGE, "bytes=-1024")
+			.body(Empty::default())
+			.unwrap();
+
+		let response = static_files.call(request).await.unwrap();
+		assert_eq!(StatusCode::OK, response.status());
+		assert_eq!(
+			mime::TEXT_HTML.as_ref(),
+			response
+				.headers()
+				.get(CONTENT_TYPE)
+				.unwrap()
+				.to_str()
+				.unwrap()
+		);
+
+		assert!(response.headers().get(CONTENT_LENGTH).is_none());
+		assert!(response.headers().get(CONTENT_RANGE).is_none());
+		assert_eq!(
+			"gzip",
+			response
+				.headers()
+				.get(CONTENT_ENCODING)
+				.unwrap()
+				.to_str()
+				.unwrap()
+		);
+
+		dbg!(response.headers());
+
+		assert!(response.collect().await.unwrap().to_bytes().len() < contents_8m.len());
+
+		// -------------------------
+
+		let request = Request::get("/files/small/html_2m.html")
+			.body(Empty::default())
+			.unwrap();
+
+		let response = static_files.call(request).await.unwrap();
+		assert_eq!(StatusCode::OK, response.status());
+		assert_eq!(
+			mime::TEXT_HTML.as_ref(),
+			response
+				.headers()
+				.get(CONTENT_TYPE)
+				.unwrap()
+				.to_str()
+				.unwrap()
+		);
+
+		assert_eq!(
+			"bytes",
+			response
+				.headers()
+				.get(ACCEPT_RANGES)
+				.unwrap()
+				.to_str()
+				.unwrap()
+		);
+
+		assert_eq!(
+			contents_2m.len().to_string(),
+			response
+				.headers()
+				.get(CONTENT_LENGTH)
+				.unwrap()
+				.to_str()
+				.unwrap()
+		);
+
+		assert!(response.headers().get(CONTENT_RANGE).is_none());
+		assert!(response.headers().get(CONTENT_ENCODING).is_none());
+
+		dbg!(response.headers());
+
+		assert_eq!(
+			contents_2m.len(),
+			response.collect().await.unwrap().to_bytes().len()
+		);
+
+		// ----------
+
+		let request = Request::get("/files/small/html_2m.html")
+			.header(ACCEPT_ENCODING, "gzip")
+			.body(Empty::default())
+			.unwrap();
+
+		let response = static_files.call(request).await.unwrap();
+		assert_eq!(StatusCode::OK, response.status());
+		assert_eq!(
+			mime::TEXT_HTML.as_ref(),
+			response
+				.headers()
+				.get(CONTENT_TYPE)
+				.unwrap()
+				.to_str()
+				.unwrap()
+		);
+
+		assert!(response.headers().get(CONTENT_LENGTH).is_none());
+		assert!(response.headers().get(CONTENT_RANGE).is_none());
+		assert_eq!(
+			"gzip",
+			response
+				.headers()
+				.get(CONTENT_ENCODING)
+				.unwrap()
+				.to_str()
+				.unwrap()
+		);
+
+		dbg!(response.headers());
+
+		// Dynamically encoded body.
+		let body = response.collect().await.unwrap().to_bytes();
+		assert!(body.len() < contents_2m.len());
+	}
+}

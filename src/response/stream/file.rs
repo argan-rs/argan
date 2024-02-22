@@ -574,11 +574,6 @@ fn stream_multipart_ranges(
 	mut file_stream: Pin<&mut FileStream>,
 	cx: &mut Context<'_>,
 ) -> Poll<Option<Result<Frame<Bytes>, BoxedError>>> {
-	dbg!(
-		file_stream.current_range_index,
-		file_stream.current_range_remaining_size
-	);
-
 	let new_part = if file_stream.current_range_remaining_size == 0 {
 		let next_range_index = file_stream.current_range_index + 1;
 		if let Some(next_range_size) = file_stream
@@ -625,8 +620,6 @@ fn stream_multipart_ranges(
 	} else {
 		(BUFFER_SIZE, 0)
 	};
-
-	dbg!(capacity);
 
 	let (mut buffer, start_index) = if new_part {
 		let some_range = if !file_stream.ranges.is_empty() {
@@ -689,7 +682,6 @@ fn stream_multipart_ranges(
 			.read(&mut buffer[start_index..end_index])
 		{
 			Ok(size) => {
-				dbg!(size);
 				file_stream.current_range_remaining_size -= size as u64;
 				buffer.resize(start_index + size, 0);
 
@@ -797,8 +789,6 @@ fn parse_range_header_value(
 		return Err(FileStreamError::InvalidRangeValue);
 	};
 
-	dbg!(ranges_str);
-
 	let mut raw_ranges = ranges_str
 		.split(',')
 		.filter_map(|range_str| {
@@ -825,8 +815,6 @@ fn parse_range_header_value(
 	if raw_ranges.is_empty() {
 		return Err(FileStreamError::UnsatisfiableRange);
 	}
-
-	let mut raw_ranges = dbg!(raw_ranges);
 
 	if raw_ranges.len() == 1 {
 		let file_end = file_size - 1;
@@ -893,9 +881,6 @@ fn parse_range_header_value(
 
 	let (mut valid_ranges, some_biggest_suffix_range) =
 		get_valid_rangges(raw_ranges, ascending_range, file_size)?;
-
-	let mut valid_ranges = dbg!(valid_ranges);
-	let some_biggest_suffix_range = dbg!(some_biggest_suffix_range);
 
 	Ok(combine_valid_and_suffix_ranges(
 		valid_ranges,
@@ -1046,7 +1031,6 @@ fn combine_valid_and_suffix_ranges(
 			.0;
 
 		let suffix_range_start = file_size - end_length;
-		dbg!(suffix_range_start);
 		let check_position = |(i, range): (usize, &RangeValue)| {
 			if range.end.0 < suffix_range_start {
 				Some((i, true, range.end.0))
@@ -1066,7 +1050,6 @@ fn combine_valid_and_suffix_ranges(
 				.rev()
 				.find_map(|indexed_range| check_position(indexed_range))
 			{
-				dbg!((position, bigger_than_end, end));
 				valid_ranges.truncate(position + 1);
 
 				if !bigger_than_end || suffix_range_start - end < 128 {
@@ -1084,7 +1067,6 @@ fn combine_valid_and_suffix_ranges(
 				.enumerate()
 				.find_map(|indexed_range| check_position(indexed_range))
 			{
-				dbg!((position, bigger_than_end, end));
 				if !bigger_than_end || suffix_range_start - end < 128 {
 					valid_ranges[position].end = (file_end, file_end.to_string().into());
 					valid_ranges.rotate_left(position);
