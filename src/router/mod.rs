@@ -4,13 +4,13 @@ use std::{any, future::ready, num::NonZeroIsize, str::FromStr, sync::Arc};
 use http::{Extensions, StatusCode, Uri};
 
 use crate::{
-	common::{BoxedFuture, IntoArray, SCOPE_VALIDITY},
+	common::{BoxedError, BoxedFuture, IntoArray, SCOPE_VALIDITY},
 	handler::{AdaptiveHandler, BoxedHandler, Handler},
 	host::Host,
 	middleware::{BoxedLayer, IntoLayer, Layer, RequestExtensionsModifierLayer},
 	pattern::{Pattern, Similarity},
 	resource::{Iteration, Resource},
-	response::Response,
+	response::{BoxedErrorResponse, Response},
 };
 
 // --------------------------------------------------
@@ -277,9 +277,9 @@ impl Router {
 
 			if resource_is_root || uri_pattern.path().is_empty() {
 				return new_host.root_mut();
-			} else {
-				return new_host.root_mut().subresource_mut(uri_pattern.path());
 			}
+
+			return new_host.root_mut().subresource_mut(uri_pattern.path());
 		}
 
 		if uri_pattern.path().is_empty() {
@@ -443,8 +443,14 @@ pub fn request_passer<L, M>(layer: L) -> RouterLayerTarget
 where
 	L: IntoLayer<M, AdaptiveHandler>,
 	L::Layer: Layer<AdaptiveHandler> + Clone + 'static,
-	<L::Layer as Layer<AdaptiveHandler>>::Handler:
-		Handler<Response = Response, Future = BoxedFuture<Response>> + Clone + Send + Sync + 'static,
+	<L::Layer as Layer<AdaptiveHandler>>::Handler: Handler<
+			Response = Response,
+			Error = BoxedErrorResponse,
+			Future = BoxedFuture<Result<Response, BoxedErrorResponse>>,
+		> + Clone
+		+ Send
+		+ Sync
+		+ 'static,
 {
 	RouterLayerTarget(RouterLayerTargetValue::RequestPasser(BoxedLayer::new(
 		layer.into_layer(),

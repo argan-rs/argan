@@ -1,4 +1,6 @@
-use std::{convert::Infallible, fmt::Debug, future::Future, marker::PhantomData, sync::Arc};
+use std::{
+	convert::Infallible, fmt::Debug, future::Future, marker::PhantomData, process::Output, sync::Arc,
+};
 
 use crate::{
 	body::{Body, HttpBody},
@@ -6,7 +8,7 @@ use crate::{
 	data::extensions::NodeExtensions,
 	middleware::Layer,
 	request::{FromRequest, FromRequestHead, Request, RequestHead},
-	response::Response,
+	response::{BoxedErrorResponse, Response},
 	routing::RoutingState,
 };
 
@@ -30,42 +32,46 @@ pub use kind::*;
 // --------------------------------------------------------------------------------
 // --------------------------------------------------------------------------------
 
-pub trait Handler<B = Body, E = ()> {
+pub trait Handler<B = Body, Ext = ()> {
 	type Response;
-	type Future: Future<Output = Self::Response>;
+	type Error;
+	type Future: Future<Output = Result<Self::Response, Self::Error>>;
 
-	fn handle(&self, request: Request<B>, args: &mut Args<'_, E>) -> Self::Future;
+	fn handle(&self, request: Request<B>, args: &mut Args<'_, Ext>) -> Self::Future;
 }
 
-impl<S, B> Handler<B> for S
-where
-	S: Service<Request<B>, Error = Infallible>,
-{
-	type Response = S::Response;
-	type Future = ResultToResponseFuture<S::Future>;
-
-	fn handle(&self, mut request: Request<B>, args: &mut Args) -> Self::Future {
-		request
-			.extensions_mut()
-			.insert(args.node_extensions.clone().into_owned()); // ???
-
-		let result_future = self.call(request);
-
-		ResultToResponseFuture::from(result_future)
-	}
-}
+// impl<S, B> Handler<B> for S
+// where
+// 	S: Service<Request<B>>,
+// 	S::Error: Into<BoxedError>
+// {
+// 	type Response = S::Response;
+// 	type Error = BoxedError;
+// 	type Future = BoxedFuture<Result<Self::Response, Self::Error>>;
+//
+// 	fn handle(&self, mut request: Request<B>, args: &mut Args) -> Self::Future {
+// 		request
+// 			.extensions_mut()
+// 			.insert(args.node_extensions.clone().into_owned()); // ???
+//
+// 		self.call(request).map(Into::into)
+// 		// let result_future = self.call(request);
+// 		//
+// 		// ResultToResponseFuture::from(result_future)
+// 	}
+// }
 
 // -------------------------
 
-pub trait IntoHandler<Mark, B = Body, E = ()>: Sized {
-	type Handler: Handler<B, E>;
+pub trait IntoHandler<Mark, B = Body, Ext = ()>: Sized {
+	type Handler: Handler<B, Ext>;
 
 	fn into_handler(self) -> Self::Handler;
 
 	// --------------------------------------------------
 	// Provided Methods
 
-	fn with_extension(self, handler_extension: E) -> ExtendedHandler<Self::Handler, E> {
+	fn with_extension(self, handler_extension: Ext) -> ExtendedHandler<Self::Handler, Ext> {
 		ExtendedHandler::new(self.into_handler(), handler_extension)
 	}
 
@@ -77,9 +83,9 @@ pub trait IntoHandler<Mark, B = Body, E = ()>: Sized {
 	}
 }
 
-impl<H, B, E> IntoHandler<(), B, E> for H
+impl<H, B, Ext> IntoHandler<(), B, Ext> for H
 where
-	H: Handler<B, E>,
+	H: Handler<B, Ext>,
 {
 	type Handler = Self;
 
@@ -107,8 +113,8 @@ where
 	H: Handler<B>,
 {
 	type Response = H::Response;
-	type Error = Infallible;
-	type Future = ResponseToResultFuture<H::Future>;
+	type Error = H::Error;
+	type Future = H::Future;
 
 	#[inline]
 	fn call(&self, mut request: Request<B>) -> Self::Future {
@@ -130,32 +136,34 @@ where
 			handler_extension: &(),
 		};
 
-		let response_future = self.handler.handle(request, &mut args);
-
-		ResponseToResultFuture::from(response_future)
+		self.handler.handle(request, &mut args)
+		// let response_future = self.handler.handle(request, &mut args);
+		//
+		// ResponseToResultFuture::from(response_future)
 	}
 }
 
 // --------------------------------------------------
 // ExtendedHandler
 
-pub struct ExtendedHandler<H, E> {
+pub struct ExtendedHandler<H, Ext> {
 	inner: H,
-	extension: E,
+	extension: Ext,
 }
 
-impl<H, E> ExtendedHandler<H, E> {
-	pub fn new(inner: H, extension: E) -> Self {
+impl<H, Ext> ExtendedHandler<H, Ext> {
+	pub fn new(inner: H, extension: Ext) -> Self {
 		Self { inner, extension }
 	}
 }
 
-impl<H, B, E> Handler<B> for ExtendedHandler<H, E>
+impl<H, B, Ext> Handler<B> for ExtendedHandler<H, Ext>
 where
-	H: Handler<B, E>,
-	E: Clone + Send + Sync + 'static,
+	H: Handler<B, Ext>,
+	Ext: Clone + Send + Sync + 'static,
 {
 	type Response = H::Response;
+	type Error = H::Error;
 	type Future = H::Future;
 
 	#[inline]
@@ -178,7 +186,11 @@ where
 
 trait FinalHandler
 where
-	Self: Handler<Response = Response, Future = BoxedFuture<Response>>,
+	Self: Handler<
+		Response = Response,
+		Error = BoxedErrorResponse,
+		Future = BoxedFuture<Result<Response, BoxedErrorResponse>>,
+	>,
 {
 	fn into_boxed_handler(self) -> BoxedHandler;
 	fn boxed_clone(&self) -> BoxedHandler;
@@ -186,7 +198,14 @@ where
 
 impl<H> FinalHandler for H
 where
-	H: Handler<Response = Response, Future = BoxedFuture<Response>> + Clone + Send + Sync + 'static,
+	H: Handler<
+			Response = Response,
+			Error = BoxedErrorResponse,
+			Future = BoxedFuture<Result<Response, BoxedErrorResponse>>,
+		> + Clone
+		+ Send
+		+ Sync
+		+ 'static,
 {
 	fn into_boxed_handler(self) -> BoxedHandler {
 		BoxedHandler::new(self)
@@ -213,7 +232,9 @@ impl BoxedHandler {
 impl Default for BoxedHandler {
 	#[inline(always)]
 	fn default() -> Self {
-		BoxedHandler(Box::new(DummyHandler::<BoxedFuture<Response>>::new()))
+		BoxedHandler(Box::new(DummyHandler::<
+			BoxedFuture<Result<Response, BoxedErrorResponse>>,
+		>::new()))
 	}
 }
 
@@ -226,7 +247,8 @@ impl Clone for BoxedHandler {
 
 impl Handler for BoxedHandler {
 	type Response = Response;
-	type Future = BoxedFuture<Self::Response>;
+	type Error = BoxedErrorResponse;
+	type Future = BoxedFuture<Result<Self::Response, Self::Error>>;
 
 	#[inline(always)]
 	fn handle(&self, request: Request, args: &mut Args) -> Self::Future {
@@ -259,6 +281,7 @@ impl Clone for DummyHandler<DefaultResponseFuture> {
 
 impl Handler for DummyHandler<DefaultResponseFuture> {
 	type Response = Response;
+	type Error = BoxedErrorResponse;
 	type Future = DefaultResponseFuture;
 
 	#[inline(always)]
@@ -267,7 +290,7 @@ impl Handler for DummyHandler<DefaultResponseFuture> {
 	}
 }
 
-impl DummyHandler<BoxedFuture<Response>> {
+impl DummyHandler<BoxedFuture<Result<Response, BoxedErrorResponse>>> {
 	pub(crate) fn new() -> Self {
 		Self {
 			_future_mark: PhantomData,
@@ -275,7 +298,7 @@ impl DummyHandler<BoxedFuture<Response>> {
 	}
 }
 
-impl Clone for DummyHandler<BoxedFuture<Response>> {
+impl Clone for DummyHandler<BoxedFuture<Result<Response, BoxedErrorResponse>>> {
 	fn clone(&self) -> Self {
 		Self {
 			_future_mark: PhantomData,
@@ -283,9 +306,10 @@ impl Clone for DummyHandler<BoxedFuture<Response>> {
 	}
 }
 
-impl Handler for DummyHandler<BoxedFuture<Response>> {
+impl Handler for DummyHandler<BoxedFuture<Result<Response, BoxedErrorResponse>>> {
 	type Response = Response;
-	type Future = BoxedFuture<Response>;
+	type Error = BoxedErrorResponse;
+	type Future = BoxedFuture<Result<Self::Response, Self::Error>>;
 
 	#[inline(always)]
 	fn handle(&self, _req: Request, _args: &mut Args) -> Self::Future {
@@ -305,7 +329,8 @@ where
 	B::Error: Into<BoxedError>,
 {
 	type Response = Response;
-	type Future = BoxedFuture<Response>;
+	type Error = BoxedErrorResponse;
+	type Future = BoxedFuture<Result<Self::Response, Self::Error>>;
 
 	#[inline(always)]
 	fn handle(&self, request: Request<B>, args: &mut Args<'_, ()>) -> Self::Future {
@@ -324,10 +349,10 @@ impl From<BoxedHandler> for AdaptiveHandler {
 // Args
 
 #[non_exhaustive]
-pub struct Args<'r, E = ()> {
+pub struct Args<'r, Ext = ()> {
 	pub(crate) routing_state: RoutingState,
 	pub node_extensions: NodeExtensions<'r>,
-	pub handler_extension: &'r E, // The handler has the same lifetime as the resource it belongs to.
+	pub handler_extension: &'r Ext, // The handler has the same lifetime as the resource it belongs to.
 }
 
 impl Args<'_, ()> {

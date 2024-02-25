@@ -4,9 +4,9 @@ use http::Method;
 
 use crate::{
 	body::Body,
-	common::IntoArray,
-	middleware::{IntoResponseAdapter, ResponseFutureBoxer},
-	response::IntoResponse,
+	common::{BoxedError, IntoArray},
+	middleware::{IntoResponseResultAdapter, ResponseResultFutureBoxer},
+	response::{BoxedErrorResponse, IntoResponse},
 };
 
 use super::{BoxedHandler, FinalHandler, Handler, IntoHandler};
@@ -37,9 +37,10 @@ macro_rules! handler_kind_by_method {
 			H: IntoHandler<Mark, Body>,
 			H::Handler: Handler + Clone + Send + Sync + 'static,
 			<H::Handler as Handler>::Response: IntoResponse,
+			<H::Handler as Handler>::Error: Into<BoxedErrorResponse>,
 		{
 			let final_handler =
-				ResponseFutureBoxer::wrap(IntoResponseAdapter::wrap(handler.into_handler()));
+				ResponseResultFutureBoxer::wrap(IntoResponseResultAdapter::wrap(handler.into_handler()));
 
 			HandlerKind(Inner::Method(
 				$http_method,
@@ -65,11 +66,13 @@ where
 	H: IntoHandler<Mark, Body>,
 	H::Handler: Handler + Clone + Send + Sync + 'static,
 	<H::Handler as Handler>::Response: IntoResponse,
+	<H::Handler as Handler>::Error: Into<BoxedErrorResponse>,
 {
 	let method = Method::from_str(method.as_ref())
 		.expect("HTTP method should be a valid token [RFC 9110, 5.6.2 Tokens]");
 
-	let final_handler = ResponseFutureBoxer::wrap(IntoResponseAdapter::wrap(handler.into_handler()));
+	let final_handler =
+		ResponseResultFutureBoxer::wrap(IntoResponseResultAdapter::wrap(handler.into_handler()));
 
 	HandlerKind(Inner::Method(method, final_handler.into_boxed_handler()))
 }
@@ -79,8 +82,10 @@ where
 	H: IntoHandler<Mark, Body>,
 	H::Handler: Handler + Clone + Send + Sync + 'static,
 	<H::Handler as Handler>::Response: IntoResponse,
+	<H::Handler as Handler>::Error: Into<BoxedErrorResponse>,
 {
-	let final_handler = ResponseFutureBoxer::wrap(IntoResponseAdapter::wrap(handler.into_handler()));
+	let final_handler =
+		ResponseResultFutureBoxer::wrap(IntoResponseResultAdapter::wrap(handler.into_handler()));
 
 	HandlerKind(Inner::WildcardMethod(final_handler.into_boxed_handler()))
 }
@@ -90,8 +95,10 @@ where
 	H: IntoHandler<Mark, Body>,
 	H::Handler: Handler + Clone + Send + Sync + 'static,
 	<H::Handler as Handler>::Response: IntoResponse,
+	<H::Handler as Handler>::Error: Into<BoxedErrorResponse>,
 {
-	let final_handler = ResponseFutureBoxer::wrap(IntoResponseAdapter::wrap(handler.into_handler()));
+	let final_handler =
+		ResponseResultFutureBoxer::wrap(IntoResponseResultAdapter::wrap(handler.into_handler()));
 
 	HandlerKind(Inner::MistargetedRequest(
 		final_handler.into_boxed_handler(),

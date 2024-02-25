@@ -1,4 +1,4 @@
-use std::{any::Any, convert::Infallible};
+use std::{any::Any, convert::Infallible, fmt::Display};
 
 use http::{
 	header::{InvalidHeaderName, InvalidHeaderValue, LOCATION},
@@ -18,13 +18,18 @@ pub use http::StatusCode;
 
 // --------------------------------------------------
 
+mod error;
 pub mod stream;
+
+pub use error::{ErrorResponse, ResponseError};
 
 // --------------------------------------------------------------------------------
 // --------------------------------------------------------------------------------
 
 pub type Response<B = Body> = http::response::Response<B>;
 pub type ResponseHead = Parts;
+
+pub type BoxedErrorResponse = Box<dyn ErrorResponse + 'static>;
 
 // --------------------------------------------------
 // IntoResponseHead trait
@@ -42,17 +47,35 @@ pub trait IntoResponse {
 	fn into_response(self) -> Response;
 }
 
-impl<B> IntoResponse for Response<B>
-// ???
-where
-	B: HttpBody<Data = Bytes> + Send + Sync + 'static,
-	B::Error: Into<BoxedError>,
-{
+impl IntoResponse for Response {
 	fn into_response(self) -> Response {
-		let (head, body) = self.into_parts();
-		let boxed_body = Body::new(body);
+		self
+	}
+}
 
-		Response::from_parts(head, boxed_body)
+// --------------------------------------------------
+// IntoResponseResult trait
+
+pub trait IntoResponseResult {
+	fn into_response_result(self) -> Result<Response, BoxedErrorResponse>;
+}
+
+impl<R, E> IntoResponseResult for Result<R, E>
+where
+	R: IntoResponse,
+	E: ErrorResponse,
+{
+	fn into_response_result(self) -> Result<Response, BoxedErrorResponse> {
+		self.map(IntoResponse::into_response).map_err(Into::into)
+	}
+}
+
+impl<R> IntoResponseResult for R
+where
+	R: IntoResponse,
+{
+	fn into_response_result(self) -> Result<Response, BoxedErrorResponse> {
+		Ok(self.into_response())
 	}
 }
 
@@ -161,19 +184,19 @@ impl<T: IntoResponse> IntoResponse for Option<T> {
 // --------------------------------------------------
 // Result<T, E>
 
-impl<T, E> IntoResponse for Result<T, E>
-where
-	T: IntoResponse,
-	E: IntoResponse,
-{
-	#[inline]
-	fn into_response(self) -> Response {
-		match self {
-			Ok(value) => value.into_response(),
-			Err(error) => error.into_response(),
-		}
-	}
-}
+// impl<T, E> IntoResponse for Result<T, E>
+// where
+// 	T: IntoResponse,
+// 	E: IntoResponse,
+// {
+// 	#[inline]
+// 	fn into_response(self) -> Response {
+// 		match self {
+// 			Ok(value) => value.into_response(),
+// 			Err(error) => error.into_response(),
+// 		}
+// 	}
+// }
 
 // --------------------------------------------------
 // Array of header (name, value) tuples
@@ -201,22 +224,22 @@ where
 	}
 }
 
-impl<N, V, const C: usize> IntoResponse for [(N, V); C]
-where
-	N: TryInto<HeaderName>,
-	N::Error: crate::StdError,
-	V: TryInto<HeaderValue>,
-	V::Error: crate::StdError,
-{
-	fn into_response(self) -> Response {
-		let (head, body) = Response::default().into_parts();
-
-		match self.into_response_head(head) {
-			Ok(head) => Response::from_parts(head, body),
-			Err(error) => error.into_response(),
-		}
-	}
-}
+// impl<N, V, const C: usize> IntoResponse for [(N, V); C]
+// where
+// 	N: TryInto<HeaderName>,
+// 	N::Error: crate::StdError,
+// 	V: TryInto<HeaderValue>,
+// 	V::Error: crate::StdError,
+// {
+// 	fn into_response(self) -> Response {
+// 		let (head, body) = Response::default().into_parts();
+//
+// 		match self.into_response_head(head) {
+// 			Ok(head) => Response::from_parts(head, body),
+// 			Err(error) => error.into_response(),
+// 		}
+// 	}
+// }
 
 #[derive(Debug, crate::ImplError)]
 pub enum HeaderError<NE, VE> {

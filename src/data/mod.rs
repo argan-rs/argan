@@ -24,7 +24,7 @@ use crate::{
 	handler::Args,
 	header::ContentTypeError,
 	request::{content_type, FromRequest, FromRequestHead, Request, RequestHead},
-	response::{IntoResponse, IntoResponseHead, Response, ResponseHead},
+	response::{IntoResponse, IntoResponseHead, Response, ResponseError, ResponseHead},
 	ImplError,
 };
 
@@ -148,7 +148,7 @@ where
 	B::Error: Into<BoxedError>,
 	E: Sync,
 {
-	type Error = StatusCode; // TODO.
+	type Error = ResponseError; // TODO.
 
 	async fn from_request(request: Request<B>, _args: &mut Args<'_, E>) -> Result<Self, Self::Error> {
 		let content_type = content_type(&request).map_err(|_| StatusCode::BAD_REQUEST)?;
@@ -157,18 +157,19 @@ where
 			match Limited::new(request, SIZE_LIMIT).collect().await {
 				Ok(body) => match String::from_utf8(body.to_bytes().into()) {
 					Ok(text) => Ok(Text(text)),
-					Err(error) => Err(StatusCode::BAD_REQUEST),
+					Err(error) => Err(StatusCode::BAD_REQUEST.into()),
 				},
 				Err(error) => Err(
 					error
 						.downcast_ref::<LengthLimitError>()
 						.map_or(StatusCode::INTERNAL_SERVER_ERROR, |_| {
 							StatusCode::PAYLOAD_TOO_LARGE
-						}),
+						})
+						.into(),
 				),
 			}
 		} else {
-			Err(StatusCode::UNSUPPORTED_MEDIA_TYPE)
+			Err(StatusCode::UNSUPPORTED_MEDIA_TYPE.into())
 		}
 	}
 }
@@ -244,7 +245,7 @@ where
 	B::Error: Into<BoxedError>,
 	E: Sync,
 {
-	type Error = StatusCode; // TODO.
+	type Error = ResponseError; // TODO.
 
 	async fn from_request(request: Request<B>, _args: &mut Args<'_, E>) -> Result<Self, Self::Error> {
 		let content_type_str = content_type(&request).map_err(|_| StatusCode::BAD_REQUEST)?;
@@ -257,11 +258,12 @@ where
 						.downcast_ref::<LengthLimitError>()
 						.map_or(StatusCode::INTERNAL_SERVER_ERROR, |_| {
 							StatusCode::PAYLOAD_TOO_LARGE
-						}),
+						})
+						.into(),
 				),
 			}
 		} else {
-			Err(StatusCode::UNSUPPORTED_MEDIA_TYPE)
+			Err(StatusCode::UNSUPPORTED_MEDIA_TYPE.into())
 		}
 	}
 }

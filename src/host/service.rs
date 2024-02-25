@@ -11,7 +11,7 @@ use crate::{
 	pattern::ParamsList,
 	request::Request,
 	resource::ResourceService,
-	response::{IntoResponse, Response},
+	response::{BoxedErrorResponse, IntoResponse, Response},
 	routing::{RouteTraversal, RoutingState},
 };
 
@@ -44,7 +44,11 @@ impl HostService {
 	}
 
 	#[inline(always)]
-	pub(crate) fn handle<B>(&self, request: Request<B>, args: &mut Args) -> BoxedFuture<Response>
+	pub(crate) fn handle<B>(
+		&self,
+		request: Request<B>,
+		args: &mut Args,
+	) -> BoxedFuture<Result<Response, BoxedErrorResponse>>
 	where
 		B: HttpBody<Data = Bytes> + Send + Sync + 'static,
 		B::Error: Into<BoxedError>,
@@ -59,15 +63,13 @@ where
 	B::Error: Into<BoxedError>,
 {
 	type Response = Response;
-	type Error = Infallible;
-	type Future = ResponseToResultFuture<BoxedFuture<Response>>;
+	type Error = BoxedErrorResponse;
+	type Future = BoxedFuture<Result<Self::Response, Self::Error>>;
 
 	fn call(&self, request: Request<B>) -> Self::Future {
 		macro_rules! handle_unmatching_host {
 			() => {
-				ResponseToResultFuture::from(
-					Box::pin(ready(StatusCode::NOT_FOUND.into_response())) as BoxedFuture<Response>
-				)
+				Box::pin(ready(Ok(StatusCode::NOT_FOUND.into_response())))
 			};
 		}
 
@@ -83,13 +85,13 @@ where
 		};
 
 		if let Some(result) = self.pattern.is_static_match(host) {
-			return ResponseToResultFuture::from(self.root_resource.handle(request, &mut args));
+			return self.root_resource.handle(request, &mut args);
 		} else {
 			if let Some(result) = self
 				.pattern
 				.is_regex_match(host, &mut args.routing_state.uri_params)
 			{
-				return ResponseToResultFuture::from(self.root_resource.handle(request, &mut args));
+				return self.root_resource.handle(request, &mut args);
 			}
 		}
 

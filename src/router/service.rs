@@ -13,7 +13,7 @@ use crate::{
 	pattern::ParamsList,
 	request::Request,
 	resource::{Resource, ResourceService},
-	response::{IntoResponse, Response},
+	response::{BoxedErrorResponse, IntoResponse, Response},
 	routing::{RouteTraversal, RoutingState},
 };
 
@@ -43,8 +43,8 @@ where
 	B::Error: Into<BoxedError>,
 {
 	type Response = Response;
-	type Error = Infallible;
-	type Future = ResponseToResultFuture<BoxedFuture<Response>>;
+	type Error = BoxedErrorResponse;
+	type Future = BoxedFuture<Result<Self::Response, Self::Error>>;
 
 	fn call(&self, mut request: Request<B>) -> Self::Future {
 		let routing_state = RoutingState::new(RouteTraversal::for_route(request.uri().path()));
@@ -56,11 +56,9 @@ where
 
 		match &self.request_passer {
 			MaybeBoxed::Boxed(boxed_request_passer) => {
-				ResponseToResultFuture::from(boxed_request_passer.handle(request.map(Body::new), &mut args))
+				boxed_request_passer.handle(request.map(Body::new), &mut args)
 			}
-			MaybeBoxed::Unboxed(request_passer) => {
-				ResponseToResultFuture::from(request_passer.handle(request, &mut args))
-			}
+			MaybeBoxed::Unboxed(request_passer) => request_passer.handle(request, &mut args),
 		}
 	}
 }
@@ -126,7 +124,8 @@ where
 	B::Error: Into<BoxedError>,
 {
 	type Response = Response;
-	type Future = BoxedFuture<Response>;
+	type Error = BoxedErrorResponse;
+	type Future = BoxedFuture<Result<Self::Response, Self::Error>>;
 
 	fn handle(&self, request: Request<B>, args: &mut Args) -> Self::Future {
 		if let Some(uri_host) = request.uri().host() {
@@ -155,6 +154,6 @@ where
 			return root_resource.handle(request, args);
 		}
 
-		Box::pin(ready(StatusCode::NOT_FOUND.into_response()))
+		Box::pin(ready(Ok(StatusCode::NOT_FOUND.into_response())))
 	}
 }

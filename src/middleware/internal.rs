@@ -15,7 +15,7 @@ use crate::{
 	common::{BoxedError, BoxedFuture},
 	handler::{AdaptiveHandler, Args, BoxedHandler, DummyHandler, Handler},
 	request::Request,
-	response::{IntoResponse, Response},
+	response::{BoxedErrorResponse, IntoResponse, Response},
 };
 
 use super::Layer;
@@ -53,25 +53,27 @@ use super::Layer;
 // --------------------------------------------------------------------------------
 
 #[derive(Clone)]
-pub(crate) struct IntoResponseAdapter<H>(H);
+pub(crate) struct IntoResponseResultAdapter<H>(H);
 
-impl<H, B> Handler<B> for IntoResponseAdapter<H>
+impl<H, B> Handler<B> for IntoResponseResultAdapter<H>
 where
 	H: Handler<B>,
 	H::Response: IntoResponse,
+	H::Error: Into<BoxedErrorResponse>,
 {
 	type Response = Response;
-	type Future = IntoResponseFuture<H::Future>;
+	type Error = BoxedErrorResponse;
+	type Future = IntoResponseResultFuture<H::Future>;
 
 	#[inline]
 	fn handle(&self, request: Request<B>, args: &mut Args) -> Self::Future {
 		let response_future = self.0.handle(request, args);
 
-		IntoResponseFuture::from(response_future)
+		IntoResponseResultFuture::from(response_future)
 	}
 }
 
-impl<H> IntoResponseAdapter<H> {
+impl<H> IntoResponseResultAdapter<H> {
 	#[inline]
 	pub(crate) fn wrap(handler: H) -> Self {
 		Self(handler)
@@ -81,20 +83,21 @@ impl<H> IntoResponseAdapter<H> {
 // ----------
 
 #[pin_project]
-pub(crate) struct IntoResponseFuture<F>(#[pin] F);
+pub(crate) struct IntoResponseResultFuture<F>(#[pin] F);
 
-impl<F> From<F> for IntoResponseFuture<F> {
+impl<F> From<F> for IntoResponseResultFuture<F> {
 	fn from(inner: F) -> Self {
 		Self(inner)
 	}
 }
 
-impl<F, R> Future for IntoResponseFuture<F>
+impl<F, R, E> Future for IntoResponseResultFuture<F>
 where
-	F: Future<Output = R>,
+	F: Future<Output = Result<R, E>>,
 	R: IntoResponse,
+	E: Into<BoxedErrorResponse>,
 {
-	type Output = Response;
+	type Output = Result<Response, BoxedErrorResponse>;
 
 	#[inline]
 	fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
@@ -102,22 +105,23 @@ where
 			.project()
 			.0
 			.poll(cx)
-			.map(|output| output.into_response())
+			.map(|output| output.map(IntoResponse::into_response).map_err(Into::into))
 	}
 }
 
 // --------------------------------------------------------------------------------
 
 #[derive(Clone)]
-pub(crate) struct ResponseFutureBoxer<H>(H);
+pub(crate) struct ResponseResultFutureBoxer<H>(H);
 
-impl<H, B> Handler<B> for ResponseFutureBoxer<H>
+impl<H, B> Handler<B> for ResponseResultFutureBoxer<H>
 where
-	H: Handler<B, Response = Response>,
+	H: Handler<B, Response = Response, Error = BoxedErrorResponse>,
 	H::Future: 'static,
 {
-	type Response = Response;
-	type Future = BoxedFuture<Response>;
+	type Response = H::Response;
+	type Error = H::Error;
+	type Future = BoxedFuture<Result<Self::Response, Self::Error>>;
 
 	fn handle(&self, request: Request<B>, args: &mut Args) -> Self::Future {
 		let response_future = self.0.handle(request, args);
@@ -126,7 +130,7 @@ where
 	}
 }
 
-impl<H> ResponseFutureBoxer<H> {
+impl<H> ResponseResultFutureBoxer<H> {
 	#[inline]
 	pub(crate) fn wrap(handler: H) -> Self {
 		Self(handler)
@@ -177,6 +181,7 @@ where
 	H: Handler<B>,
 {
 	type Response = H::Response;
+	type Error = H::Error;
 	type Future = H::Future;
 
 	#[inline(always)]

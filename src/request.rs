@@ -16,10 +16,10 @@ use serde::{de::DeserializeOwned, Deserializer};
 
 use crate::{
 	body::Body,
-	common::{IntoArray, Uncloneable},
+	common::{BoxedError, IntoArray, Uncloneable},
 	handler::Args,
 	header::ContentTypeError,
-	response::{IntoResponse, IntoResponseHead, Response},
+	response::{BoxedErrorResponse, IntoResponse, IntoResponseHead, Response},
 	routing::RoutingState,
 	ImplError, StdError,
 };
@@ -38,7 +38,7 @@ pub type RequestHead = Parts;
 // FromRequestHead trait
 
 pub trait FromRequestHead<E>: Sized {
-	type Error: IntoResponse;
+	type Error: Into<BoxedErrorResponse>;
 
 	fn from_request_head(
 		head: &mut RequestHead,
@@ -50,7 +50,7 @@ pub trait FromRequestHead<E>: Sized {
 // FromRequest<B> trait
 
 pub trait FromRequest<B, E>: Sized {
-	type Error: IntoResponse;
+	type Error: Into<BoxedErrorResponse>;
 
 	fn from_request(
 		request: Request<B>,
@@ -208,85 +208,85 @@ where
 	}
 }
 
-impl<E, T> FromRequestHead<E> for PathParam<T>
-where
-	E: Sync,
-	T: DeserializeOwned,
-{
-	type Error = StatusCode; // TODO.
-
-	async fn from_request_head(
-		head: &mut RequestHead,
-		_args: &mut Args<'_, E>,
-	) -> Result<Self, Self::Error> {
-		let routing_state = head
-			.extensions
-			.get_mut::<Uncloneable<RoutingState>>()
-			.expect("Uncloneable<RoutingState> should be inserted before request_handler is called")
-			.as_mut()
-			.expect("RoutingState should always exist in Uncloneable");
-
-		let mut from_params_list = routing_state.uri_params.deserializer();
-
-		T::deserialize(&mut from_params_list)
-			.map(|value| Self(value))
-			.map_err(|_| StatusCode::NOT_FOUND)
-	}
-}
-
-impl<B, E, T> FromRequest<B, E> for PathParam<T>
-where
-	B: Send,
-	E: Sync,
-	T: DeserializeOwned,
-{
-	type Error = StatusCode; // TODO.
-
-	async fn from_request(request: Request<B>, _args: &mut Args<'_, E>) -> Result<Self, Self::Error> {
-		let (mut head, _) = request.into_parts();
-
-		Self::from_request_head(&mut head, _args).await
-	}
-}
+// impl<E, T> FromRequestHead<E> for PathParam<T>
+// where
+// 	E: Sync,
+// 	T: DeserializeOwned,
+// {
+// 	type Error = StatusCode; // TODO.
+//
+// 	async fn from_request_head(
+// 		head: &mut RequestHead,
+// 		_args: &mut Args<'_, E>,
+// 	) -> Result<Self, Self::Error> {
+// 		let routing_state = head
+// 			.extensions
+// 			.get_mut::<Uncloneable<RoutingState>>()
+// 			.expect("Uncloneable<RoutingState> should be inserted before request_handler is called")
+// 			.as_mut()
+// 			.expect("RoutingState should always exist in Uncloneable");
+//
+// 		let mut from_params_list = routing_state.uri_params.deserializer();
+//
+// 		T::deserialize(&mut from_params_list)
+// 			.map(|value| Self(value))
+// 			.map_err(|_| StatusCode::NOT_FOUND)
+// 	}
+// }
+//
+// impl<B, E, T> FromRequest<B, E> for PathParam<T>
+// where
+// 	B: Send,
+// 	E: Sync,
+// 	T: DeserializeOwned,
+// {
+// 	type Error = StatusCode; // TODO.
+//
+// 	async fn from_request(request: Request<B>, _args: &mut Args<'_, E>) -> Result<Self, Self::Error> {
+// 		let (mut head, _) = request.into_parts();
+//
+// 		Self::from_request_head(&mut head, _args).await
+// 	}
+// }
 
 // --------------------------------------------------
 // QueryParams
 
-pub struct QueryParams<T>(pub T);
-
-impl<E, T> FromRequestHead<E> for QueryParams<T>
-where
-	E: Sync,
-	T: DeserializeOwned,
-{
-	type Error = StatusCode; // TODO.
-
-	async fn from_request_head(
-		head: &mut RequestHead,
-		_args: &mut Args<'_, E>,
-	) -> Result<Self, Self::Error> {
-		let query_string = head.uri.query().ok_or(StatusCode::BAD_REQUEST)?;
-
-		serde_urlencoded::from_str::<T>(query_string)
-			.map(|value| Self(value))
-			.map_err(|_| StatusCode::BAD_REQUEST)
-	}
-}
-
-impl<B, E, T> FromRequest<B, E> for QueryParams<T>
-where
-	B: Send,
-	E: Sync,
-	T: DeserializeOwned,
-{
-	type Error = StatusCode; // TODO.
-
-	async fn from_request(request: Request<B>, _args: &mut Args<'_, E>) -> Result<Self, Self::Error> {
-		let (mut head, _) = request.into_parts();
-
-		Self::from_request_head(&mut head, _args).await
-	}
-}
+// pub struct QueryParams<T>(pub T);
+//
+// impl<E, T> FromRequestHead<E> for QueryParams<T>
+// where
+// 	E: Sync,
+// 	T: DeserializeOwned,
+// {
+// 	type Error = StatusCode; // TODO.
+//
+// 	async fn from_request_head(
+// 		head: &mut RequestHead,
+// 		_args: &mut Args<'_, E>,
+// 	) -> Result<Self, Self::Error> {
+// 		let query_string = head.uri.query().ok_or(StatusCode::BAD_REQUEST)?;
+//
+// 		serde_urlencoded::from_str::<T>(query_string)
+// 			.map(|value| Self(value))
+// 			.map_err(|_| StatusCode::BAD_REQUEST)
+// 	}
+// }
+//
+// impl<B, E, T> FromRequest<B, E> for QueryParams<T>
+// where
+// 	B: Send,
+// 	E: Sync,
+// 	T: DeserializeOwned,
+// {
+// 	type Error = StatusCode; // TODO.
+//
+// 	async fn from_request(request: Request<B>, _args: &mut Args<'_, E>) -> Result<Self, Self::Error> {
+// 		let (mut head, _) = request.into_parts();
+//
+// 		Self::from_request_head(&mut head, _args).await
+// 	}
+// }
 
 // --------------------------------------------------
 // Remaining path
@@ -346,23 +346,21 @@ macro_rules! impl_extractions_for_tuples {
 			$tl: FromRequestHead<E> + Send,
 			E: Sync,
 		{
-			type Error = Response;
+			type Error = BoxedErrorResponse;
 
 			async fn from_request_head(
 				head: &mut RequestHead,
 				args: &mut Args<'_, E>,
 			) -> Result<Self, Self::Error> {
-				let $t1 = $t1::from_request_head(head, args).await.map_err(|error| error.into_response())?;
+				let $t1 = $t1::from_request_head(head, args).await.map_err(Into::into)?;
 
 				$(
 					$(
-						let $t = $t::from_request_head(head, args).await.map_err(
-							|error| error.into_response()
-						)?;
+						let $t = $t::from_request_head(head, args).await.map_err(Into::into)?;
 					)*
 				)?
 
-				let $tl = $tl::from_request_head(head, args).await.map_err(|error| error.into_response())?;
+				let $tl = $tl::from_request_head(head, args).await.map_err(Into::into)?;
 
 				Ok(($t1, $($($t,)*)? $tl))
 			}
@@ -377,7 +375,7 @@ macro_rules! impl_extractions_for_tuples {
 			B: Send,
 			E: Sync,
 		{
-			type Error = Response;
+			type Error = BoxedErrorResponse;
 
 			async fn from_request(
 				request: Request<B>,
@@ -385,19 +383,15 @@ macro_rules! impl_extractions_for_tuples {
 			) -> Result<Self, Self::Error> {
 				let (mut head, body) = request.into_parts();
 
-				let $t1 = $t1::from_request_head(&mut head, args).await.map_err(
-					|error| error.into_response()
-				)?;
+				let $t1 = $t1::from_request_head(&mut head, args).await.map_err(Into::into)?;
 
 				$($(
-					let $t = $t::from_request_head(&mut head, args).await.map_err(
-						|error| error.into_response()
-					)?;
+					let $t = $t::from_request_head(&mut head, args).await.map_err(Into::into)?;
 				)*)?
 
 				let request = Request::from_parts(head, body);
 
-				let $tl = $tl::from_request(request, args).await.map_err(|error| error.into_response())?;
+				let $tl = $tl::from_request(request, args).await.map_err(Into::into)?;
 
 				Ok(($t1, $($($t,)*)? $tl))
 			}

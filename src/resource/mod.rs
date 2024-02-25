@@ -18,7 +18,7 @@ use crate::{
 		},
 		AdaptiveHandler, BoxedHandler, HandlerKind, IntoHandler,
 	},
-	middleware::{IntoResponseAdapter, ResponseFutureBoxer},
+	middleware::{IntoResponseResultAdapter, ResponseResultFutureBoxer},
 	pattern::{Pattern, Similarity},
 	request::{FromRequest, FromRequestHead, Request, RequestHead},
 	response::Response,

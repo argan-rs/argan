@@ -18,13 +18,15 @@ use http::{
 use httpdate::HttpDate;
 
 use crate::{
-	common::{patterns_to_route, strip_double_quotes, BoxedError, Uncloneable, SCOPE_VALIDITY},
-	handler::{get, request_handlers::handle_mistargeted_request},
+	common::{
+		patterns_to_route, strip_double_quotes, BoxedError, BoxedFuture, Uncloneable, SCOPE_VALIDITY,
+	},
+	handler::{get, request_handlers::handle_mistargeted_request, Handler, IntoHandler},
 	header::{split_header_value, SplitHeaderValueError},
 	request::{content_type, FromRequest, RemainingPath, Request},
 	response::{
 		stream::{ContentCoding, FileStream, FileStreamError},
-		IntoResponse, Response,
+		IntoResponse, IntoResponseResult, Response,
 	},
 	routing::RoutingState,
 };
