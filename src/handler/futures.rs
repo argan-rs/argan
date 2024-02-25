@@ -7,7 +7,10 @@ use std::{
 
 use pin_project::pin_project;
 
-use crate::{common::BoxedFuture, response::Response};
+use crate::{
+	common::{BoxedError, BoxedFuture},
+	response::{BoxedErrorResponse, Response},
+};
 
 // --------------------------------------------------------------------------------
 // --------------------------------------------------------------------------------
@@ -71,10 +74,10 @@ impl DefaultResponseFuture {
 }
 
 impl Future for DefaultResponseFuture {
-	type Output = Response;
+	type Output = Result<Response, BoxedErrorResponse>;
 
 	fn poll(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Self::Output> {
-		Poll::Ready(Response::default())
+		Poll::Ready(Ok(Response::default()))
 	}
 }
 

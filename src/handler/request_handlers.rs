@@ -6,12 +6,12 @@ use std::{
 use http::{Extensions, HeaderName, HeaderValue, Method, StatusCode};
 
 use crate::{
-	common::{mark::Private, BoxedFuture, Uncloneable},
+	common::{mark::Private, BoxedError, BoxedFuture, Uncloneable},
 	data::extensions::NodeExtensions,
-	middleware::{Layer, ResponseFutureBoxer},
+	middleware::{Layer, ResponseResultFutureBoxer},
 	request::Request,
 	resource::ResourceLayerTarget,
-	response::{IntoResponse, Response},
+	response::{BoxedErrorResponse, IntoResponse, Response, ResponseError},
 	routing::{RoutingState, UnusedRequest},
 };
 
@@ -116,7 +116,8 @@ impl UnimplementedMethodHandler {
 
 impl Handler for UnimplementedMethodHandler {
 	type Response = Response;
-	type Future = Ready<Response>;
+	type Error = BoxedErrorResponse;
+	type Future = Ready<Result<Self::Response, Self::Error>>;
 
 	fn handle(&self, request: Request, _args: &mut Args) -> Self::Future {
 		match HeaderValue::from_str(&self.0) {
@@ -127,9 +128,11 @@ impl Handler for UnimplementedMethodHandler {
 					.headers_mut()
 					.append(HeaderName::from_static("Allow"), header_value);
 
-				ready(response)
+				ready(Ok(response))
 			}
-			Err(_) => ready(StatusCode::INTERNAL_SERVER_ERROR.into_response()),
+			Err(_) => ready(Err(
+				Into::<ResponseError>::into(StatusCode::INTERNAL_SERVER_ERROR).into(),
+			)),
 		}
 	}
 }
@@ -139,12 +142,12 @@ impl Handler for UnimplementedMethodHandler {
 pub(crate) fn handle_unimplemented_method(
 	mut request: Request,
 	allowed_methods: &str,
-) -> BoxedFuture<Response> {
+) -> BoxedFuture<Result<Response, BoxedErrorResponse>> {
 	let mut response = Response::default();
 	*response.status_mut() = StatusCode::METHOD_NOT_ALLOWED;
 
 	if allowed_methods.is_empty() {
-		return Box::pin(ready(response));
+		return Box::pin(ready(Ok(response)));
 	}
 
 	match HeaderValue::from_str(allowed_methods) {
@@ -158,7 +161,7 @@ pub(crate) fn handle_unimplemented_method(
 		}
 	}
 
-	Box::pin(ready(response))
+	Box::pin(ready(Ok(response)))
 }
 
 // --------------------------------------------------------------------------------
@@ -176,13 +179,14 @@ impl MistargetedRequestHandler {
 
 impl Handler for MistargetedRequestHandler {
 	type Response = Response;
-	type Future = Ready<Response>;
+	type Error = BoxedErrorResponse;
+	type Future = Ready<Result<Self::Response, Self::Error>>;
 
 	fn handle(&self, _request: Request, _args: &mut Args) -> Self::Future {
 		let mut response = Response::default();
 		*response.status_mut() = StatusCode::NOT_FOUND;
 
-		ready(response)
+		ready(Ok(response))
 	}
 }
 
@@ -205,7 +209,7 @@ pub(crate) fn wrap_mistargeted_request_handler(
 					Some(boxed_layer.wrap(AdaptiveHandler::from(boxed_mistargeted_request_handler)));
 			} else {
 				let boxed_mistargeted_request_handler =
-					ResponseFutureBoxer::wrap(MistargetedRequestHandler::new()).into_boxed_handler();
+					ResponseResultFutureBoxer::wrap(MistargetedRequestHandler::new()).into_boxed_handler();
 
 				some_mistargeted_request_handler =
 					Some(boxed_layer.wrap(AdaptiveHandler::from(boxed_mistargeted_request_handler)));
@@ -222,7 +226,7 @@ pub(crate) fn handle_mistargeted_request(
 	mut request: Request,
 	routing_state: RoutingState,
 	mut some_custom_handler_with_extensions: Option<(&BoxedHandler, NodeExtensions)>,
-) -> BoxedFuture<Response> {
+) -> BoxedFuture<Result<Response, BoxedErrorResponse>> {
 	if let Some((mistargeted_request_handler, node_extensions)) =
 		some_custom_handler_with_extensions.take()
 	{
@@ -249,7 +253,7 @@ pub(crate) fn handle_mistargeted_request(
 			.insert(Uncloneable::from(routing_state));
 	}
 
-	Box::pin(ready(response))
+	Box::pin(ready(Ok(response)))
 }
 
 // --------------------------------------------------------------------------------

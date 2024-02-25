@@ -9,10 +9,10 @@ use pin_project::pin_project;
 
 use crate::{
 	body::Body,
-	common::{mark::Private, BoxedFuture},
+	common::{mark::Private, BoxedError, BoxedFuture},
 	data::extensions::NodeExtensions,
 	request::{FromRequest, FromRequestHead, Request},
-	response::{IntoResponse, Response},
+	response::{BoxedErrorResponse, IntoResponse, IntoResponseResult, Response},
 	routing::RoutingState,
 };
 
@@ -52,7 +52,7 @@ where
 
 impl<Func> IntoHandler<Request> for Func
 where
-	Func: Fn(Request) -> BoxedFuture<Response>,
+	Func: Fn(Request) -> BoxedFuture<Result<Response, BoxedError>>,
 	HandlerFn<Func, Request>: Handler,
 {
 	type Handler = HandlerFn<Func, Request>;
@@ -62,14 +62,16 @@ where
 	}
 }
 
-impl<Func, E> Handler<Body, E> for HandlerFn<Func, Request>
+impl<Func, Ext> Handler<Body, Ext> for HandlerFn<Func, Request>
 where
-	Func: Fn(Request) -> BoxedFuture<Response>,
+	Func: Fn(Request) -> BoxedFuture<Result<Response, BoxedErrorResponse>>,
 {
 	type Response = Response;
-	type Future = BoxedFuture<Self::Response>;
+	type Error = BoxedErrorResponse;
+	type Future = BoxedFuture<Result<Self::Response, Self::Error>>;
 
-	fn handle(&self, request: Request, _args: &mut Args<'_, E>) -> Self::Future {
+	#[inline(always)]
+	fn handle(&self, request: Request, _args: &mut Args<'_, Ext>) -> Self::Future {
 		(self.func)(request)
 	}
 }
@@ -85,7 +87,7 @@ macro_rules! impl_handler_fn {
 		where
 			Func: Fn($($($ps,)*)? $($lp)?) -> Fut,
 			Fut: Future<Output = O>,
-			O: IntoResponse,
+			O: IntoResponseResult,
 			HandlerFn<Func, (Private, $($($ps,)*)? $($lp)?)>: Handler<B>,
 		{
 			type Handler = HandlerFn<Func, (Private, $($($ps,)*)? $($lp)?)>;
@@ -103,11 +105,12 @@ macro_rules! impl_handler_fn {
 			$($($ps: FromRequestHead<E>,)*)?
 			$($lp: FromRequest<B, E>,)?
 			Fut: Future<Output = O>,
-			O: IntoResponse,
+			O: IntoResponseResult,
 			B: 'static,
 			E: Clone + Sync,
 		{
 			type Response = Response;
+			type Error = BoxedErrorResponse;
 			type Future = HandlerFnFuture<Func, (Private, $($($ps,)*)? $($lp)?), B, E>;
 
 			fn handle(&self, request: Request<B>, args: &mut Args<'_, E>) -> Self::Future {
@@ -134,11 +137,11 @@ macro_rules! impl_handler_fn {
 			$($($ps: FromRequestHead<E>,)*)?
 			$($lp: FromRequest<B, E>,)?
 			Fut: Future<Output = O>,
-			O: IntoResponse,
+			O: IntoResponseResult,
 			B: 'static,
 			E: Sync,
 		{
-			type Output = Response;
+			type Output = Result<Response, BoxedErrorResponse>;
 
 			fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
 				let self_projection = self.project();
@@ -171,7 +174,7 @@ macro_rules! impl_handler_fn {
 							Poll::Ready(result) => {
 								match result {
 									Ok(value) => value,
-									Err(error) => return Poll::Ready(error.into_response()),
+									Err(error) => return Poll::Ready(Err(error.into())),
 								}
 							},
 							Poll::Pending => return Poll::Pending,
@@ -194,7 +197,7 @@ macro_rules! impl_handler_fn {
 							Poll::Ready(result) => {
 								match result {
 									Ok(value) => value,
-									Err(error) => return Poll::Ready(error.into_response()),
+									Err(error) => return Poll::Ready(Err(error.into())),
 								}
 							}
 							Poll::Pending => return Poll::Pending,
@@ -202,7 +205,7 @@ macro_rules! impl_handler_fn {
 				)?
 
 				match pin!((self_projection.func)($($($ps,)*)? $($lp)?)).poll(cx) {
-					Poll::Ready(value) => Poll::Ready(value.into_response()),
+					Poll::Ready(value) => Poll::Ready(value.into_response_result()),
 					Poll::Pending => Poll::Pending,
 				}
 			}

@@ -1,10 +1,10 @@
 use http::Method;
 
 use crate::{
-	common::{BoxedFuture, IntoArray},
+	common::{BoxedError, BoxedFuture, IntoArray},
 	handler::{AdaptiveHandler, Handler},
 	middleware::{BoxedLayer, IntoLayer, Layer},
-	response::Response,
+	response::{BoxedErrorResponse, Response},
 };
 
 // --------------------------------------------------------------------------------
@@ -39,10 +39,18 @@ macro_rules! layer_target_wrapper {
 		where
 			L: IntoLayer<M, AdaptiveHandler>,
 			L::Layer: Layer<AdaptiveHandler> + Clone + 'static,
-			<L::Layer as Layer<AdaptiveHandler>>::Handler:
-				Handler<Response = Response, Future = BoxedFuture<Response>> + Clone + Send + Sync + 'static
+			<L::Layer as Layer<AdaptiveHandler>>::Handler: Handler<
+					Response = Response,
+					Error = BoxedErrorResponse,
+					Future = BoxedFuture<Result<Response, BoxedErrorResponse>>,
+				> + Clone
+				+ Send
+				+ Sync
+				+ 'static,
 		{
-			ResourceLayerTarget(ResourceLayerTargetValue::$kind(BoxedLayer::new(layer.into_layer())))
+			ResourceLayerTarget(ResourceLayerTargetValue::$kind(BoxedLayer::new(
+				layer.into_layer(),
+			)))
 		}
 	};
 }
@@ -58,8 +66,14 @@ where
 	M: IntoArray<Method, N>,
 	L: IntoLayer<Mark, AdaptiveHandler>,
 	L::Layer: Layer<AdaptiveHandler> + Clone + 'static,
-	<L::Layer as Layer<AdaptiveHandler>>::Handler:
-		Handler<Response = Response, Future = BoxedFuture<Response>> + Clone + Send + Sync + 'static,
+	<L::Layer as Layer<AdaptiveHandler>>::Handler: Handler<
+			Response = Response,
+			Error = BoxedErrorResponse,
+			Future = BoxedFuture<Result<Response, BoxedErrorResponse>>,
+		> + Clone
+		+ Send
+		+ Sync
+		+ 'static,
 {
 	ResourceLayerTarget(ResourceLayerTargetValue::MethodHandler(
 		methods.into_array().into(),

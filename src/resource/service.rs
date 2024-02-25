@@ -25,10 +25,10 @@ use crate::{
 		},
 		AdaptiveHandler, Args, BoxedHandler, Handler, IntoHandler, Service,
 	},
-	middleware::{BoxedLayer, Layer, ResponseFutureBoxer},
+	middleware::{BoxedLayer, Layer, ResponseResultFutureBoxer},
 	pattern::{ParamsList, Pattern},
 	request::Request,
-	response::{IntoResponse, Redirect, Response},
+	response::{BoxedErrorResponse, IntoResponse, Redirect, Response},
 	routing::{self, RouteTraversal, RoutingState, UnusedRequest},
 };
 
@@ -76,7 +76,11 @@ impl ResourceService {
 	}
 
 	#[inline]
-	pub(crate) fn handle<B>(&self, request: Request<B>, args: &mut Args) -> BoxedFuture<Response>
+	pub(crate) fn handle<B>(
+		&self,
+		request: Request<B>,
+		args: &mut Args,
+	) -> BoxedFuture<Result<Response, BoxedErrorResponse>>
 	where
 		B: HttpBody<Data = Bytes> + Send + Sync + 'static,
 		B::Error: Into<BoxedError>,
@@ -101,8 +105,8 @@ where
 	B::Error: Into<BoxedError>,
 {
 	type Response = Response;
-	type Error = Infallible;
-	type Future = ResponseToResultFuture<BoxedFuture<Response>>;
+	type Error = BoxedErrorResponse;
+	type Future = BoxedFuture<Result<Self::Response, Self::Error>>;
 
 	fn call(&self, request: Request<B>) -> Self::Future {
 		let mut request = request.map(Body::new);
@@ -125,9 +129,7 @@ where
 				result
 			} else {
 				let Ok(decoded_segment) = percent_decode_str(next_segment).decode_utf8() else {
-					return ResponseToResultFuture::from(Box::pin(ready(
-						StatusCode::BAD_REQUEST.into_response(),
-					)) as BoxedFuture<Response>); // ???
+					return Box::pin(ready(Ok(StatusCode::BAD_REQUEST.into_response()))); // ???
 				};
 
 				if let Some(result) = self
@@ -154,21 +156,21 @@ where
 		};
 
 		if matched {
-			ResponseToResultFuture::from(match &self.request_receiver {
+			match &self.request_receiver {
 				MaybeBoxed::Boxed(boxed_request_receiver) => {
 					boxed_request_receiver.handle(request, &mut args)
 				}
 				MaybeBoxed::Unboxed(request_receiver) => request_receiver.handle(request, &mut args),
-			})
+			}
 		} else {
-			ResponseToResultFuture::from(handle_mistargeted_request(
+			handle_mistargeted_request(
 				request,
 				args.routing_state,
 				self
 					.some_mistargeted_request_handler
 					.as_ref()
 					.map(|handler| (handler, args.node_extensions)),
-			))
+			)
 		}
 	}
 }
@@ -231,7 +233,8 @@ impl RequestReceiver {
 
 impl Handler for RequestReceiver {
 	type Response = Response;
-	type Future = BoxedFuture<Response>;
+	type Error = BoxedErrorResponse;
+	type Future = BoxedFuture<Result<Self::Response, Self::Error>>;
 
 	#[inline]
 	fn handle(&self, mut request: Request, args: &mut Args) -> Self::Future {
@@ -266,9 +269,9 @@ impl Handler for RequestReceiver {
 				let node_extensions = args.node_extensions.clone().into_owned();
 
 				return Box::pin(async move {
-					let mut response = response_future.await;
+					let mut response = response_future.await?;
 					if response.status() != StatusCode::NOT_FOUND {
-						return response;
+						return Ok(response);
 					}
 
 					let Some(uncloneable) = response
@@ -276,7 +279,7 @@ impl Handler for RequestReceiver {
 						.remove::<Uncloneable<UnusedRequest>>()
 					else {
 						// Custom 404 Not Found response.
-						return response;
+						return Ok(response);
 					};
 
 					let mut request = uncloneable
@@ -342,9 +345,9 @@ impl Handler for RequestReceiver {
 				{
 					let path = request.uri().path();
 
-					return Box::pin(ready(
+					return Box::pin(ready(Ok(
 						Redirect::permanently(&path[..path.len() - 1]).into_response(),
-					));
+					)));
 				}
 
 				!self
@@ -361,7 +364,7 @@ impl Handler for RequestReceiver {
 					new_path.push_str(path);
 					new_path.push('/');
 
-					return Box::pin(ready(Redirect::permanently(new_path).into_response()));
+					return Box::pin(ready(Ok(Redirect::permanently(new_path).into_response())));
 				}
 
 				!self
@@ -453,7 +456,8 @@ impl RequestPasser {
 
 impl Handler for RequestPasser {
 	type Response = Response;
-	type Future = BoxedFuture<Response>;
+	type Error = BoxedErrorResponse;
+	type Future = BoxedFuture<Result<Self::Response, Self::Error>>;
 
 	#[inline]
 	fn handle(&self, mut request: Request, args: &mut Args) -> Self::Future {
@@ -480,7 +484,7 @@ impl Handler for RequestPasser {
 			}
 
 			let Ok(decoded_segment) = percent_decode_str(next_segment).decode_utf8() else {
-				return Box::pin(ready(StatusCode::BAD_REQUEST.into_response()));
+				return Box::pin(ready(Ok(StatusCode::BAD_REQUEST.into_response())));
 			};
 
 			if let Some(next_resource) = self.some_regex_resources.as_ref().and_then(|resources| {
@@ -638,7 +642,9 @@ impl RequestHandler {
 				let allowed_methods = std::mem::take(&mut self.allowed_methods);
 				let unimplemented_method_handler = UnimplementedMethodHandler::new(allowed_methods);
 
-				BoxedHandler::new(ResponseFutureBoxer::wrap(unimplemented_method_handler))
+				BoxedHandler::new(ResponseResultFutureBoxer::wrap(
+					unimplemented_method_handler,
+				))
 			}
 		};
 
@@ -650,7 +656,8 @@ impl RequestHandler {
 
 impl Handler for RequestHandler {
 	type Response = Response;
-	type Future = BoxedFuture<Response>;
+	type Error = BoxedErrorResponse;
+	type Future = BoxedFuture<Result<Self::Response, Self::Error>>;
 
 	fn handle(&self, request: Request, args: &mut Args) -> Self::Future {
 		let method = request.method().clone();

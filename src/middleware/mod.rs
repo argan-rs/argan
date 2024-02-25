@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::{error::Error, sync::Arc};
 
 use http::Method;
 use tower_layer::Layer as TowerLayer;
@@ -6,7 +6,7 @@ use tower_layer::Layer as TowerLayer;
 use crate::{
 	common::{BoxedError, BoxedFuture, IntoArray},
 	handler::{AdaptiveHandler, BoxedHandler, Handler, HandlerService /* HandlerService */},
-	response::{IntoResponse, Response},
+	response::{BoxedErrorResponse, IntoResponse, Response},
 };
 
 // --------------------------------------------------
@@ -89,8 +89,14 @@ impl BoxedLayer {
 	pub(crate) fn new<L>(layer: L) -> Self
 	where
 		L: Layer<AdaptiveHandler> + Clone + 'static,
-		L::Handler:
-			Handler<Response = Response, Future = BoxedFuture<Response>> + Clone + Send + Sync + 'static,
+		L::Handler: Handler<
+				Response = Response,
+				Error = BoxedErrorResponse,
+				Future = BoxedFuture<Result<Response, BoxedErrorResponse>>,
+			> + Clone
+			+ Send
+			+ Sync
+			+ 'static,
 	{
 		let adaptive_handler_wrapper = AdaptiveHandlerWrapper(layer);
 
@@ -121,8 +127,14 @@ struct AdaptiveHandlerWrapper<L>(L);
 impl<L> Layer<AdaptiveHandler> for AdaptiveHandlerWrapper<L>
 where
 	L: Layer<AdaptiveHandler> + Clone,
-	L::Handler:
-		Handler<Response = Response, Future = BoxedFuture<Response>> + Clone + Send + Sync + 'static,
+	L::Handler: Handler<
+			Response = Response,
+			Error = BoxedErrorResponse,
+			Future = BoxedFuture<Result<Response, BoxedErrorResponse>>,
+		> + Clone
+		+ Send
+		+ Sync
+		+ 'static,
 {
 	type Handler = BoxedHandler;
 
