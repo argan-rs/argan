@@ -45,6 +45,10 @@ impl ResponseError {
 			some_boxed_error: Some(error.into()),
 		}
 	}
+
+	pub fn status_code(&self) -> StatusCode {
+		self.status_code
+	}
 }
 
 impl From<StatusCode> for ResponseError {
@@ -58,11 +62,7 @@ impl From<StatusCode> for ResponseError {
 
 impl Display for ResponseError {
 	fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-		if let Some(canonical_reason) = self.status_code.canonical_reason() {
-			f.write_fmt(format_args!("[{} {}]", self.status_code, canonical_reason))?
-		} else {
-			f.write_fmt(format_args!("[{}]", self.status_code))?
-		}
+		f.write_fmt(format_args!("[{}]", self.status_code))?;
 
 		if let Some(boxed_error) = self.some_boxed_error.as_ref() {
 			f.write_fmt(format_args!(" {}", boxed_error.to_string()))?
@@ -176,6 +176,39 @@ mod test {
 	use super::*;
 
 	// --------------------------------------------------------------------------------
+	// --------------------------------------------------------------------------------
+
+	#[derive(Debug)]
+	struct Failure;
+
+	impl Display for Failure {
+		fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+			write!(f, "failure")
+		}
+	}
+
+	impl crate::StdError for Failure {}
+
+	// ----------
+
+	#[test]
+	fn response_error() {
+		let response_error = ResponseError::from(StatusCode::BAD_REQUEST);
+		println!("{}", response_error);
+		assert_eq!("[400 Bad Request]", response_error.to_string());
+
+		let response_error = ResponseError::new(StatusCode::UNAUTHORIZED, Failure);
+		println!("{}", response_error);
+		assert_eq!("[401 Unauthorized] failure", response_error.to_string());
+
+		let response_error = ResponseError::from_error(Failure);
+		println!("{}", response_error);
+		assert_eq!(
+			"[500 Internal Server Error] failure",
+			response_error.to_string()
+		);
+	}
+
 	// --------------------------------------------------------------------------------
 
 	#[derive(Debug, PartialEq)]
