@@ -72,17 +72,6 @@ where
 
 // --------------------------------------------------------------------------------
 
-pub(crate) fn content_type<B>(request: &Request<B>) -> Result<&str, ContentTypeError> {
-	let content_type = request
-		.headers()
-		.get(CONTENT_TYPE)
-		.ok_or(ContentTypeError::MissingHeader(CONTENT_TYPE))?;
-
-	content_type.to_str().map_err(Into::into)
-}
-
-// --------------------------------------------------------------------------------
-
 // --------------------------------------------------
 // RequestHead
 

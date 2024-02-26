@@ -62,12 +62,21 @@ impl IntoResponse for HeaderMap {
 	}
 }
 
-// --------------------------------------------------
+// --------------------------------------------------------------------------------
+
+pub(crate) fn content_type<B>(request: &Request<B>) -> Result<&str, ContentTypeError> {
+	let content_type = request
+		.headers()
+		.get(CONTENT_TYPE)
+		.ok_or(ContentTypeError::Missing)?;
+
+	content_type.to_str().map_err(Into::into)
+}
 
 #[derive(Debug, ImplError)]
 pub(crate) enum ContentTypeError {
-	#[error("missing {0} header")]
-	MissingHeader(HeaderName),
+	#[error("missing Content-Type")]
+	Missing,
 	#[error(transparent)]
 	InvalidValue(#[from] ToStrError),
 }
