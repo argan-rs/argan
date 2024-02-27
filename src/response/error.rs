@@ -9,6 +9,7 @@ use http::StatusCode;
 use crate::{
 	body::Body,
 	common::{mark, BoxedError, SCOPE_VALIDITY},
+	StdError,
 };
 
 use super::{BoxedErrorResponse, IntoResponse, Response};
@@ -28,7 +29,7 @@ pub struct ResponseError {
 impl ResponseError {
 	pub fn new<E>(status_code: StatusCode, error: E) -> Self
 	where
-		E: crate::StdError + Send + Sync + 'static,
+		E: StdError + Send + Sync + 'static,
 	{
 		ResponseError {
 			status_code,
@@ -38,7 +39,7 @@ impl ResponseError {
 
 	pub fn from_error<E>(error: E) -> Self
 	where
-		E: crate::StdError + Send + Sync + 'static,
+		E: StdError + Send + Sync + 'static,
 	{
 		ResponseError {
 			status_code: StatusCode::INTERNAL_SERVER_ERROR,
@@ -72,12 +73,12 @@ impl Display for ResponseError {
 	}
 }
 
-impl crate::StdError for ResponseError {
-	fn source(&self) -> Option<&(dyn crate::StdError + 'static)> {
+impl StdError for ResponseError {
+	fn source(&self) -> Option<&(dyn StdError + 'static)> {
 		self
 			.some_boxed_error
 			.as_ref()
-			.and_then(|boxed_error| boxed_error.source())
+			.map(|boxed_error| boxed_error.as_ref() as &(dyn StdError + 'static))
 	}
 }
 
@@ -96,7 +97,7 @@ impl IntoResponse for ResponseError {
 // --------------------------------------------------
 // ErrorResponse
 
-pub trait ErrorResponse: crate::StdError + IntoResponse + 'static {
+pub trait ErrorResponse: StdError + IntoResponse + 'static {
 	#[doc(hidden)]
 	fn concrete_type_id(&self, _: mark::Private) -> TypeId {
 		TypeId::of::<Self>()
@@ -143,7 +144,7 @@ impl dyn ErrorResponse + 'static {
 
 impl<E> ErrorResponse for E
 where
-	E: crate::StdError + IntoResponse + 'static,
+	E: StdError + IntoResponse + 'static,
 {
 	#[doc(hidden)]
 	fn as_any(self: Box<Self>, _: mark::Private) -> Box<dyn Any> {
@@ -187,7 +188,7 @@ mod test {
 		}
 	}
 
-	impl crate::StdError for Failure {}
+	impl StdError for Failure {}
 
 	// ----------
 
@@ -207,6 +208,16 @@ mod test {
 			"[500 Internal Server Error] failure",
 			response_error.to_string()
 		);
+
+		let response_error = ResponseError::from_error(Failure);
+		assert!(response_error
+			.source()
+			.is_some_and(|error| error.is::<Failure>()));
+
+		let boxed_error_response = Box::new(response_error) as BoxedErrorResponse;
+		assert!(boxed_error_response
+			.source()
+			.is_some_and(|error| error.is::<Failure>()));
 	}
 
 	// --------------------------------------------------------------------------------
@@ -220,7 +231,7 @@ mod test {
 		}
 	}
 
-	impl crate::StdError for E {}
+	impl StdError for E {}
 
 	impl IntoResponse for E {
 		fn into_response(self) -> Response {
@@ -239,7 +250,7 @@ mod test {
 		}
 	}
 
-	impl crate::StdError for A {}
+	impl StdError for A {}
 
 	impl IntoResponse for A {
 		fn into_response(self) -> Response {

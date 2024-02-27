@@ -23,7 +23,7 @@ use crate::{
 	},
 	handler::{get, request_handlers::handle_mistargeted_request, Handler, IntoHandler},
 	header::{split_header_value, SplitHeaderValueError},
-	request::{content_type, FromRequest, RemainingPath, Request},
+	request::{FromRequest, RemainingPath, Request},
 	response::{
 		stream::{ContentCoding, FileStream, FileStreamError},
 		IntoResponse, IntoResponseResult, Response,

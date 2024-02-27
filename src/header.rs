@@ -4,7 +4,7 @@ use crate::{
 	common::SCOPE_VALIDITY,
 	handler::Args,
 	request::{FromRequest, FromRequestHead, Request, RequestHead},
-	response::{IntoResponse, IntoResponseHead, Response, ResponseHead},
+	response::{BoxedErrorResponse, IntoResponse, IntoResponseHead, Response, ResponseHead},
 	ImplError,
 };
 
@@ -43,10 +43,8 @@ where
 // -------------------------
 
 impl IntoResponseHead for HeaderMap {
-	type Error = Infallible;
-
 	#[inline]
-	fn into_response_head(self, mut head: ResponseHead) -> Result<ResponseHead, Self::Error> {
+	fn into_response_head(self, mut head: ResponseHead) -> Result<ResponseHead, BoxedErrorResponse> {
 		head.headers.extend(self);
 
 		Ok(head)

@@ -35,9 +35,7 @@ pub type BoxedErrorResponse = Box<dyn ErrorResponse + 'static>;
 // IntoResponseHead trait
 
 pub trait IntoResponseHead {
-	type Error: IntoResponse;
-
-	fn into_response_head(self, head: ResponseHead) -> Result<ResponseHead, Self::Error>;
+	fn into_response_head(self, head: ResponseHead) -> Result<ResponseHead, BoxedErrorResponse>;
 }
 
 // --------------------------------------------------
@@ -78,15 +76,6 @@ where
 		Ok(self.into_response())
 	}
 }
-
-// --------------------------------------------------
-// ResponseHead
-
-// impl IntoResponse for ResponseHead {
-// 	fn into_response(self) -> Response {
-// 		Response::from_parts(self, Bytes::default())
-// 	}
-// }
 
 // --------------------------------------------------
 // StatusCode
@@ -182,40 +171,22 @@ impl<T: IntoResponse> IntoResponse for Option<T> {
 }
 
 // --------------------------------------------------
-// Result<T, E>
-
-// impl<T, E> IntoResponse for Result<T, E>
-// where
-// 	T: IntoResponse,
-// 	E: IntoResponse,
-// {
-// 	#[inline]
-// 	fn into_response(self) -> Response {
-// 		match self {
-// 			Ok(value) => value.into_response(),
-// 			Err(error) => error.into_response(),
-// 		}
-// 	}
-// }
-
-// --------------------------------------------------
 // Array of header (name, value) tuples
 
 impl<N, V, const C: usize> IntoResponseHead for [(N, V); C]
 where
 	N: TryInto<HeaderName>,
-	N::Error: crate::StdError,
+	N::Error: crate::StdError + 'static,
 	V: TryInto<HeaderValue>,
-	V::Error: crate::StdError,
+	V::Error: crate::StdError + 'static,
 {
-	type Error = HeaderError<N::Error, V::Error>;
-
-	fn into_response_head(self, mut head: ResponseHead) -> Result<ResponseHead, Self::Error> {
+	fn into_response_head(self, mut head: ResponseHead) -> Result<ResponseHead, BoxedErrorResponse> {
 		for (key, value) in self {
-			let header_name =
-				TryInto::<HeaderName>::try_into(key).map_err(HeaderError::from_name_error)?;
-			let header_value =
-				TryInto::<HeaderValue>::try_into(value).map_err(HeaderError::from_value_error)?;
+			let header_name = TryInto::<HeaderName>::try_into(key)
+				.map_err(HeaderError::<N::Error, V::Error>::from_name_error)?;
+
+			let header_value = TryInto::<HeaderValue>::try_into(value)
+				.map_err(HeaderError::<N::Error, V::Error>::from_value_error)?;
 
 			head.headers.insert(header_name, header_value);
 		}
@@ -224,22 +195,21 @@ where
 	}
 }
 
-// impl<N, V, const C: usize> IntoResponse for [(N, V); C]
-// where
-// 	N: TryInto<HeaderName>,
-// 	N::Error: crate::StdError,
-// 	V: TryInto<HeaderValue>,
-// 	V::Error: crate::StdError,
-// {
-// 	fn into_response(self) -> Response {
-// 		let (head, body) = Response::default().into_parts();
-//
-// 		match self.into_response_head(head) {
-// 			Ok(head) => Response::from_parts(head, body),
-// 			Err(error) => error.into_response(),
-// 		}
-// 	}
-// }
+impl<N, V, const C: usize> IntoResponseResult for [(N, V); C]
+where
+	N: TryInto<HeaderName>,
+	N::Error: crate::StdError + 'static,
+	V: TryInto<HeaderValue>,
+	V::Error: crate::StdError + 'static,
+{
+	fn into_response_result(self) -> Result<Response, BoxedErrorResponse> {
+		let (head, body) = Response::default().into_parts();
+
+		self
+			.into_response_head(head)
+			.map(|head| Response::from_parts(head, body))
+	}
+}
 
 #[derive(Debug, crate::ImplError)]
 pub enum HeaderError<NE, VE> {
@@ -282,71 +252,60 @@ macro_rules! impl_into_response_for_tuples {
 			$($($t: IntoResponseHead,)*)?
 			$tl: IntoResponseHead,
 		{
-			type Error = Response;
-
-			fn into_response_head(self, mut head: ResponseHead) -> Result<ResponseHead, Self::Error> {
+			fn into_response_head(self, mut head: ResponseHead) -> Result<ResponseHead, BoxedErrorResponse> {
 				let ($t1, $($($t,)*)? $tl) = self;
 
-				head = $t1.into_response_head(head).map_err(|error| error.into_response())?;
+				head = $t1.into_response_head(head)?;
 
-				$($(head = $t.into_response_head(head).map_err(|error| error.into_response())?;)*)?
+				$($(head = $t.into_response_head(head)?;)*)?
 
-				head = $tl.into_response_head(head).map_err(|error| error.into_response())?;
+				head = $tl.into_response_head(head)?;
 
 				Ok(head)
 			}
 		}
 
 		#[allow(non_snake_case)]
-		impl<$($($t,)*)? $tl> IntoResponse for (StatusCode, $($($t,)*)? $tl)
+		impl<$($($t,)*)? $tl> IntoResponseResult for (StatusCode, $($($t,)*)? $tl)
 		where
 			$($($t: IntoResponseHead,)*)?
-			$tl: IntoResponse,
+			$tl: IntoResponseResult,
 		{
-			fn into_response(self) -> Response {
+			fn into_response_result(self) -> Result<Response, BoxedErrorResponse> {
 				let (status_code, $($($t,)*)? $tl) = self;
 
-				let (head, body) = $tl.into_response().into_parts();
+				let (head, body) = $tl.into_response_result()?.into_parts();
 
 				$($(
-					let head = match $t.into_response_head(head) {
-						Ok(head) => head,
-						Err(error) => return error.into_response(),
-					};
+					let head = $t.into_response_head(head)?;
 				)*)?
 
 				let mut response = Response::from_parts(head, body);
 				*response.status_mut() = status_code;
 
-				response
+				Ok(response)
 			}
 		}
 
 		#[allow(non_snake_case)]
-		impl<$t1, $($($t,)*)? $tl> IntoResponse for ($t1, $($($t,)*)? $tl)
+		impl<$t1, $($($t,)*)? $tl> IntoResponseResult for ($t1, $($($t,)*)? $tl)
 		where
 			$t1: IntoResponseHead,
 			$($($t: IntoResponseHead,)*)?
-			$tl: IntoResponse,
+			$tl: IntoResponseResult,
 		{
-			fn into_response(self) -> Response {
+			fn into_response_result(self) -> Result<Response, BoxedErrorResponse> {
 				let ($t1, $($($t,)*)? $tl) = self;
 
-				let (head, body) = $tl.into_response().into_parts();
+				let (head, body) = $tl.into_response_result()?.into_parts();
 
-				let head = match $t1.into_response_head(head) {
-					Ok(head) => head,
-					Err(error) => return error.into_response(),
-				};
+				let head = $t1.into_response_head(head)?;
 
 				$($(
-					let head = match $t.into_response_head(head) {
-						Ok(head) => head,
-						Err(error) => return error.into_response(),
-					};
+					let head = $t.into_response_head(head)?;
 				)*)?
 
-				Response::from_parts(head, body)
+				Ok(Response::from_parts(head, body))
 			}
 		}
 	};

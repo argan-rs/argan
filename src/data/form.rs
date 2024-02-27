@@ -1,6 +1,7 @@
 use std::io;
 
 use futures_util::{Stream, StreamExt};
+use http::HeaderMap;
 use http_body_util::{BodyStream, Limited};
 use mime::Mime;
 use multer::parse_boundary;
@@ -9,7 +10,7 @@ use crate::{
 	body::{Body, HttpBody},
 	common::{BoxedError, SCOPE_VALIDITY},
 	handler::Args,
-	request::content_type,
+	response::{BoxedErrorResponse, IntoResponseResult},
 	StdError,
 };
 
@@ -55,15 +56,12 @@ where
 	}
 }
 
-impl<T> IntoResponse for Form<T>
+impl<T> IntoResponseResult for Form<T>
 where
 	T: Serialize,
 {
-	fn into_response(self) -> Response {
-		let form_string = match serde_urlencoded::to_string(self.0).map_err(Into::<FormError>::into) {
-			Ok(form_string) => form_string,
-			Err(error) => return error.into_response(),
-		};
+	fn into_response_result(self) -> Result<Response, BoxedErrorResponse> {
+		let form_string = serde_urlencoded::to_string(self.0).map_err(Into::<FormError>::into)?;
 
 		let mut response = form_string.into_response();
 		response.headers_mut().insert(
@@ -71,7 +69,7 @@ where
 			HeaderValue::from_static(mime::APPLICATION_WWW_FORM_URLENCODED.as_ref()),
 		);
 
-		response
+		Ok(response)
 	}
 }
 
