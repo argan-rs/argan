@@ -9,7 +9,7 @@ use crate::{
 	handler::Args,
 	header::{content_type, ToStrError},
 	request::{FromRequest, Request},
-	response::{IntoResponse, Response},
+	response::{BoxedErrorResponse, IntoResponse, IntoResponseResult, Response},
 };
 
 // --------------------------------------------------------------------------------
@@ -50,15 +50,12 @@ where
 	}
 }
 
-impl<T> IntoResponse for Json<T>
+impl<T> IntoResponseResult for Json<T>
 where
 	T: Serialize,
 {
-	fn into_response(self) -> Response {
-		let json_string = match serde_json::to_string(&self.0).map_err(Into::<JsonError>::into) {
-			Ok(json_string) => json_string,
-			Err(error) => return error.into_response(),
-		};
+	fn into_response_result(self) -> Result<Response, BoxedErrorResponse> {
+		let json_string = serde_json::to_string(&self.0).map_err(Into::<JsonError>::into)?;
 
 		let mut response = json_string.into_response();
 		response.headers_mut().insert(
@@ -66,7 +63,7 @@ where
 			HeaderValue::from_static(mime::APPLICATION_JSON.as_ref()),
 		);
 
-		response
+		Ok(response)
 	}
 }
 

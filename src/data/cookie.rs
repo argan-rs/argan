@@ -16,7 +16,7 @@ use crate::{
 	common::{IntoArray, SCOPE_VALIDITY},
 	handler::Args,
 	request::{FromRequest, FromRequestHead, Request, RequestHead},
-	response::{IntoResponse, IntoResponseHead, Response, ResponseHead},
+	response::{BoxedErrorResponse, IntoResponse, IntoResponseHead, Response, ResponseHead},
 };
 
 // --------------------------------------------------------------------------------
@@ -187,13 +187,11 @@ where
 }
 
 impl<K> IntoResponseHead for CookieJar<K> {
-	type Error = Infallible;
-
-	fn into_response_head(self, mut head: ResponseHead) -> Result<ResponseHead, Self::Error> {
+	fn into_response_head(self, mut head: ResponseHead) -> Result<ResponseHead, BoxedErrorResponse> {
 		for cookie in self.inner.delta() {
 			match HeaderValue::try_from(cookie.encoded().to_string()) {
 				Ok(header_value) => head.headers.append(SET_COOKIE, header_value),
-				Err(_) => unreachable!(),
+				Err(_) => unreachable!("encoded cookie must always be a valid header value"),
 			};
 		}
 
@@ -207,7 +205,7 @@ impl<K> IntoResponse for CookieJar<K> {
 
 		match self.into_response_head(head) {
 			Ok(head) => Response::from_parts(head, body),
-			Err(error) => error.into_response(),
+			Err(_) => unreachable!("encoded cookie must always be a valid header value"),
 		}
 	}
 }
@@ -284,9 +282,7 @@ where
 }
 
 impl<K> IntoResponseHead for PrivateCookieJar<K> {
-	type Error = Infallible;
-
-	fn into_response_head(self, mut head: ResponseHead) -> Result<ResponseHead, Self::Error> {
+	fn into_response_head(self, mut head: ResponseHead) -> Result<ResponseHead, BoxedErrorResponse> {
 		self.into_jar().into_response_head(head)
 	}
 }
@@ -297,7 +293,7 @@ impl<K> IntoResponse for PrivateCookieJar<K> {
 
 		match self.into_response_head(head) {
 			Ok(head) => Response::from_parts(head, body),
-			Err(error) => error.into_response(),
+			Err(_) => unreachable!("encoded cookie must always be a valid header value"),
 		}
 	}
 }
@@ -374,9 +370,7 @@ where
 }
 
 impl<K> IntoResponseHead for SignedCookieJar<K> {
-	type Error = Infallible;
-
-	fn into_response_head(self, mut head: ResponseHead) -> Result<ResponseHead, Self::Error> {
+	fn into_response_head(self, mut head: ResponseHead) -> Result<ResponseHead, BoxedErrorResponse> {
 		self.into_jar().into_response_head(head)
 	}
 }
@@ -387,7 +381,7 @@ impl<K> IntoResponse for SignedCookieJar<K> {
 
 		match self.into_response_head(head) {
 			Ok(head) => Response::from_parts(head, body),
-			Err(error) => error.into_response(),
+			Err(_) => unreachable!("encoded cookie must always be a valid header value"),
 		}
 	}
 }

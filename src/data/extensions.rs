@@ -57,14 +57,12 @@ impl<T> IntoResponseHead for ResponseExtension<T>
 where
 	T: Clone + Send + Sync + 'static,
 {
-	type Error = ResponseExtensionError<T>;
-
 	#[inline]
-	fn into_response_head(self, mut head: ResponseHead) -> Result<ResponseHead, Self::Error> {
+	fn into_response_head(self, mut head: ResponseHead) -> Result<ResponseHead, BoxedErrorResponse> {
 		let ResponseExtension(value) = self;
 
 		if head.extensions.insert(value).is_some() {
-			return Err(ResponseExtensionError(PhantomData));
+			return Err(ResponseExtensionError::<T>(PhantomData).into());
 		}
 
 		Ok(head)
