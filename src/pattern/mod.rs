@@ -1,3 +1,4 @@
+use core::panic;
 use std::{borrow::Cow, fmt::Display, iter::Peekable, slice, str::Chars, sync::Arc};
 
 use percent_encoding::{percent_encode, NON_ALPHANUMERIC};
@@ -11,6 +12,31 @@ pub(crate) use deserializers::FromParamsList;
 
 // --------------------------------------------------------------------------------
 // --------------------------------------------------------------------------------
+
+// --------------------------------------------------
+
+pub(crate) fn split_uri_host_and_path(uri: &str) -> (Option<&str>, Option<&str>) {
+	if uri.is_empty() {
+		panic!("empty URI")
+	}
+
+	if let Some(uri) = uri
+		.strip_prefix("https://")
+		.or_else(|| uri.strip_prefix("http://"))
+	{
+		if let Some(position) = uri.find("/") {
+			if position == 0 {
+				return (None, Some(uri));
+			}
+
+			return (Some(&uri[..position]), Some(&uri[position..]));
+		}
+
+		return (Some(uri), None);
+	}
+
+	(None, Some(uri))
+}
 
 // --------------------------------------------------
 // static:		static, resource
@@ -168,6 +194,10 @@ impl Pattern {
 			return Pattern::Static(encoded_static_pattern.into());
 		}
 
+		if pattern == "/" {
+			return Pattern::Static(pattern.into());
+		}
+
 		let static_pattern = replacer.replace_all(pattern, "/");
 		let encoded_static_pattern =
 			Cow::<str>::from(percent_encode(static_pattern.as_bytes(), NON_ALPHANUMERIC));
@@ -216,9 +246,9 @@ impl Pattern {
 		if let Self::Static(pattern) = self {
 			if pattern.as_ref() == text {
 				return Some(true);
-			} else {
-				return Some(false);
 			}
+
+			return Some(false);
 		}
 
 		None
@@ -253,9 +283,9 @@ impl Pattern {
 		if let Self::Wildcard(name) = self {
 			params_list.push(Params::with_wildcard_value(name.clone(), text.into()));
 
-			return Some(true);
+			Some(true)
 		} else {
-			return None;
+			None
 		}
 	}
 
@@ -280,9 +310,9 @@ impl Pattern {
 						}) {
 						if names.pattern_name() == other_names.pattern_name() {
 							return Similarity::Same;
-						} else {
-							return Similarity::DifferentNames;
 						}
+
+						return Similarity::DifferentNames;
 					}
 				}
 			}
@@ -290,9 +320,9 @@ impl Pattern {
 				if let Pattern::Wildcard(other_name) = other {
 					if name == other_name {
 						return Similarity::Same;
-					} else {
-						return Similarity::DifferentNames;
 					}
+
+					return Similarity::DifferentNames;
 				}
 			}
 		}
