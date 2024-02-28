@@ -19,7 +19,7 @@ use crate::{
 		AdaptiveHandler, BoxedHandler, HandlerKind, IntoHandler,
 	},
 	middleware::{IntoResponseResultAdapter, ResponseResultFutureBoxer},
-	pattern::{Pattern, Similarity},
+	pattern::{split_uri_host_and_path, Pattern, Similarity},
 	request::{FromRequest, FromRequestHead, Request, RequestHead},
 	response::Response,
 	routing::{RouteSegments, RoutingState},
@@ -69,25 +69,24 @@ impl Resource {
 	where
 		P: AsRef<str>,
 	{
-		let uri = Uri::from_str(uri_patterns.as_ref()).expect("patterns should form a valid URI");
+		let (some_host, some_path) = split_uri_host_and_path(uri_patterns.as_ref());
 
-		let some_host_pattern = uri.host().map(|host_pattern_str| {
+		let some_host_pattern = some_host.map(|host_pattern_str| {
 			let host_pattern = Pattern::parse(host_pattern_str);
 			if host_pattern.is_wildcard() {
-				panic!("host pattern cannot be a wildcard");
+				panic!("host pattern cannot be a wildcard")
 			}
 
 			host_pattern
 		});
 
-		let path_patterns_str = uri.path();
-
-		if path_patterns_str.is_empty() {
+		let Some(path_patterns_str) = some_path else {
 			panic!("empty path patterns")
-		}
+		};
 
 		if path_patterns_str == "/" {
 			let pattern = Pattern::parse(path_patterns_str);
+			let pattern = dbg!(pattern);
 
 			return Self::with_uri_patterns(some_host_pattern, Vec::new(), pattern, false);
 		}
@@ -1323,37 +1322,38 @@ mod test {
 	// --------------------------------------------------------------------------------
 
 	#[test]
-	fn new() {
-		let path_patterns = [
-			"/news",
-			"/news/$area:@(local|worldwide)",
-			"/products/",
-			"/products/*category",
+	fn resource_new() {
+		let uri_patterns = [
+			"http:///news",
+			"https:///news/$area:@(local|worldwide)",
+			"http://$sub:@([^.]+).example.com/products/",
+			"https://example.com/products/*category",
+			"http://www.example.com/",
 			"/products/*category/$page:@(\\d+)/",
 			"/$forecast:@days(5|10)-forecast",
 			"/*random",
 		];
 
-		for path_pattern in path_patterns {
-			let result = Resource::new(path_pattern);
-			println!("path pattern: {}\n\t resource: {}", path_pattern, result);
+		for uri_pattern in uri_patterns {
+			let resource = Resource::new(uri_pattern);
+			println!("uri pattern: {}\n\t resource: {}", uri_pattern, resource);
 		}
 	}
 
 	#[test]
-	#[should_panic(expected = "empty path patterns")]
-	fn new_with_empty_pattern() {
+	#[should_panic(expected = "empty URI")]
+	fn resource_new_with_empty_pattern() {
 		Resource::new("");
 	}
 
 	#[test]
 	#[should_panic(expected = "must start with a slash")]
-	fn new_with_invalid_path_patterns() {
+	fn resource_new_with_invalid_path_patterns() {
 		Resource::new("products/*category");
 	}
 
 	#[test]
-	fn add_subresource() {
+	fn resource_add_subresource() {
 		let mut parent = Resource::new("/abc0_0/*abc1_0");
 
 		let cases = [
@@ -1485,7 +1485,7 @@ mod test {
 	}
 
 	#[test]
-	fn check_path_segments_are_the_same() {
+	fn resource_check_path_segments_are_the_same() {
 		let path_patterns = [
 			("/news", "/news"),
 			(
@@ -1516,7 +1516,7 @@ mod test {
 
 	#[test]
 	#[should_panic]
-	fn check_path_segments_are_the_same_panic1() {
+	fn resource_check_path_segments_are_the_same_panic1() {
 		let resource = Resource::new("/news/$area:@(local|worldwide)");
 		let mut segment_patterns = vec![Pattern::parse("news"), Pattern::parse("local")].into_iter();
 
@@ -1525,7 +1525,7 @@ mod test {
 
 	#[test]
 	#[should_panic(expected = "no prefix path segment resource")]
-	fn check_path_segments_are_the_same_panic2() {
+	fn resource_check_path_segments_are_the_same_panic2() {
 		let resource = Resource::new("/news/$area:@(local|worldwide)");
 		let mut segment_patterns = vec![Pattern::parse("news"), Pattern::parse("$city")].into_iter();
 
@@ -1534,7 +1534,7 @@ mod test {
 
 	#[test]
 	#[should_panic(expected = "no segment '*area' exists among the prefix path segments")]
-	fn check_path_segments_are_the_same_panic3() {
+	fn resource_check_path_segments_are_the_same_panic3() {
 		let resource = Resource::new("/news/$area:@(local|worldwide)");
 		let mut segment_patterns = vec![Pattern::parse("news"), Pattern::parse("*area")].into_iter();
 
@@ -1543,7 +1543,7 @@ mod test {
 
 	#[test]
 	#[should_panic(expected = "is not unique in the path")]
-	fn check_names_are_unique_in_the_path1() {
+	fn resource_check_names_are_unique_in_the_path1() {
 		let mut parent = Resource::new("/abc0/$abc1:@(p)/*abc2");
 		let faulty_resource = Resource::new("/$abc1:@cn(p)");
 
@@ -1552,7 +1552,7 @@ mod test {
 
 	#[test]
 	#[should_panic(expected = "is not unique in the path")]
-	fn check_names_are_unique_in_the_path2() {
+	fn resource_check_names_are_unique_in_the_path2() {
 		let mut parent = Resource::new("/abc0/$abc1:@(p)/*abc2/abc3");
 		let mut abc4 = Resource::new("/abc4");
 		let faulty_abc2 = Resource::new("/*abc2");
@@ -1562,7 +1562,7 @@ mod test {
 	}
 
 	#[test]
-	fn add_subresource_under() {
+	fn resource_add_subresource_under() {
 		let mut parent = Resource::new("/abc0_0/*abc1_0");
 
 		struct Case<'a> {

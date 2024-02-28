@@ -1,6 +1,7 @@
 use bytes::Bytes;
 use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion};
 
+use http::StatusCode;
 use http_body_util::Empty;
 use hyper::service::Service as HyperService;
 use tokio::runtime::Builder;
@@ -172,9 +173,8 @@ pub fn request_routing(c: &mut Criterion) {
 			let request = Request::get("/categories")
 				.body(Empty::<Bytes>::new())
 				.unwrap();
-			/* let response = */
-			service.call(request).await.unwrap();
-			// assert_eq!(response.status(), StatusCode::OK);
+			let response = service.call(request).await.unwrap();
+			assert_eq!(response.status(), StatusCode::OK);
 		})
 	});
 
@@ -184,9 +184,8 @@ pub fn request_routing(c: &mut Criterion) {
 				.body(Empty::<Bytes>::new())
 				.unwrap();
 
-			/* let response = */
-			service.call(request).await.unwrap();
-			// assert_eq!(response.status(), StatusCode::OK);
+			let response = service.call(request).await.unwrap();
+			assert_eq!(response.status(), StatusCode::OK);
 		})
 	});
 
@@ -197,8 +196,8 @@ pub fn request_routing(c: &mut Criterion) {
 					"/categories/categories/categories/categories/categories/categories/categories/categories/categories/categories",
 				).body(Empty::<Bytes>::new()).unwrap();
 
-				/* let response = */ service.call(request).await.unwrap();
-				// assert_eq!(response.status(), StatusCode::OK);
+				let response = service.call(request).await.unwrap();
+				assert_eq!(response.status(), StatusCode::OK);
 			},
 		)
 	});
@@ -216,9 +215,8 @@ pub fn request_routing(c: &mut Criterion) {
 			let request = Request::get("/id:%20ABC%200123456")
 				.body(Empty::<Bytes>::new())
 				.unwrap();
-			/* let response = */
-			service.call(request).await.unwrap();
-			// assert_eq!(response.status(), StatusCode::OK);
+			let response = service.call(request).await.unwrap();
+			assert_eq!(response.status(), StatusCode::OK);
 		})
 	});
 
@@ -229,8 +227,8 @@ pub fn request_routing(c: &mut Criterion) {
 					"/id:%20ABC%200123456/id:%20ABC%200123456/id:%20ABC%200123456/id:%20ABC%200123456/id:%20ABC%200123456",
 				).body(Empty::<Bytes>::new()).unwrap();
 
-				/* let response = */ service.call(request).await.unwrap();
-				// assert_eq!(response.status(), StatusCode::OK);
+				let response = service.call(request).await.unwrap();
+				assert_eq!(response.status(), StatusCode::OK);
 			},
 		)
 	});
@@ -242,8 +240,8 @@ pub fn request_routing(c: &mut Criterion) {
 					"/id:%20ABC%200123456/id:%20ABC%200123456/id:%20ABC%200123456/id:%20ABC%200123456/id:%20ABC%200123456/id:%20ABC%200123456/id:%20ABC%200123456/id:%20ABC%200123456/id:%20ABC%200123456/id:%20ABC%200123456",
 				).body(Empty::<Bytes>::new()).unwrap();
 
-				/* let response = */ service.call(request).await.unwrap();
-				// assert_eq!(response.status(), StatusCode::OK);
+				let response = service.call(request).await.unwrap();
+				assert_eq!(response.status(), StatusCode::OK);
 			},
 		)
 	});
@@ -261,9 +259,8 @@ pub fn request_routing(c: &mut Criterion) {
 			let request = Request::get("/wildcard")
 				.body(Empty::<Bytes>::new())
 				.unwrap();
-			/* let response = */
-			service.call(request).await.unwrap();
-			// assert_eq!(response.status(), StatusCode::OK);
+			let response = service.call(request).await.unwrap();
+			assert_eq!(response.status(), StatusCode::OK);
 		})
 	});
 
@@ -273,9 +270,8 @@ pub fn request_routing(c: &mut Criterion) {
 				.body(Empty::<Bytes>::new())
 				.unwrap();
 
-			/* let response = */
-			service.call(request).await.unwrap();
-			// assert_eq!(response.status(), StatusCode::OK);
+			let response = service.call(request).await.unwrap();
+			assert_eq!(response.status(), StatusCode::OK);
 		})
 	});
 
@@ -285,9 +281,8 @@ pub fn request_routing(c: &mut Criterion) {
 					"/wildcard/wildcard/wildcard/wildcard/wildcard/wildcard/wildcard/wildcard/wildcard/wildcard",
 				).body(Empty::<Bytes>::new()).unwrap();
 
-			/* let response = */
-			service.call(request).await.unwrap();
-			// assert_eq!(response.status(), StatusCode::OK);
+			let response = service.call(request).await.unwrap();
+			assert_eq!(response.status(), StatusCode::OK);
 		})
 	});
 
