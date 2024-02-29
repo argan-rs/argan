@@ -39,7 +39,7 @@ use self::{
 
 pub use layer_targets::*;
 pub use service::ResourceService;
-pub use static_files::{StaticFiles /* Tagger */};
+pub use static_files::StaticFiles;
 
 // --------------------------------------------------------------------------------
 // --------------------------------------------------------------------------------
@@ -129,10 +129,6 @@ impl Resource {
 		resource_pattern: Pattern,
 		ends_with_slash: bool,
 	) -> Resource {
-		if let Pattern::Regex(ref name, None) = resource_pattern {
-			panic!("{} pattern has no regex segment", name.pattern_name())
-		}
-
 		let mut config_flags = ConfigFlags::new();
 		if ends_with_slash {
 			config_flags.add(ConfigFlags::ENDS_WITH_SLASH);
@@ -170,11 +166,6 @@ impl Resource {
 	}
 
 	// -------------------------
-
-	#[inline(always)]
-	fn name(&self) -> Option<&str> {
-		self.pattern.name()
-	}
 
 	#[inline(always)]
 	pub(crate) fn pattern_string(&self) -> String {
@@ -342,13 +333,7 @@ impl Resource {
 				panic!("resource is intended to belong to a host {}", host_pattern);
 			};
 
-			if let Pattern::Regex(host_names, None) = &host_pattern {
-				if let Pattern::Regex(self_host_names, _) = self_host_pattern {
-					if host_names.pattern_name() != self_host_names.pattern_name() {
-						panic!("no host with a name '{}' exists", host_names.pattern_name(),)
-					}
-				}
-			} else if self_host_pattern.compare(&host_pattern) != Similarity::Same {
+			if self_host_pattern.compare(&host_pattern) != Similarity::Same {
 				panic!("no host '{}' exists", host_pattern);
 			}
 		}
@@ -362,42 +347,6 @@ impl Resource {
 			let Some(prefix_segment_pattern) = prefix_segment_patterns.next() else {
 				panic!("prefix path patterns must be the same with the path patterns of the parent")
 			};
-
-			// For convenience, resource's prefix segment patterns may omit their regex part.
-			// So when matching them to the parent resource's path segment patterns, we only
-			// compare pattern names.
-			if let Pattern::Regex(prefix_segment_names, None) = &prefix_segment_pattern {
-				if let Pattern::Regex(self_path_segment_names, some_regex) = self_path_segment_pattern {
-					if prefix_segment_names.pattern_name() == self_path_segment_names.pattern_name() {
-						if some_regex.is_none() {
-							panic!(
-								"resource '{}' has no regex pattern in the resource tree",
-								prefix_segment_names.pattern_name(),
-							)
-						}
-
-						continue;
-					}
-				}
-
-				panic!(
-					"no prefix path segment resource with a name '{}' exists",
-					prefix_segment_names.pattern_name(),
-				)
-			} else if let Pattern::Regex(self_path_segment_names, None) = self_path_segment_pattern {
-				if let Pattern::Regex(prefix_segment_names, some_regex) = &prefix_segment_pattern {
-					if self_path_segment_names.pattern_name() == prefix_segment_names.pattern_name() {
-						if some_regex.is_none() {
-							panic!(
-								"resource '{}' has no regex pattern in the resource tree",
-								self_path_segment_names.pattern_name(),
-							)
-						}
-
-						continue;
-					}
-				}
-			}
 
 			if self_path_segment_pattern.compare(&prefix_segment_pattern) != Similarity::Same {
 				panic!(
@@ -442,14 +391,11 @@ impl Resource {
 						break;
 					}
 				}
-				Pattern::Regex(ref name, ref some_regex) => {
-					let some_position = leaf_resource.regex_resources.iter().position(|resource| {
-						if some_regex.is_some() {
-							resource.pattern.compare(pattern) == Similarity::Same
-						} else {
-							resource.name().expect("regex resources must have a name") == name.pattern_name()
-						}
-					});
+				Pattern::Regex(_, _) => {
+					let some_position = leaf_resource
+						.regex_resources
+						.iter()
+						.position(|resource| resource.pattern.compare(pattern) == Similarity::Same);
 
 					if let Some(position) = some_position {
 						leaf_resource = &mut leaf_resource.regex_resources[position];
@@ -488,10 +434,9 @@ impl Resource {
 		let mut current_resource = self;
 
 		for pattern in patterns {
-			if let Some(name) = pattern.name() {
-				if current_resource.path_has_the_same_name(name) {
-					panic!("{} is not unique in the path", name)
-				}
+			if let Some(capture_name) = current_resource.find_duplicate_capture_name_in_the_path(&pattern)
+			{
+				panic!("capture name '{}' is not unique in the path", capture_name)
 			}
 
 			current_resource.add_subresource(Resource::with_pattern(pattern.clone()));
@@ -505,10 +450,9 @@ impl Resource {
 
 	// Checks the names of the new resource and its subresources for uniqueness.
 	fn check_names_are_unique_in_the_path(&self, new_resource: &Resource) {
-		if let Some(name) = new_resource.name() {
-			if self.path_has_the_same_name(name) {
-				panic!("'{}' is not unique in the path it's being added", name);
-			}
+		if let Some(capture_name) = self.find_duplicate_capture_name_in_the_path(&new_resource.pattern)
+		{
+			panic!("capture name '{}' is not unique in the path", capture_name);
 		}
 
 		let mut resources = Vec::new();
@@ -523,11 +467,8 @@ impl Resource {
 				return;
 			};
 
-			let name = resource
-				.name()
-				.expect("regex and wildcard resources must have a name");
-			if self.path_has_the_same_name(name) {
-				panic!("'{}' is not unique in the path it's being added", name);
+			if let Some(capture_name) = self.find_duplicate_capture_name_in_the_path(&resource.pattern) {
+				panic!("capture name '{}' is not unique in the path", capture_name);
 			}
 
 			resources.extend(resource.regex_resources.iter());
@@ -688,40 +629,6 @@ impl Resource {
 				// Keeps the complete prefix segment patterns to construct subresources later.
 				let prefix_route_segment_pattern = Pattern::parse(prefix_route_segment);
 
-				// For convenience, regex part of the pattern may be omitted.
-				// So when matching them we can compare only the names.
-				if let Pattern::Regex(ref prefix_route_segment_names, None) = prefix_route_segment_pattern {
-					if let Pattern::Regex(prefix_segment_names, some_regex) = &prefix_segment_pattern {
-						if some_regex.is_none() {
-							panic!(
-								"either relative path's segment or the resource's prefix segment must be complete",
-							)
-						}
-
-						if prefix_segment_names.pattern_name() == prefix_route_segment_names.pattern_name() {
-							prefix_route_patterns.push(prefix_segment_pattern);
-
-							continue;
-						}
-					}
-				} else if let Pattern::Regex(ref prefix_segment_names, None) = prefix_segment_pattern {
-					if let Pattern::Regex(prefix_route_segment_names, some_regex) =
-						&prefix_route_segment_pattern
-					{
-						if some_regex.is_none() {
-							panic!(
-								"either relative path's segment or the resource's prefix segment must be complete",
-							)
-						}
-
-						if prefix_route_segment_names.pattern_name() == prefix_segment_names.pattern_name() {
-							prefix_route_patterns.push(prefix_route_segment_pattern);
-
-							continue;
-						}
-					}
-				}
-
 				if prefix_route_segment_pattern.compare(&prefix_segment_pattern) != Similarity::Same {
 					panic!(
 						"resource's prefix segment pattern didn't match to the route's corresponding segment",
@@ -803,13 +710,10 @@ impl Resource {
 					}
 				}
 				Pattern::Regex(ref names, ref some_regex) => {
-					let some_position = leaf_resource.regex_resources.iter().position(|resource| {
-						if some_regex.is_some() {
-							resource.pattern.compare(&pattern) == Similarity::Same
-						} else {
-							resource.name().expect("regex resources must have a name") == names.pattern_name()
-						}
-					});
+					let some_position = leaf_resource
+						.regex_resources
+						.iter()
+						.position(|resource| resource.pattern.compare(&pattern) == Similarity::Same);
 
 					if let Some(position) = some_position {
 						leaf_resource = &leaf_resource.regex_resources[position];
@@ -865,14 +769,11 @@ impl Resource {
 						break;
 					}
 				}
-				Pattern::Regex(ref names, ref some_regex) => {
-					let some_position = leaf_resource.regex_resources.iter().position(|resource| {
-						if some_regex.is_some() {
-							resource.pattern.compare(&pattern) == Similarity::Same
-						} else {
-							resource.name().expect("regex resources must have a name") == names.pattern_name()
-						}
-					});
+				Pattern::Regex(_, _) => {
+					let some_position = leaf_resource
+						.regex_resources
+						.iter()
+						.position(|resource| resource.pattern.compare(&pattern) == Similarity::Same);
 
 					if let Some(position) = some_position {
 						leaf_resource = &mut leaf_resource.regex_resources[position];
@@ -912,9 +813,11 @@ impl Resource {
 		for (segment, _) in segments {
 			let pattern = Pattern::parse(segment);
 
-			if let Some(name) = pattern.name() {
-				if current_resource.path_has_the_same_name(name) {
-					panic!("{} is not unique in the path", name)
+			if let Pattern::Regex(_, _) | Pattern::Wildcard(_) = &pattern {
+				if let Some(capture_name) =
+					current_resource.find_duplicate_capture_name_in_the_path(&pattern)
+				{
+					panic!("capture name '{}' is not unique in the path", capture_name)
 				}
 			}
 
@@ -933,22 +836,62 @@ impl Resource {
 		current_resource
 	}
 
-	fn path_has_the_same_name(&self, name: &str) -> bool {
-		if let Some(resource_name) = self.name() {
-			if resource_name == name {
-				return true;
-			}
-		}
+	fn find_duplicate_capture_name_in_the_path<'p>(&self, pattern: &'p Pattern) -> Option<&'p str> {
+		match pattern {
+			Pattern::Regex(capture_names, _) => {
+				for prefix_pattern in self.prefix_segment_patterns.iter() {
+					match prefix_pattern {
+						Pattern::Regex(other_capture_names, _) => {
+							let some_capture_name = capture_names
+								.as_ref()
+								.iter()
+								.find(|(capture_name, _)| other_capture_names.has(capture_name.as_ref()));
 
-		for prefix_pattern in self.prefix_segment_patterns.iter() {
-			if let Some(pattern_name) = prefix_pattern.name() {
-				if pattern_name == name {
-					return true;
+							if let Some((capture_name, _)) = some_capture_name {
+								return Some(capture_name.as_ref());
+							}
+						}
+						Pattern::Wildcard(other_capture_name) => {
+							let some_capture_name = capture_names
+								.as_ref()
+								.iter()
+								.find(|(capture_name, _)| capture_name.as_ref() == other_capture_name.as_ref());
+
+							if let Some((capture_name, _)) = some_capture_name {
+								return Some(capture_name.as_ref());
+							}
+						}
+						Pattern::Static(_) => {}
+					}
 				}
-			}
-		}
 
-		false
+				None
+			}
+			Pattern::Wildcard(capture_name) => {
+				for prefix_pattern in self.prefix_segment_patterns.iter() {
+					match prefix_pattern {
+						Pattern::Regex(other_capture_names, _) => {
+							if other_capture_names
+								.as_ref()
+								.iter()
+								.any(|(other_capture_name, _)| capture_name.as_ref() == other_capture_name.as_ref())
+							{
+								return Some(capture_name.as_ref());
+							}
+						}
+						Pattern::Wildcard(other_capture_name) => {
+							if capture_name.as_ref() == other_capture_name.as_ref() {
+								return Some(capture_name.as_ref());
+							}
+						}
+						Pattern::Static(_) => {}
+					}
+				}
+
+				None
+			}
+			Pattern::Static(_) => None,
+		}
 	}
 
 	// -------------------------

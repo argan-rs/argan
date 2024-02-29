@@ -7,7 +7,7 @@ use crate::{
 	common::IntoArray,
 	handler::HandlerKind,
 	pattern::{Pattern, Similarity},
-	resource::Resource,
+	resource::{self, Resource},
 };
 
 // --------------------------------------------------
@@ -39,10 +39,6 @@ impl Host {
 			panic!("host pattern cannot be a wildcard");
 		}
 
-		if let Pattern::Regex(names, Some(_)) = &host_pattern {
-			panic!("regex host pattern must be complete");
-		}
-
 		Self::with_pattern(host_pattern, root)
 	}
 
@@ -51,32 +47,18 @@ impl Host {
 			panic!("host can only have a root resource");
 		}
 
-		if root
+		root
 			.host_pattern_ref()
 			.is_some_and(|resource_host_pattern| {
-				if let Pattern::Regex(resource_host_names, None) = resource_host_pattern {
-					if let Pattern::Regex(host_names, _) = &host_pattern {
-						if resource_host_names.pattern_name() != host_names.pattern_name() {
-							panic!(
-								"resource is intended to belong to a host {}",
-								resource_host_pattern.to_string(),
-							);
-						}
-
-						return true;
-					}
-				} else if resource_host_pattern.compare(&host_pattern) != Similarity::Same {
+				if resource_host_pattern.compare(&host_pattern) != Similarity::Same {
 					panic!(
 						"resource is intended to belong to a host {}",
 						resource_host_pattern.to_string(),
 					);
 				}
 
-				false
-			}) {
-			// Root doesn't have the regex part of the host pattern. We need to set it.
-			root.set_host_pattern(host_pattern.clone());
-		}
+				true
+			});
 
 		Self {
 			pattern: host_pattern,
