@@ -15,35 +15,21 @@ use argan::{handler::get, request::Request, resource::Resource};
 
 pub fn request_routing(c: &mut Criterion) {
 	struct Param {
-		static_patterns: [&'static str; 12],
-		regex_patterns: [(&'static str, &'static str); 6],
+		static_patterns: [&'static str; 5],
+		regex_patterns: [(&'static str, &'static str); 5],
 		wildcard_pattern: &'static str,
 	}
 
 	let param = Param {
-		static_patterns: [
-			"/abc",
-			"/cba",
-			"/abcdef",
-			"/fedcba",
-			"/12345",
-			"/54321",
-			"/login",
-			"/logout",
-			"/about",
-			"/information",
-			"/products",
-			"/categories",
-		],
+		static_patterns: ["/login", "/logout", "/about", "/products", "/categories"],
 		regex_patterns: [
-			("/$date", r":@year(\d{4})-@month(\d{2})-@day(\d{2})"),
-			("/$news", r":@(foreign|domestic|sports)"),
-			("/$forecast", r":@days(5|10)_days_forecast"),
-			("/$product", r":@brand(.+)[@model(.+)]"),
-			("/$color", r":@r(\d{3}), @g(\d{3}), @b(\d{3})"),
-			("/$id", r":id: @prefix([A-Z]{3}) @numbers(\d{7})"),
+			("/{year", r":\d{4}-\d{2}-\d{2}}"),
+			("/{news", ":foreign|domestic|sports}"),
+			("/{forecast_days", ":5|10}_days_forecast"),
+			("/{brand", r":[^\[]+}[001]"),
+			("/id: {prefix", ":[A-Z]{3}}"),
 		],
-		wildcard_pattern: "/*language",
+		wildcard_pattern: "language",
 	};
 
 	// Last static resource will have a handler and subresources.
@@ -95,16 +81,22 @@ pub fn request_routing(c: &mut Criterion) {
 
 		// -----
 
-		params.1.regex_patterns.iter().for_each(|(name, pattern)| {
-			let pattern = format!("{}{}{}", name, next_segment_index, pattern);
-			// println!("regex pattern: {}", pattern);
-			resource.subresource_mut(&pattern);
-		});
+		params
+			.1
+			.regex_patterns
+			.iter()
+			.for_each(|(capture_name, subpattern)| {
+				let pattern = format!("{}{}{}", capture_name, next_segment_index, subpattern);
+				// dbg!(&pattern);
+				resource.subresource_mut(&pattern);
+			});
 
 		if params.0 < 10 {
-			let (name, pattern) = params.1.regex_patterns.last().unwrap();
-			let last_regex_resource =
-				resource.subresource_mut(&format!("{}{}{}", name, next_segment_index, pattern));
+			let (capture_name, subpattern) = params.1.regex_patterns.last().unwrap();
+			let last_regex_resource = resource.subresource_mut(&format!(
+				"{}{}{}",
+				capture_name, next_segment_index, subpattern
+			));
 			last_regex_resource.set_handler(get(handler));
 			add_regex_resources(last_regex_resource, (next_segment_index, params.1));
 		}
@@ -139,7 +131,7 @@ pub fn request_routing(c: &mut Criterion) {
 
 		// -----
 
-		let pattern = format!("{}{}", params.1.wildcard_pattern, next_segment_index);
+		let pattern = format!("/{{{}{}}}", params.1.wildcard_pattern, next_segment_index);
 		// println!("wildcard pattern: {}", pattern);
 		let wildcard_resource = resource.subresource_mut(&pattern);
 		wildcard_resource.set_handler(get(handler));
@@ -212,7 +204,7 @@ pub fn request_routing(c: &mut Criterion) {
 
 	bench_group.bench_function(BenchmarkId::new("regex segments", 1), |b| {
 		b.to_async(&runtime).iter(|| async {
-			let request = Request::get("/id:%20ABC%200123456")
+			let request = Request::get("/id:%20ABC")
 				.body(Empty::<Bytes>::new())
 				.unwrap();
 			let response = service.call(request).await.unwrap();
@@ -221,23 +213,21 @@ pub fn request_routing(c: &mut Criterion) {
 	});
 
 	bench_group.bench_function(BenchmarkId::new("regex segments", 5), |b| {
-		b.to_async(&runtime).iter(
-			|| async {
-				let request = Request::get(
-					"/id:%20ABC%200123456/id:%20ABC%200123456/id:%20ABC%200123456/id:%20ABC%200123456/id:%20ABC%200123456",
-				).body(Empty::<Bytes>::new()).unwrap();
+		b.to_async(&runtime).iter(|| async {
+			let request = Request::get("/id:%20ABC/id:%20ABC/id:%20ABC/id:%20ABC/id:%20ABC")
+				.body(Empty::<Bytes>::new())
+				.unwrap();
 
-				let response = service.call(request).await.unwrap();
-				assert_eq!(response.status(), StatusCode::OK);
-			},
-		)
+			let response = service.call(request).await.unwrap();
+			assert_eq!(response.status(), StatusCode::OK);
+		})
 	});
 
 	bench_group.bench_function(BenchmarkId::new("regex segments", 10), |b| {
 		b.to_async(&runtime).iter(
 			|| async {
 				let request = Request::get(
-					"/id:%20ABC%200123456/id:%20ABC%200123456/id:%20ABC%200123456/id:%20ABC%200123456/id:%20ABC%200123456/id:%20ABC%200123456/id:%20ABC%200123456/id:%20ABC%200123456/id:%20ABC%200123456/id:%20ABC%200123456",
+					"/id:%20ABC/id:%20ABC/id:%20ABC/id:%20ABC/id:%20ABC/id:%20ABC/id:%20ABC/id:%20ABC/id:%20ABC/id:%20ABC",
 				).body(Empty::<Bytes>::new()).unwrap();
 
 				let response = service.call(request).await.unwrap();
