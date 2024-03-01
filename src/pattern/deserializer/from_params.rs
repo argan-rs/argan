@@ -5,7 +5,7 @@ use serde::{
 
 use crate::pattern::Params;
 
-use super::{DataType, FromStr, E};
+use super::{DataType, DeserializerError, FromStr};
 
 // --------------------------------------------------------------------------------
 // --------------------------------------------------------------------------------
@@ -92,7 +92,7 @@ impl<'de> FromParams<'de> {
 					}
 				}
 
-				unreachable!()
+				unreachable!("state must have been changed to 'Finished' when the last value was taken")
 			}
 			Params::Wildcard(_, text) => {
 				self.state = State::Finished;
@@ -110,7 +110,10 @@ impl<'de> FromParams<'de> {
 		self.high_level_data_type = high_level_data_type
 	}
 
-	pub(super) fn deserialize_next_element_seed<S>(&mut self, seed: S) -> Result<Option<S::Value>, E>
+	pub(super) fn deserialize_next_element_seed<S>(
+		&mut self,
+		seed: S,
+	) -> Result<Option<S::Value>, DeserializerError>
 	where
 		S: DeserializeSeed<'de>,
 	{
@@ -119,7 +122,10 @@ impl<'de> FromParams<'de> {
 		deserializer.next_element_seed(seed)
 	}
 
-	pub(super) fn deserialize_map_key<S>(&mut self, seed: S) -> Result<Option<S::Value>, E>
+	pub(super) fn deserialize_map_key<S>(
+		&mut self,
+		seed: S,
+	) -> Result<Option<S::Value>, DeserializerError>
 	where
 		S: DeserializeSeed<'de>,
 	{
@@ -128,7 +134,7 @@ impl<'de> FromParams<'de> {
 		deserializer.next_key_seed(seed)
 	}
 
-	pub(super) fn deserialize_map_value<S>(&mut self, seed: S) -> Result<S::Value, E>
+	pub(super) fn deserialize_map_value<S>(&mut self, seed: S) -> Result<S::Value, DeserializerError>
 	where
 		S: DeserializeSeed<'de>,
 	{
@@ -149,7 +155,7 @@ macro_rules! declare_deserialize_for_simple_types {
 				V: Visitor<'de>,
 			{
 				println!("[{}] from params: {}", line!(), stringify!($deserialize));
-				self.current_valid_param_value().ok_or(E).and_then(
+				self.current_valid_param_value().ok_or(DeserializerError::NoDataIsAvailable).and_then(
 					|some_value| FromStr::new(some_value).$deserialize(visitor),
 				)
 			}
@@ -158,7 +164,7 @@ macro_rules! declare_deserialize_for_simple_types {
 }
 
 impl<'de, 'a> Deserializer<'de> for &'a mut FromParams<'de> {
-	type Error = E;
+	type Error = DeserializerError;
 
 	declare_deserialize_for_simple_types!(
 		deserialize_any
@@ -289,7 +295,7 @@ impl<'a, 'de> FromParamsSeqAccess<'a, 'de> {
 }
 
 impl<'de, 'a> SeqAccess<'de> for FromParamsSeqAccess<'a, 'de> {
-	type Error = E;
+	type Error = DeserializerError;
 
 	fn next_element_seed<T>(&mut self, seed: T) -> Result<Option<T::Value>, Self::Error>
 	where
@@ -325,7 +331,7 @@ impl<'a, 'de> FromParamsMapAccess<'a, 'de> {
 }
 
 impl<'de, 'a> MapAccess<'de> for FromParamsMapAccess<'a, 'de> {
-	type Error = E;
+	type Error = DeserializerError;
 
 	fn next_key_seed<K>(&mut self, seed: K) -> Result<Option<K::Value>, Self::Error>
 	where
@@ -353,7 +359,7 @@ impl<'de, 'a> MapAccess<'de> for FromParamsMapAccess<'a, 'de> {
 			return seed.deserialize(FromStr::new(some_value));
 		}
 
-		Err(E)
+		Err(DeserializerError::NoDataIsAvailable)
 	}
 }
 
@@ -369,7 +375,7 @@ impl<'a, 'de> FromParamsEnumAccess<'a, 'de> {
 }
 
 impl<'de, 'a> EnumAccess<'de> for FromParamsEnumAccess<'a, 'de> {
-	type Error = E;
+	type Error = DeserializerError;
 	type Variant = Self;
 
 	fn variant_seed<V>(self, seed: V) -> Result<(V::Value, Self::Variant), Self::Error>
@@ -384,7 +390,7 @@ impl<'de, 'a> EnumAccess<'de> for FromParamsEnumAccess<'a, 'de> {
 }
 
 impl<'de, 'a> VariantAccess<'de> for FromParamsEnumAccess<'a, 'de> {
-	type Error = E;
+	type Error = DeserializerError;
 
 	fn unit_variant(self) -> Result<(), Self::Error> {
 		println!("[{}] from params: unit_variant", line!());

@@ -10,7 +10,7 @@ use serde::{
 
 use crate::pattern::Params;
 
-use super::{from_params::FromParams, DataType, E};
+use super::{from_params::FromParams, DataType, DeserializerError};
 
 // --------------------------------------------------------------------------------
 // --------------------------------------------------------------------------------
@@ -67,14 +67,14 @@ macro_rules! declare_deserialize_for_simple_types {
 					return from_params.$deserialize(visitor)
 				}
 
-				Err(E)
+				Err(DeserializerError::NoDataIsAvailable)
 			}
 		)*
 	};
 }
 
 impl<'a, 'de> Deserializer<'de> for &'a mut FromParamsList<'de> {
-	type Error = E;
+	type Error = DeserializerError;
 
 	declare_deserialize_for_simple_types!(
 		deserialize_any
@@ -208,7 +208,7 @@ impl<'a, 'de> FromParamsListSeqAccess<'a, 'de> {
 }
 
 impl<'de> SeqAccess<'de> for FromParamsListSeqAccess<'_, 'de> {
-	type Error = E;
+	type Error = DeserializerError;
 
 	fn next_element_seed<T>(&mut self, seed: T) -> Result<Option<T::Value>, Self::Error>
 	where
@@ -239,7 +239,7 @@ impl<'a, 'de> FromParamsListMapAccess<'a, 'de> {
 }
 
 impl<'de> MapAccess<'de> for FromParamsListMapAccess<'_, 'de> {
-	type Error = E;
+	type Error = DeserializerError;
 
 	fn next_key_seed<K>(&mut self, seed: K) -> Result<Option<K::Value>, Self::Error>
 	where
@@ -271,7 +271,7 @@ impl<'de> MapAccess<'de> for FromParamsListMapAccess<'_, 'de> {
 			return from_params.deserialize_map_value(seed);
 		}
 
-		Err(E)
+		Err(DeserializerError::NoDataIsAvailable)
 	}
 }
 
@@ -287,7 +287,7 @@ impl<'a, 'de> FromParamsListEnumAccess<'a, 'de> {
 }
 
 impl<'de> EnumAccess<'de> for FromParamsListEnumAccess<'_, 'de> {
-	type Error = E;
+	type Error = DeserializerError;
 	type Variant = Self;
 
 	fn variant_seed<V>(self, seed: V) -> Result<(V::Value, Self::Variant), Self::Error>
@@ -302,7 +302,7 @@ impl<'de> EnumAccess<'de> for FromParamsListEnumAccess<'_, 'de> {
 }
 
 impl<'de> VariantAccess<'de> for FromParamsListEnumAccess<'_, 'de> {
-	type Error = E;
+	type Error = DeserializerError;
 
 	fn unit_variant(self) -> Result<(), Self::Error> {
 		Ok(())

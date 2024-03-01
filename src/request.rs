@@ -1,7 +1,5 @@
 use std::{
 	convert::Infallible,
-	error::Error,
-	ffi::FromBytesUntilNulError,
 	fmt::Display,
 	future::{ready, Future, Ready},
 };
@@ -12,13 +10,17 @@ use http::{
 	request::{self, Parts},
 	HeaderName, StatusCode,
 };
-use serde::{de::DeserializeOwned, Deserializer};
+use serde::{
+	de::{DeserializeOwned, Error},
+	Deserializer,
+};
 
 use crate::{
 	body::Body,
 	common::{BoxedError, IntoArray, Uncloneable},
 	handler::Args,
 	header::ContentTypeError,
+	pattern,
 	response::{BoxedErrorResponse, IntoResponse, IntoResponseHead, Response},
 	routing::RoutingState,
 	ImplError, StdError,
@@ -37,35 +39,38 @@ pub type RequestHead = Parts;
 // --------------------------------------------------------------------------------
 // FromRequestHead trait
 
-pub trait FromRequestHead<E>: Sized {
+pub trait FromRequestHead<Ext>: Sized {
 	type Error: Into<BoxedErrorResponse>;
 
 	fn from_request_head(
 		head: &mut RequestHead,
-		args: &mut Args<'_, E>,
+		args: &mut Args<'_, Ext>,
 	) -> impl Future<Output = Result<Self, Self::Error>> + Send;
 }
 
 // --------------------------------------------------------------------------------
 // FromRequest<B> trait
 
-pub trait FromRequest<B, E>: Sized {
+pub trait FromRequest<B, Ext>: Sized {
 	type Error: Into<BoxedErrorResponse>;
 
 	fn from_request(
 		request: Request<B>,
-		args: &mut Args<'_, E>,
+		args: &mut Args<'_, Ext>,
 	) -> impl Future<Output = Result<Self, Self::Error>> + Send;
 }
 
-impl<B, E> FromRequest<B, E> for Request<B>
+impl<B, Ext> FromRequest<B, Ext> for Request<B>
 where
 	B: Send,
-	E: Sync,
+	Ext: Sync,
 {
 	type Error = Infallible;
 
-	async fn from_request(request: Request<B>, _args: &mut Args<'_, E>) -> Result<Self, Self::Error> {
+	async fn from_request(
+		request: Request<B>,
+		_args: &mut Args<'_, Ext>,
+	) -> Result<Self, Self::Error> {
 		Ok(request)
 	}
 }
@@ -92,25 +97,28 @@ where
 // --------------------------------------------------
 // Method
 
-impl<E: Sync> FromRequestHead<E> for Method {
+impl<Ext: Sync> FromRequestHead<Ext> for Method {
 	type Error = Infallible;
 
 	async fn from_request_head(
 		head: &mut RequestHead,
-		_args: &mut Args<'_, E>,
+		_args: &mut Args<'_, Ext>,
 	) -> Result<Self, Self::Error> {
 		Ok(head.method.clone())
 	}
 }
 
-impl<B, E> FromRequest<B, E> for Method
+impl<B, Ext> FromRequest<B, Ext> for Method
 where
 	B: Send,
-	E: Sync,
+	Ext: Sync,
 {
 	type Error = Infallible;
 
-	async fn from_request(request: Request<B>, _args: &mut Args<'_, E>) -> Result<Self, Self::Error> {
+	async fn from_request(
+		request: Request<B>,
+		_args: &mut Args<'_, Ext>,
+	) -> Result<Self, Self::Error> {
 		let (head, _) = request.into_parts();
 
 		Ok(head.method)
@@ -128,25 +136,28 @@ impl IntoArray<Method, 1> for Method {
 // --------------------------------------------------
 // Uri
 
-impl<E: Sync> FromRequestHead<E> for Uri {
+impl<Ext: Sync> FromRequestHead<Ext> for Uri {
 	type Error = Infallible;
 
 	async fn from_request_head(
 		head: &mut RequestHead,
-		_args: &mut Args<'_, E>,
+		_args: &mut Args<'_, Ext>,
 	) -> Result<Self, Self::Error> {
 		Ok(head.uri.clone())
 	}
 }
 
-impl<B, E> FromRequest<B, E> for Uri
+impl<B, Ext> FromRequest<B, Ext> for Uri
 where
 	B: Send,
-	E: Sync,
+	Ext: Sync,
 {
 	type Error = Infallible;
 
-	async fn from_request(request: Request<B>, _args: &mut Args<'_, E>) -> Result<Self, Self::Error> {
+	async fn from_request(
+		request: Request<B>,
+		_args: &mut Args<'_, Ext>,
+	) -> Result<Self, Self::Error> {
 		let (head, _) = request.into_parts();
 
 		Ok(head.uri)
@@ -156,12 +167,12 @@ where
 // --------------------------------------------------
 // Version
 
-impl<E: Sync> FromRequestHead<E> for Version {
+impl<Ext: Sync> FromRequestHead<Ext> for Version {
 	type Error = Infallible;
 
 	async fn from_request_head(
 		head: &mut RequestHead,
-		_args: &mut Args<'_, E>,
+		_args: &mut Args<'_, Ext>,
 	) -> Result<Self, Self::Error> {
 		Ok(head.version)
 	}
@@ -182,11 +193,11 @@ where
 }
 
 // --------------------------------------------------
-// PathParam
+// PathParams
 
-pub struct PathParam<T>(pub T);
+pub struct PathParams<T>(pub T);
 
-impl<'de, T> PathParam<T>
+impl<'de, T> PathParams<T>
 where
 	T: DeserializeOwned,
 {
@@ -197,85 +208,118 @@ where
 	}
 }
 
-// impl<E, T> FromRequestHead<E> for PathParam<T>
-// where
-// 	E: Sync,
-// 	T: DeserializeOwned,
-// {
-// 	type Error = StatusCode; // TODO.
-//
-// 	async fn from_request_head(
-// 		head: &mut RequestHead,
-// 		_args: &mut Args<'_, E>,
-// 	) -> Result<Self, Self::Error> {
-// 		let routing_state = head
-// 			.extensions
-// 			.get_mut::<Uncloneable<RoutingState>>()
-// 			.expect("Uncloneable<RoutingState> should be inserted before request_handler is called")
-// 			.as_mut()
-// 			.expect("RoutingState should always exist in Uncloneable");
-//
-// 		let mut from_params_list = routing_state.uri_params.deserializer();
-//
-// 		T::deserialize(&mut from_params_list)
-// 			.map(|value| Self(value))
-// 			.map_err(|_| StatusCode::NOT_FOUND)
-// 	}
-// }
-//
-// impl<B, E, T> FromRequest<B, E> for PathParam<T>
-// where
-// 	B: Send,
-// 	E: Sync,
-// 	T: DeserializeOwned,
-// {
-// 	type Error = StatusCode; // TODO.
-//
-// 	async fn from_request(request: Request<B>, _args: &mut Args<'_, E>) -> Result<Self, Self::Error> {
-// 		let (mut head, _) = request.into_parts();
-//
-// 		Self::from_request_head(&mut head, _args).await
-// 	}
-// }
+impl<Ext, T> FromRequestHead<Ext> for PathParams<T>
+where
+	Ext: Sync,
+	T: DeserializeOwned,
+{
+	type Error = PathParamsError;
+
+	async fn from_request_head(
+		head: &mut RequestHead,
+		args: &mut Args<'_, Ext>,
+	) -> Result<Self, Self::Error> {
+		let mut from_params_list = args.routing_state.uri_params.deserializer();
+
+		T::deserialize(&mut from_params_list)
+			.map(|value| Self(value))
+			.map_err(Into::into)
+	}
+}
+
+impl<B, Ext, T> FromRequest<B, Ext> for PathParams<T>
+where
+	B: Send,
+	Ext: Sync,
+	T: DeserializeOwned,
+{
+	type Error = PathParamsError;
+
+	async fn from_request(
+		request: Request<B>,
+		_args: &mut Args<'_, Ext>,
+	) -> Result<Self, Self::Error> {
+		let (mut head, _) = request.into_parts();
+
+		Self::from_request_head(&mut head, _args).await
+	}
+}
+
+#[derive(Debug, crate::ImplError)]
+#[error(transparent)]
+pub struct PathParamsError(#[from] pattern::DeserializerError);
+
+impl IntoResponse for PathParamsError {
+	fn into_response(self) -> Response {
+		match self.0 {
+			pattern::DeserializerError::ParsingFailue(_) => StatusCode::NOT_FOUND.into_response(),
+			_ => StatusCode::INTERNAL_SERVER_ERROR.into_response(),
+		}
+	}
+}
 
 // --------------------------------------------------
 // QueryParams
 
-// pub struct QueryParams<T>(pub T);
-//
-// impl<E, T> FromRequestHead<E> for QueryParams<T>
-// where
-// 	E: Sync,
-// 	T: DeserializeOwned,
-// {
-// 	type Error = StatusCode; // TODO.
-//
-// 	async fn from_request_head(
-// 		head: &mut RequestHead,
-// 		_args: &mut Args<'_, E>,
-// 	) -> Result<Self, Self::Error> {
-// 		let query_string = head.uri.query().ok_or(StatusCode::BAD_REQUEST)?;
-//
-// 		serde_urlencoded::from_str::<T>(query_string)
-// 			.map(|value| Self(value))
-// 			.map_err(|_| StatusCode::BAD_REQUEST)
-// 	}
-// }
-//
-// impl<B, E, T> FromRequest<B, E> for QueryParams<T>
-// where
-// 	B: Send,
-// 	E: Sync,
-// 	T: DeserializeOwned,
-// {
-// 	type Error = StatusCode; // TODO.
-//
-// 	async fn from_request(request: Request<B>, _args: &mut Args<'_, E>) -> Result<Self, Self::Error> {
-// 		let (mut head, _) = request.into_parts();
-//
-// 		Self::from_request_head(&mut head, _args).await
-// 	}
-// }
+pub struct QueryParams<T>(pub T);
+
+impl<Ext, T> FromRequestHead<Ext> for QueryParams<T>
+where
+	Ext: Sync,
+	T: DeserializeOwned,
+{
+	type Error = QueryParamsError;
+
+	async fn from_request_head(
+		head: &mut RequestHead,
+		_args: &mut Args<'_, Ext>,
+	) -> Result<Self, Self::Error> {
+		let query_string = head
+			.uri
+			.query()
+			.ok_or(QueryParamsError(QueryParamsErrorValue::NoDataIsAvailable))?;
+
+		serde_urlencoded::from_str::<T>(query_string)
+			.map(|value| Self(value))
+			.map_err(|error| QueryParamsError(error.into()))
+	}
+}
+
+impl<B, Ext, T> FromRequest<B, Ext> for QueryParams<T>
+where
+	B: Send,
+	Ext: Sync,
+	T: DeserializeOwned,
+{
+	type Error = QueryParamsError;
+
+	async fn from_request(
+		request: Request<B>,
+		_args: &mut Args<'_, Ext>,
+	) -> Result<Self, Self::Error> {
+		let (mut head, _) = request.into_parts();
+
+		Self::from_request_head(&mut head, _args).await
+	}
+}
+
+#[derive(Debug, crate::ImplError)]
+#[error(transparent)]
+pub struct QueryParamsError(#[from] QueryParamsErrorValue);
+
+impl IntoResponse for QueryParamsError {
+	fn into_response(self) -> Response {
+		StatusCode::BAD_REQUEST.into_response()
+	}
+}
+
+#[derive(Debug, crate::ImplError)]
+enum QueryParamsErrorValue {
+	#[error("no data is available")]
+	NoDataIsAvailable,
+	#[error(transparent)]
+	InvalidData(#[from] serde_urlencoded::de::Error),
+}
 
 // --------------------------------------------------
 // Remaining path
@@ -285,15 +329,15 @@ pub enum RemainingPath {
 	None,
 }
 
-impl<E> FromRequestHead<E> for RemainingPath
+impl<Ext> FromRequestHead<Ext> for RemainingPath
 where
-	E: Sync,
+	Ext: Sync,
 {
 	type Error = Infallible;
 
 	async fn from_request_head(
 		head: &mut RequestHead,
-		args: &mut Args<'_, E>,
+		args: &mut Args<'_, Ext>,
 	) -> Result<Self, Self::Error> {
 		args
 			.routing_state
@@ -305,14 +349,17 @@ where
 	}
 }
 
-impl<B, E> FromRequest<B, E> for RemainingPath
+impl<B, Ext> FromRequest<B, Ext> for RemainingPath
 where
 	B: Send,
-	E: Sync,
+	Ext: Sync,
 {
 	type Error = Infallible;
 
-	async fn from_request(request: Request<B>, args: &mut Args<'_, E>) -> Result<Self, Self::Error> {
+	async fn from_request(
+		request: Request<B>,
+		args: &mut Args<'_, Ext>,
+	) -> Result<Self, Self::Error> {
 		args
 			.routing_state
 			.path_traversal
