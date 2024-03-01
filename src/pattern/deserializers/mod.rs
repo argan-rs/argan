@@ -67,7 +67,7 @@ macro_rules! declare_deserialize_for_parsable {
 		where
 			V: Visitor<'de>,
 		{
-			println!("from str: {}", stringify!($deserialize));
+			println!("[{}] from str: {}", line!(), stringify!($deserialize));
 			let value = self.0.ok_or(E)?;
 
 			match value.parse() {
@@ -85,7 +85,7 @@ impl<'de> Deserializer<'de> for FromStr<'de> {
 	where
 		V: Visitor<'de>,
 	{
-		println!("from str: deserialize_any");
+		println!("[{}] from str: deserialize_any", line!());
 		Err(E)
 	}
 
@@ -105,7 +105,7 @@ impl<'de> Deserializer<'de> for FromStr<'de> {
 	where
 		V: Visitor<'de>,
 	{
-		println!("from str: deserialize_char");
+		println!("[{}] from str: deserialize_char", line!());
 		let value = self.0.ok_or(E)?;
 		let mut chars = value.chars();
 		let value = chars.next().ok_or(E)?;
@@ -121,7 +121,7 @@ impl<'de> Deserializer<'de> for FromStr<'de> {
 	where
 		V: Visitor<'de>,
 	{
-		println!("from str: deserialize_str");
+		println!("[{}] from str: deserialize_str", line!());
 		let value = self.0.ok_or(E)?;
 
 		visitor.visit_borrowed_str(value)
@@ -131,7 +131,7 @@ impl<'de> Deserializer<'de> for FromStr<'de> {
 	where
 		V: Visitor<'de>,
 	{
-		println!("from str: deserialize_string");
+		println!("[{}] from str: deserialize_string", line!());
 		let value = self.0.ok_or(E)?;
 
 		visitor.visit_string(value.to_owned())
@@ -141,7 +141,7 @@ impl<'de> Deserializer<'de> for FromStr<'de> {
 	where
 		V: Visitor<'de>,
 	{
-		println!("from str: deserialize_bytes");
+		println!("[{}] from str: deserialize_bytes", line!());
 		let value = self.0.ok_or(E)?;
 
 		visitor.visit_borrowed_bytes(value.as_bytes())
@@ -151,7 +151,7 @@ impl<'de> Deserializer<'de> for FromStr<'de> {
 	where
 		V: Visitor<'de>,
 	{
-		println!("from str: deserialize_byte_buf");
+		println!("[{}] from str: deserialize_byte_buf", line!());
 		let value = self.0.ok_or(E)?;
 
 		visitor.visit_byte_buf(value.as_bytes().to_owned())
@@ -161,7 +161,7 @@ impl<'de> Deserializer<'de> for FromStr<'de> {
 	where
 		V: Visitor<'de>,
 	{
-		println!("from str: deserialize_option");
+		println!("[{}] from str: deserialize_option", line!());
 		if self.0.is_some() {
 			visitor.visit_some(self)
 		} else {
@@ -173,7 +173,7 @@ impl<'de> Deserializer<'de> for FromStr<'de> {
 	where
 		V: Visitor<'de>,
 	{
-		println!("from str: deserialize_unit");
+		println!("[{}] from str: deserialize_unit", line!());
 		visitor.visit_unit()
 	}
 
@@ -185,7 +185,7 @@ impl<'de> Deserializer<'de> for FromStr<'de> {
 	where
 		V: Visitor<'de>,
 	{
-		println!("from str: deserialize_unit_struct");
+		println!("[{}] from str: deserialize_unit_struct", line!());
 		visitor.visit_unit()
 	}
 
@@ -197,7 +197,7 @@ impl<'de> Deserializer<'de> for FromStr<'de> {
 	where
 		V: Visitor<'de>,
 	{
-		println!("from str: deserialize_newtype_struct");
+		println!("[{}] from str: deserialize_newtype_struct", line!());
 		visitor.visit_newtype_struct(self)
 	}
 
@@ -210,7 +210,7 @@ impl<'de> Deserializer<'de> for FromStr<'de> {
 	where
 		V: Visitor<'de>,
 	{
-		println!("from str: deserialize_enum");
+		println!("[{}] from str: deserialize_enum", line!());
 		visitor.visit_enum(self)
 	}
 
@@ -218,7 +218,7 @@ impl<'de> Deserializer<'de> for FromStr<'de> {
 	where
 		V: Visitor<'de>,
 	{
-		println!("from str: deserialize_identifier");
+		println!("[{}] from str: deserialize_identifier", line!());
 		self.deserialize_str(visitor)
 	}
 
@@ -226,7 +226,7 @@ impl<'de> Deserializer<'de> for FromStr<'de> {
 	where
 		V: Visitor<'de>,
 	{
-		println!("from str: deserialize_ignored_any");
+		println!("[{}] from str: deserialize_ignored_any", line!());
 		visitor.visit_unit()
 	}
 
@@ -241,7 +241,7 @@ impl<'de> EnumAccess<'de> for FromStr<'de> {
 	where
 		V: DeserializeSeed<'de>,
 	{
-		println!("from str: variant_seed");
+		println!("[{}] from str: variant_seed", line!());
 		seed.deserialize(self.clone()).map(|value| (value, self))
 	}
 }
@@ -250,7 +250,7 @@ impl<'de> VariantAccess<'de> for FromStr<'de> {
 	type Error = E;
 
 	fn unit_variant(self) -> Result<(), Self::Error> {
-		println!("from str: unit_variant");
+		println!("[{}] from str: unit_variant", line!());
 		Ok(())
 	}
 
@@ -258,7 +258,7 @@ impl<'de> VariantAccess<'de> for FromStr<'de> {
 	where
 		T: DeserializeSeed<'de>,
 	{
-		println!("from str: newtype_variant_seed");
+		println!("[{}] from str: newtype_variant_seed", line!());
 		seed.deserialize(self)
 	}
 
@@ -266,7 +266,7 @@ impl<'de> VariantAccess<'de> for FromStr<'de> {
 	where
 		V: Visitor<'de>,
 	{
-		println!("from str: tuple_variant");
+		println!("[{}] from str: tuple_variant", line!());
 		Err(E)
 	}
 
@@ -278,7 +278,7 @@ impl<'de> VariantAccess<'de> for FromStr<'de> {
 	where
 		V: Visitor<'de>,
 	{
-		println!("from str: struct_variant");
+		println!("[{}] from str: struct_variant", line!());
 		Err(E)
 	}
 }
