@@ -1,5 +1,6 @@
-use std::{error::Error, fmt::Display};
+use std::fmt::Display;
 
+use http::StatusCode;
 use serde::{
 	de::{DeserializeSeed, EnumAccess, VariantAccess, Visitor},
 	forward_to_deserialize_any, Deserializer,
@@ -12,44 +13,16 @@ mod from_params_list;
 
 pub(crate) use from_params_list::FromParamsList;
 
+use crate::{
+	common::BoxedError,
+	response::{IntoResponse, Response},
+};
+
 // --------------------------------------------------------------------------------
 // --------------------------------------------------------------------------------
 
-#[derive(Debug)]
-pub(crate) struct E;
-
-impl Display for E {
-	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-		write!(f, "Deserializer Error")
-	}
-}
-
-impl Error for E {}
-
-impl serde::de::Error for E {
-	fn custom<T>(_msg: T) -> Self
-	where
-		T: Display,
-	{
-		E
-	}
-}
-
 // --------------------------------------------------
-
-#[repr(u8)]
-#[derive(Debug, Default, Clone, Copy, PartialEq)]
-enum DataType {
-	#[default]
-	Unknown,
-	Single,
-	Sequence,
-	Tuple,
-	Map,
-	Struct,
-}
-
-// --------------------------------------------------
+// FromStr
 
 #[derive(Clone)]
 struct FromStr<'de>(Option<&'de str>);
@@ -68,25 +41,25 @@ macro_rules! declare_deserialize_for_parsable {
 			V: Visitor<'de>,
 		{
 			println!("[{}] from str: {}", line!(), stringify!($deserialize));
-			let value = self.0.ok_or(E)?;
+			let value = self.0.ok_or(DeserializerError::NoDataIsAvailable)?;
 
 			match value.parse() {
 				Ok(value) => visitor.$visit(value),
-				Err(_) => Err(E),
+				Err(error) => Err(DeserializerError::ParsingFailue(error.into())),
 			}
 		}
 	};
 }
 
 impl<'de> Deserializer<'de> for FromStr<'de> {
-	type Error = E;
+	type Error = DeserializerError;
 
 	fn deserialize_any<V>(self, _visitor: V) -> Result<V::Value, Self::Error>
 	where
 		V: Visitor<'de>,
 	{
 		println!("[{}] from str: deserialize_any", line!());
-		Err(E)
+		Err(DeserializerError::UnsupportedType)
 	}
 
 	declare_deserialize_for_parsable!(deserialize_bool, visit_bool, bool);
@@ -106,12 +79,12 @@ impl<'de> Deserializer<'de> for FromStr<'de> {
 		V: Visitor<'de>,
 	{
 		println!("[{}] from str: deserialize_char", line!());
-		let value = self.0.ok_or(E)?;
+		let value = self.0.ok_or(DeserializerError::NoDataIsAvailable)?;
 		let mut chars = value.chars();
-		let value = chars.next().ok_or(E)?;
+		let value = chars.next().ok_or(DeserializerError::NoDataIsAvailable)?;
 
 		if chars.any(|_remaining| true) {
-			return Err(E);
+			return Err(DeserializerError::NoDataIsAvailable);
 		}
 
 		visitor.visit_char(value)
@@ -122,7 +95,7 @@ impl<'de> Deserializer<'de> for FromStr<'de> {
 		V: Visitor<'de>,
 	{
 		println!("[{}] from str: deserialize_str", line!());
-		let value = self.0.ok_or(E)?;
+		let value = self.0.ok_or(DeserializerError::NoDataIsAvailable)?;
 
 		visitor.visit_borrowed_str(value)
 	}
@@ -132,7 +105,7 @@ impl<'de> Deserializer<'de> for FromStr<'de> {
 		V: Visitor<'de>,
 	{
 		println!("[{}] from str: deserialize_string", line!());
-		let value = self.0.ok_or(E)?;
+		let value = self.0.ok_or(DeserializerError::NoDataIsAvailable)?;
 
 		visitor.visit_string(value.to_owned())
 	}
@@ -142,7 +115,7 @@ impl<'de> Deserializer<'de> for FromStr<'de> {
 		V: Visitor<'de>,
 	{
 		println!("[{}] from str: deserialize_bytes", line!());
-		let value = self.0.ok_or(E)?;
+		let value = self.0.ok_or(DeserializerError::NoDataIsAvailable)?;
 
 		visitor.visit_borrowed_bytes(value.as_bytes())
 	}
@@ -152,7 +125,7 @@ impl<'de> Deserializer<'de> for FromStr<'de> {
 		V: Visitor<'de>,
 	{
 		println!("[{}] from str: deserialize_byte_buf", line!());
-		let value = self.0.ok_or(E)?;
+		let value = self.0.ok_or(DeserializerError::NoDataIsAvailable)?;
 
 		visitor.visit_byte_buf(value.as_bytes().to_owned())
 	}
@@ -234,7 +207,7 @@ impl<'de> Deserializer<'de> for FromStr<'de> {
 }
 
 impl<'de> EnumAccess<'de> for FromStr<'de> {
-	type Error = E;
+	type Error = DeserializerError;
 	type Variant = Self;
 
 	fn variant_seed<V>(self, seed: V) -> Result<(V::Value, Self::Variant), Self::Error>
@@ -247,7 +220,7 @@ impl<'de> EnumAccess<'de> for FromStr<'de> {
 }
 
 impl<'de> VariantAccess<'de> for FromStr<'de> {
-	type Error = E;
+	type Error = DeserializerError;
 
 	fn unit_variant(self) -> Result<(), Self::Error> {
 		println!("[{}] from str: unit_variant", line!());
@@ -267,7 +240,7 @@ impl<'de> VariantAccess<'de> for FromStr<'de> {
 		V: Visitor<'de>,
 	{
 		println!("[{}] from str: tuple_variant", line!());
-		Err(E)
+		Err(DeserializerError::UnsupportedType)
 	}
 
 	fn struct_variant<V>(
@@ -279,9 +252,45 @@ impl<'de> VariantAccess<'de> for FromStr<'de> {
 		V: Visitor<'de>,
 	{
 		println!("[{}] from str: struct_variant", line!());
-		Err(E)
+		Err(DeserializerError::UnsupportedType)
 	}
 }
 
-// --------------------------------------------------------------------------------
+// --------------------------------------------------
+// DataType
+
+#[repr(u8)]
+#[derive(Debug, Default, Clone, Copy, PartialEq)]
+enum DataType {
+	#[default]
+	Unknown,
+	Single,
+	Sequence,
+	Tuple,
+	Map,
+	Struct,
+}
+
+// --------------------------------------------------
+// DeserializerError
+
+#[non_exhaustive]
+#[derive(Debug, crate::ImplError)]
+pub enum DeserializerError {
+	#[error("{0}")]
+	Message(String),
+	#[error(transparent)]
+	ParsingFailue(BoxedError),
+	#[error("no data is available")]
+	NoDataIsAvailable,
+	#[error("unsupported type")]
+	UnsupportedType,
+}
+
+impl serde::de::Error for DeserializerError {
+	fn custom<T: Display>(message: T) -> Self {
+		Self::Message(message.to_string())
+	}
+}
+
 // --------------------------------------------------------------------------------

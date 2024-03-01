@@ -6,9 +6,9 @@ use regex::{CaptureLocations, CaptureNames, Regex};
 
 // --------------------------------------------------
 
-mod deserializers;
+mod deserializer;
 
-pub(crate) use deserializers::FromParamsList;
+pub(crate) use deserializer::{DeserializerError, FromParamsList};
 
 use crate::common::SCOPE_VALIDITY;
 
