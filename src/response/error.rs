@@ -111,6 +111,9 @@ pub trait ErrorResponse: StdError + IntoResponse + 'static {
 
 	#[doc(hidden)]
 	fn as_any_mut(&mut self, _: mark::Private) -> &mut dyn Any;
+
+	#[doc(hidden)]
+	fn concrete_into_response(self: Box<Self>, _: mark::Private) -> Response;
 }
 
 impl dyn ErrorResponse + 'static {
@@ -140,6 +143,10 @@ impl dyn ErrorResponse + 'static {
 	pub fn downcast_mut<E: Any + 'static>(&mut self) -> Option<&mut E> {
 		self.as_any_mut(mark::Private).downcast_mut()
 	}
+
+	pub fn into_response(self: Box<Self>) -> Response {
+		self.concrete_into_response(mark::Private)
+	}
 }
 
 impl<E> ErrorResponse for E
@@ -159,6 +166,15 @@ where
 	#[doc(hidden)]
 	fn as_any_mut(&mut self, _: mark::Private) -> &mut dyn Any {
 		self
+	}
+
+	#[doc(hidden)]
+	fn concrete_into_response(self: Box<Self>, _: mark::Private) -> Response {
+		let e = (self as Box<dyn Any>)
+			.downcast::<E>()
+			.expect(SCOPE_VALIDITY);
+
+		(*e).into_response()
 	}
 }
 
