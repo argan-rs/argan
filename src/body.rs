@@ -21,7 +21,7 @@ type BoxedBody = http_body_util::combinators::BoxBody<Bytes, BoxedError>;
 
 // --------------------------------------------------
 
-#[derive(Default)]
+#[derive(Debug, Default)]
 pub struct Body(BoxedBody);
 
 impl Body {
