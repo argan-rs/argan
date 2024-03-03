@@ -341,7 +341,7 @@ where
 	) -> Result<Self, Self::Error> {
 		args
 			.routing_state
-			.path_traversal
+			.route_traversal
 			.remaining_segments(head.uri.path())
 			.map_or(Ok(RemainingPath::None), |remaining_path| {
 				Ok(RemainingPath::Value(remaining_path.into()))
@@ -362,7 +362,7 @@ where
 	) -> Result<Self, Self::Error> {
 		args
 			.routing_state
-			.path_traversal
+			.route_traversal
 			.remaining_segments(request.uri().path())
 			.map_or(Ok(RemainingPath::None), |remaining_path| {
 				Ok(RemainingPath::Value(remaining_path.into()))

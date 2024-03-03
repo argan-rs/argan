@@ -240,7 +240,7 @@ impl Handler for RequestReceiver {
 	fn handle(&self, mut request: Request, args: &mut Args) -> Self::Future {
 		if args
 			.routing_state
-			.path_traversal
+			.route_traversal
 			.has_remaining_segments(request.uri().path())
 		{
 			let resource_is_subtree_handler = self.is_subtree_hander();
@@ -250,7 +250,7 @@ impl Handler for RequestReceiver {
 					args.routing_state.subtree_handler_exists = true;
 				}
 
-				let next_segment_index = args.routing_state.path_traversal.next_segment_index();
+				let next_segment_index = args.routing_state.route_traversal.next_segment_index();
 
 				let response_future = match request_passer {
 					MaybeBoxed::Boxed(boxed_request_passer) => boxed_request_passer.handle(request, args),
@@ -295,7 +295,7 @@ impl Handler for RequestReceiver {
 						.expect("RoutingState should always exist in Uncloneable");
 
 					routing_state
-						.path_traversal
+						.route_traversal
 						.revert_to_segment(next_segment_index);
 
 					let mut args = Args {
@@ -333,7 +333,7 @@ impl Handler for RequestReceiver {
 		if let Some(request_handler) = self.some_request_handler.as_ref() {
 			let request_path_ends_with_slash = args
 				.routing_state
-				.path_traversal
+				.route_traversal
 				.ends_with_slash(request.uri().path());
 
 			let resource_path_ends_with_slash = self.config_flags.has(ConfigFlags::ENDS_WITH_SLASH);
@@ -464,7 +464,7 @@ impl Handler for RequestPasser {
 		let some_next_resource = 'some_next_resource: {
 			let (next_segment, _) = args
 				.routing_state
-				.path_traversal
+				.route_traversal
 				.next_segment(request.uri().path())
 				.expect("request passer shouldn't be called when there is no next path segment");
 

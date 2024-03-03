@@ -9,15 +9,15 @@ use crate::{pattern::ParamsList, request::Request, resource::ResourceService};
 
 #[derive(Default)]
 pub(crate) struct RoutingState {
-	pub(crate) path_traversal: RouteTraversal,
+	pub(crate) route_traversal: RouteTraversal,
 	pub(crate) uri_params: ParamsList,
 	pub(crate) subtree_handler_exists: bool,
 }
 
 impl RoutingState {
-	pub(crate) fn new(path_traversal: RouteTraversal) -> RoutingState {
+	pub(crate) fn new(route_traversal: RouteTraversal) -> RoutingState {
 		Self {
-			path_traversal,
+			route_traversal,
 			uri_params: ParamsList::new(),
 			subtree_handler_exists: false,
 		}
