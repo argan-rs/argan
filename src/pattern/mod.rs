@@ -942,9 +942,7 @@ mod test {
 			),
 			(
 				"{{not_capture_name}}",
-				Pattern::Static(
-					Cow::<str>::from(percent_encode(b"{not_capture_name}", ASCII_SET)).into(),
-				),
+				Pattern::Static(Cow::<str>::from(percent_encode(b"{not_capture_name}", ASCII_SET)).into()),
 			),
 			(
 				"static:{{not_capture_name}}",
