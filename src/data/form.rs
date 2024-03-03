@@ -399,3 +399,87 @@ impl From<multer::Error> for MultipartFormError {
 }
 
 // --------------------------------------------------------------------------------
+// --------------------------------------------------------------------------------
+
+#[cfg(test)]
+mod test {
+	use serde::Deserialize;
+
+	use super::*;
+
+	// --------------------------------------------------------------------------------
+	// --------------------------------------------------------------------------------
+
+	#[derive(Debug, Serialize, Deserialize)]
+	struct Data {
+		some_id: Option<u32>,
+		login: String,
+		password: String,
+	}
+
+	impl Data {
+		fn new(login: String, password: String) -> Self {
+			Self {
+				some_id: None,
+				login,
+				password,
+			}
+		}
+	}
+
+	// -------------------------
+
+	#[tokio::test]
+	async fn form() {
+		let login = "login".to_string();
+		let password = "password".to_string();
+
+		let data = Data::new(login.clone(), password.clone());
+		let form_data_string = serde_urlencoded::to_string(&data).unwrap();
+
+		dbg!(&form_data_string);
+
+		let mut args = Args::default();
+
+		// ----------
+
+		let request = Request::builder()
+			.header(
+				CONTENT_TYPE,
+				HeaderValue::from_static(mime::APPLICATION_WWW_FORM_URLENCODED.as_ref()),
+			)
+			.body(form_data_string)
+			.unwrap();
+
+		let Form(mut form_data) = Form::<Data>::from_request(request, &mut args)
+			.await
+			.unwrap();
+
+		assert_eq!(form_data.login, login.as_ref());
+		assert_eq!(form_data.password, password.as_ref());
+
+		// -----
+
+		form_data.some_id = Some(1);
+		let response = Form(form_data).into_response_result().unwrap();
+		let form_body = response.into_body();
+
+		// -----
+
+		let request = Request::builder()
+			.header(
+				CONTENT_TYPE,
+				HeaderValue::from_static(mime::APPLICATION_WWW_FORM_URLENCODED.as_ref()),
+			)
+			.body(form_body)
+			.unwrap();
+
+		let Form(form_data) = Form::<Data>::from_request(request, &mut args)
+			.await
+			.unwrap();
+
+		assert_eq!(form_data.some_id, Some(1));
+		assert_eq!(form_data.login, login.as_ref());
+		assert_eq!(form_data.password, password.as_ref());
+	}
+}
