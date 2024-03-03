@@ -1,7 +1,7 @@
 use core::panic;
 use std::{borrow::Cow, fmt::Display, iter::Peekable, slice, str::Chars, sync::Arc};
 
-use percent_encoding::{percent_encode, NON_ALPHANUMERIC};
+use percent_encoding::{percent_encode, AsciiSet, CONTROLS, NON_ALPHANUMERIC};
 use regex::{CaptureLocations, CaptureNames, Regex};
 
 // --------------------------------------------------
@@ -52,6 +52,21 @@ pub(crate) enum Pattern {
 	Wildcard(Arc<str>),
 }
 
+// ???
+const ASCII_SET: &AsciiSet = &CONTROLS
+	.add(b' ')
+	.add(b'%')
+	.add(b'/')
+	.add(b'?')
+	.add(b'#')
+	.add(b'[')
+	.add(b']')
+	.add(b'<')
+	.add(b'>')
+	.add(b'\\')
+	.add(b'^')
+	.add(b':');
+
 impl Pattern {
 	pub(crate) fn parse(pattern: &str) -> Pattern {
 		let mut chars = pattern.chars().peekable();
@@ -72,8 +87,9 @@ impl Pattern {
 					}
 
 					let static_pattern = replacer.replace_all(&static_pattern, "/");
+
 					let encoded_static_pattern =
-						Cow::<str>::from(percent_encode(static_pattern.as_bytes(), NON_ALPHANUMERIC));
+						Cow::<str>::from(percent_encode(static_pattern.as_bytes(), ASCII_SET));
 
 					return Pattern::Static(encoded_static_pattern.into());
 				}
@@ -917,42 +933,29 @@ mod test {
 	#[test]
 	fn parse() {
 		let cases = [
-			// ("", Pattern::Static("".into())),
 			("static", Pattern::Static("static".into())),
 			(
 				"{{not_capture_name:pattern}}",
 				Pattern::Static(
-					Cow::<str>::from(percent_encode(
-						b"{not_capture_name:pattern}",
-						NON_ALPHANUMERIC,
-					))
-					.into(),
+					Cow::<str>::from(percent_encode(b"{not_capture_name:pattern}", ASCII_SET)).into(),
 				),
 			),
 			(
 				"{{not_capture_name}}",
 				Pattern::Static(
-					Cow::<str>::from(percent_encode(b"{not_capture_name}", NON_ALPHANUMERIC)).into(),
+					Cow::<str>::from(percent_encode(b"{not_capture_name}", ASCII_SET)).into(),
 				),
 			),
 			(
 				"static:{{not_capture_name}}",
 				Pattern::Static(
-					Cow::<str>::from(percent_encode(
-						b"static:{not_capture_name}",
-						NON_ALPHANUMERIC,
-					))
-					.into(),
+					Cow::<str>::from(percent_encode(b"static:{not_capture_name}", ASCII_SET)).into(),
 				),
 			),
 			(
 				"{{not_capture_name}}:static",
 				Pattern::Static(
-					Cow::<str>::from(percent_encode(
-						b"{not_capture_name}:static",
-						NON_ALPHANUMERIC,
-					))
-					.into(),
+					Cow::<str>::from(percent_encode(b"{not_capture_name}:static", ASCII_SET)).into(),
 				),
 			),
 			(
