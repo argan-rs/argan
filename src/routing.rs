@@ -26,7 +26,7 @@ impl RoutingState {
 
 // --------------------------------------------------
 
-#[derive(Default)]
+#[derive(Debug, Default)]
 pub(crate) struct RouteTraversal(usize);
 
 impl RouteTraversal {
@@ -99,6 +99,7 @@ impl RouteTraversal {
 
 // -------------------------
 
+#[derive(Debug)]
 pub(crate) struct RouteSegments<'r> {
 	route: &'r str,
 	route_traversal: RouteTraversal,

@@ -1,10 +1,8 @@
-use core::panic;
 use std::{
 	any::{self, Any, TypeId},
 	convert::Infallible,
 	fmt::{Debug, Display},
 	future::Ready,
-	str::FromStr as _,
 	sync::Arc,
 };
 
@@ -196,7 +194,7 @@ impl Resource {
 
 	#[inline(always)]
 	pub(crate) fn has_some_effect(&self) -> bool {
-		self.method_handlers.has_some_effect() && !self.middleware.is_empty()
+		self.method_handlers.has_some_effect() || !self.middleware.is_empty()
 	}
 
 	// -------------------------
@@ -1211,6 +1209,7 @@ impl Debug for Resource {
 			"Resource {{
 				pattern: {},
 				prefix_segment_patterns: {},
+				host_pattern exists: {},
 				static_resources count: {},
 				regex_resources count: {},
 				wildcard_resource exists: {},
@@ -1222,6 +1221,7 @@ impl Debug for Resource {
 			}}",
 			&self.pattern,
 			patterns_to_route(&self.prefix_segment_patterns),
+			self.some_host_pattern.is_some(),
 			self.static_resources.len(),
 			self.regex_resources.len(),
 			self.some_wildcard_resource.is_some(),
@@ -1268,13 +1268,13 @@ mod test {
 	fn resource_new() {
 		let uri_patterns = [
 			"http:///news",
-			"https:///news/$area:@(local|worldwide)",
-			"http://$sub:@([^.]+).example.com/products/",
-			"https://example.com/products/*category",
+			"https:///news/{area:local|worldwide}",
+			"http://{sub}.example.com/products/",
+			"https://example.com/products/{category}",
 			"http://www.example.com/",
-			"/products/*category/$page:@(\\d+)/",
-			"/$forecast:@days(5|10)-forecast",
-			"/*random",
+			"/products/{category}/{page:\\d+}/",
+			"/{forecast_days:5|10}-days-forecast",
+			"/{random}",
 		];
 
 		for uri_pattern in uri_patterns {
@@ -1292,194 +1292,202 @@ mod test {
 	#[test]
 	#[should_panic(expected = "must start with a slash")]
 	fn resource_new_with_invalid_path_patterns() {
-		Resource::new("products/*category");
+		Resource::new("products/{category}");
 	}
 
 	#[test]
 	fn resource_add_subresource() {
-		let mut parent = Resource::new("/abc0_0/*abc1_0");
+		//	/st_0_0	->	/{wl_1_0}	->	/{rx_2_0:p0}	->	/st_3_0
+		//											|									|	->	/{rx_3_1:p0}	->	/{wl_4_0}
+		//											|																		|	->	/st_4_1
+		//											|																		|	->	/st_4_2
+		//											|
+		//											|	->	/st_2_1	->	/{wl_3_0}	->	/{rx_4_0:p0}
+		//																								|	->	/{rx_4_1:p1}
+
+		let parent_route = "/st_0_0/{wl_1_0}".to_string();
+		let mut parent = Resource::new(&parent_route);
 
 		let cases = [
-			("/abc0_0/*abc1_0/$abc2_0:@(p0)/", "/$abc2_0:@(p0)/"),
-			(
-				"/abc0_0/*abc1_0/$abc2_0:@(p0)/abc3_0",
-				"/$abc2_0:@(p0)/abc3_0",
-			),
-			(
-				"/abc0_0/*abc1_0/$abc2_0:@(p0)/$abc3_1:@cn0(p0)",
-				"/$abc2_0:@(p0)/$abc3_1:@cn0(p0)",
-			),
-			(
-				"/abc0_0/*abc1_0/$abc2_0:@(p0)/$abc3_1:@cn0(p0)/*abc4_0",
-				"/$abc2_0:@(p0)/$abc3_1:@cn0(p0)/*abc4_0",
-			),
-			(
-				"/abc0_0/*abc1_0/$abc2_0:@(p0)/$abc3_1:@cn0(p0)/abc4_1",
-				"/$abc2_0:@(p0)/$abc3_1:@cn0(p0)/abc4_1",
-			),
-			(
-				"/abc0_0/*abc1_0/$abc2_0:@(p0)/$abc3_1:@cn0(p0)/abc4_2",
-				"/$abc2_0:@(p0)/$abc3_1:@cn0(p0)/abc4_2",
-			),
-			("/abc0_0/*abc1_0/abc2_1", "/abc2_1"),
-			(
-				"/abc0_0/*abc1_0/abc2_1/*abc3_0/$abc4_0:@(p0)/",
-				"/abc2_1/*abc3_0/$abc4_0:@(p0)",
-			),
-			(
-				"/abc0_0/*abc1_0/abc2_1/*abc3_0/$abc4_1:@(p1)",
-				"/abc2_1/*abc3_0/$abc4_1:@(p1)/",
-			),
-			("/abc0_0/*abc1_0/abc2_1/*abc3_0", "/abc2_1/*abc3_0"),
+			"/{rx_2_0:p0}/",
+			"/{rx_2_0:p0}/st_3_0",
+			"/{rx_2_0:p0}/{rx_3_1:p0}",
+			"/{rx_2_0:p0}/{rx_3_1:p0}/{wl_4_0}",
+			"/{rx_2_0:p0}/{rx_3_1:p0}/st_4_1",
+			"/{rx_2_0:p0}/{rx_3_1:p0}/st_4_2",
+			"/st_2_1",
+			"/st_2_1/{wl_3_0}/{rx_4_0:p0}",
+			"/st_2_1/{wl_3_0}/{rx_4_1:p1}/",
+			"/st_2_1/{wl_3_0}",
 		];
 
 		for case in cases {
-			let resource = Resource::new(case.0);
+			let resource_path = parent_route.clone() + case;
+			let resource = Resource::new(&resource_path);
 
 			parent.add_subresource(resource);
 
-			let (resource, _) =
-				parent.by_patterns_leaf_resource_mut(route_to_patterns(case.1).into_iter());
-			resource.check_uri_segments_are_the_same(None, &mut route_to_patterns(case.0).into_iter());
+			let (resource, _) = parent.by_patterns_leaf_resource_mut(route_to_patterns(case).into_iter());
+			let prefix_patterns = route_to_patterns(&resource_path);
+			resource.check_uri_segments_are_the_same(None, &mut prefix_patterns.into_iter());
 		}
 
 		{
 			// Existing resources in the tree.
 
-			let (resource2_0, _) = parent.leaf_resource_mut(RouteSegments::new("/$abc2_0:@(p0)"));
-			resource2_0.set_handler(post(DummyHandler::<DefaultResponseFuture>::new()));
-			resource2_0
-				.subresource_mut("/$abc3_1:@cn0(p0)/*abc4_0")
+			let (rx_2_0, _) = parent.leaf_resource_mut(RouteSegments::new("/{rx_2_0:p0}"));
+			rx_2_0.set_handler(post(DummyHandler::<DefaultResponseFuture>::new()));
+			rx_2_0
+				.subresource_mut("/{rx_3_1:p0}/{wl_4_0}")
 				.set_handler(get(DummyHandler::<DefaultResponseFuture>::new()));
 
-			let (resource4_2, _) =
-				resource2_0.leaf_resource_mut(RouteSegments::new("/$abc3_1:@cn0(p0)/abc4_2"));
-			resource4_2.new_subresource_mut(RouteSegments::new("/abc5_0"));
+			let (st_4_2, _) = rx_2_0.leaf_resource_mut(RouteSegments::new("/{rx_3_1:p0}/st_4_2"));
+
+			// New child.
+			st_4_2.new_subresource_mut(RouteSegments::new("/st_5_0"));
 		}
 
 		{
 			// New resources.
 
-			let mut resource2_0 = Resource::new("/$abc2_0:@(p0)");
+			let mut new_rx_2_0 = Resource::new("/{rx_2_0:p0}");
 
-			let mut resource3_1 = Resource::new("/$abc3_1:@cn0(p0)");
-			resource3_1.set_handler([
+			let mut new_rx_3_1 = Resource::new("/{rx_3_1:p0}");
+			// Must replace the existing resource.
+			new_rx_3_1.set_handler([
 				get(DummyHandler::<DefaultResponseFuture>::new()),
 				post(DummyHandler::<DefaultResponseFuture>::new()),
 			]);
 
-			resource3_1
-				.subresource_mut("/abc4_1")
+			new_rx_3_1
+				.subresource_mut("/st_4_1")
+				// Must replace the existing resource.
 				.set_handler(post(DummyHandler::<DefaultResponseFuture>::new()));
-			resource3_1.new_subresource_mut(RouteSegments::new("/$abc4_3:@(p0)"));
-			resource3_1.new_subresource_mut(RouteSegments::new("/abc4_4"));
 
-			resource2_0.add_subresource(resource3_1);
+			new_rx_3_1.new_subresource_mut(RouteSegments::new("/{rx_4_3:p0}"));
+			new_rx_3_1.new_subresource_mut(RouteSegments::new("/st_4_4"));
+
+			new_rx_2_0.add_subresource(new_rx_3_1);
 
 			// Resources with handlers must replace existing resources with the same pattern.
-			// Other resources must be kept as is. New subtree must be a union of the existing two subtrees.
-			parent.add_subresource(resource2_0);
+			// Other resources must be kept as is.
+			parent.add_subresource(new_rx_2_0);
 
-			let (resource2_0, _) = parent.leaf_resource(RouteSegments::new("/$abc2_0:@(p0)"));
-			assert_eq!(resource2_0.static_resources.len(), 1);
-			assert_eq!(resource2_0.regex_resources.len(), 1);
-			assert_eq!(resource2_0.method_handlers.count(), 1);
+			let (rx_2_0, _) = parent.leaf_resource(RouteSegments::new("/{rx_2_0:p0}"));
+			assert_eq!(rx_2_0.static_resources.len(), 1);
+			assert_eq!(rx_2_0.regex_resources.len(), 1);
+			assert_eq!(rx_2_0.method_handlers.count(), 1);
 
-			let (resource3_1, _) =
-				parent.leaf_resource(RouteSegments::new("/$abc2_0:@(p0)/$abc3_1:@cn0(p0)"));
-			assert_eq!(resource3_1.static_resources.len(), 3);
-			assert_eq!(resource3_1.regex_resources.len(), 1);
-			assert!(resource3_1.some_wildcard_resource.is_some());
-			assert_eq!(resource3_1.method_handlers.count(), 2);
+			let (rx_3_1, _) = parent.leaf_resource(RouteSegments::new("/{rx_2_0:p0}/{rx_3_1:p0}"));
+			assert_eq!(rx_3_1.static_resources.len(), 3);
+			assert_eq!(rx_3_1.regex_resources.len(), 1);
+			assert!(rx_3_1.some_wildcard_resource.is_some());
+			assert_eq!(rx_3_1.method_handlers.count(), 2);
 
-			let (resource4_0, _) = resource3_1.leaf_resource(RouteSegments::new("/*abc4_0"));
-			assert_eq!(resource4_0.method_handlers.count(), 1);
+			let (wl_4_0, _) = rx_3_1.leaf_resource(RouteSegments::new("/{wl_4_0}"));
+			assert_eq!(wl_4_0.method_handlers.count(), 1);
 
-			let (resource4_2, _) = resource3_1.leaf_resource(RouteSegments::new("/abc4_2"));
-			assert_eq!(resource4_2.static_resources.len(), 1);
+			let (st_4_2, _) = rx_3_1.leaf_resource(RouteSegments::new("/st_4_2"));
+			assert_eq!(st_4_2.static_resources.len(), 1);
 
-			let (resource5_0, _) = resource4_2.leaf_resource(RouteSegments::new("/abc5_0"));
-			resource5_0.check_uri_segments_are_the_same(
+			let (st_5_0, _) = st_4_2.leaf_resource(RouteSegments::new("/st_5_0"));
+			st_5_0.check_uri_segments_are_the_same(
 				None,
-				&mut route_to_patterns("/abc0_0/*abc1_0/$abc2_0:@(p0)/$abc3_1:@cn0(p0)/abc4_2/abc5_0")
+				&mut route_to_patterns("/st_0_0/{wl_1_0}/{rx_2_0:p0}/{rx_3_1:p0}/st_4_2/st_5_0")
 					.into_iter(),
 			);
 
-			let (resource4_1, _) = resource3_1.leaf_resource(RouteSegments::new("/abc4_1"));
-			assert_eq!(resource4_1.method_handlers.count(), 1);
+			let (st_4_1, _) = rx_3_1.leaf_resource(RouteSegments::new("/st_4_1"));
+			assert_eq!(st_4_1.method_handlers.count(), 1);
 		}
 
 		{
-			let pattern3_0 = "/abc0_0/*abc1_0/abc2_1/*abc3_0";
-			let route3_0 = "/abc2_1/*abc3_0";
+			let wl_3_0_path = "/st_0_0/{wl_1_0}/st_2_1/{wl_3_0}";
+			let wl_3_0_route = "/st_2_1/{wl_3_0}";
 
-			let mut resource3_0 = Resource::new(pattern3_0);
-			resource3_0.by_patterns_new_subresource_mut(std::iter::once(Pattern::parse("abc4_2")));
-			resource3_0.set_handler(get(DummyHandler::<DefaultResponseFuture>::new()));
+			let mut new_wl_3_0 = Resource::new(wl_3_0_path);
+			new_wl_3_0.by_patterns_new_subresource_mut(std::iter::once(Pattern::parse("st_4_1")));
+			new_wl_3_0.set_handler(get(DummyHandler::<DefaultResponseFuture>::new()));
 
-			parent.add_subresource(resource3_0);
-			let (resource3_0, _) = parent.leaf_resource_mut(RouteSegments::new(route3_0));
-			resource3_0
-				.check_uri_segments_are_the_same(None, &mut route_to_patterns(pattern3_0).into_iter());
-			assert_eq!(resource3_0.static_resources.len(), 1);
-			assert_eq!(resource3_0.regex_resources.len(), 2);
-			assert_eq!(resource3_0.method_handlers.count(), 1);
+			parent.add_subresource(new_wl_3_0);
+			let (wl_3_0, _) = parent.leaf_resource_mut(RouteSegments::new(wl_3_0_route));
+			wl_3_0.check_uri_segments_are_the_same(None, &mut route_to_patterns(wl_3_0_path).into_iter());
+			assert_eq!(wl_3_0.static_resources.len(), 1);
+			assert_eq!(wl_3_0.regex_resources.len(), 2);
+			assert_eq!(wl_3_0.method_handlers.count(), 1);
 		}
 	}
 
 	#[test]
-	fn resource_check_path_segments_are_the_same() {
+	fn resource_check_uri_segments_are_the_same() {
 		let path_patterns = [
-			("/news", "/news"),
-			(
-				"/news/$area:@(local|worldwide)",
-				"/news/$area:@(local|worldwide)",
-			),
-			("/products/", "/products/"),
-			("/products/*category", "/products/*category"),
-			(
-				"/products/*category/$page:@(\\d+)/",
-				"/products/*category/$page/",
-			),
-			("/$forecast:@days(5|10)-forecast/*city", "/$forecast/*city"),
+			"/news",
+			"/news/{area:local|worldwide}",
+			"/products/",
+			"/products/{category}",
+			"/products/{category}/{page:\\d+}/",
+			"/{forecast_days:5|10}-days-forecast/{city}",
 		];
 
-		for segment_patterns in path_patterns {
-			let resource = Resource::new(segment_patterns.0);
-			let segmets = RouteSegments::new(segment_patterns.1);
-			let mut segment_patterns = Vec::new();
-			for (segment, _) in segmets {
-				let pattern = Pattern::parse(segment);
-				segment_patterns.push(pattern);
-			}
+		for path_pattern in path_patterns {
+			let resource = Resource::new(path_pattern);
+			let path_patterns = route_to_patterns(path_pattern);
 
-			resource.check_uri_segments_are_the_same(None, &mut segment_patterns.into_iter());
+			resource.check_uri_segments_are_the_same(None, &mut path_patterns.into_iter());
 		}
+
+		let resource_with_host = Resource::new("http://example.com/products/item");
+		let host_pattern = Pattern::parse("example.com");
+		let path_patterns = route_to_patterns("/products/item");
+
+		resource_with_host
+			.check_uri_segments_are_the_same(Some(host_pattern), &mut path_patterns.into_iter());
 	}
 
 	#[test]
-	#[should_panic]
-	fn resource_check_path_segments_are_the_same_panic1() {
-		let resource = Resource::new("/news/$area:@(local|worldwide)");
-		let mut segment_patterns = vec![Pattern::parse("news"), Pattern::parse("local")].into_iter();
+	#[should_panic(expected = "resource is intended to belong to a host")]
+	fn resource_check_uri_segments_are_the_same_panic1() {
+		let resource = Resource::new("/news/{area:local|worldwide}");
+		dbg!(&resource);
+		let mut segment_patterns = vec![
+			Pattern::parse("news"),
+			Pattern::parse("{area:local|worldwide}"),
+		]
+		.into_iter();
+
+		resource
+			.check_uri_segments_are_the_same(Some(Pattern::parse("example.com")), &mut segment_patterns);
+	}
+
+	#[test]
+	#[should_panic(expected = "no host")]
+	fn resource_check_uri_segments_are_the_same_panic2() {
+		let resource = Resource::new("http://example1.com/news/{area:local|worldwide}");
+		dbg!(&resource);
+		let mut segment_patterns = vec![
+			Pattern::parse("news"),
+			Pattern::parse("{area:local|worldwide}"),
+		]
+		.into_iter();
+
+		resource
+			.check_uri_segments_are_the_same(Some(Pattern::parse("example2.com")), &mut segment_patterns);
+	}
+
+	#[test]
+	#[should_panic(expected = "patterns must be the same")]
+	fn resource_check_uri_segments_are_the_same_panic3() {
+		let resource = Resource::new("/news/{area:local|worldwide}");
+		let mut segment_patterns = vec![Pattern::parse("news")].into_iter();
 
 		resource.check_uri_segments_are_the_same(None, &mut segment_patterns);
 	}
 
 	#[test]
-	#[should_panic(expected = "no prefix path segment resource")]
-	fn resource_check_path_segments_are_the_same_panic2() {
-		let resource = Resource::new("/news/$area:@(local|worldwide)");
-		let mut segment_patterns = vec![Pattern::parse("news"), Pattern::parse("$city")].into_iter();
-
-		resource.check_uri_segments_are_the_same(None, &mut segment_patterns);
-	}
-
-	#[test]
-	#[should_panic(expected = "no segment '*area' exists among the prefix path segments")]
-	fn resource_check_path_segments_are_the_same_panic3() {
-		let resource = Resource::new("/news/$area:@(local|worldwide)");
-		let mut segment_patterns = vec![Pattern::parse("news"), Pattern::parse("*area")].into_iter();
+	#[should_panic(expected = "no segment")]
+	fn resource_check_uri_segments_are_the_same_panic4() {
+		let resource = Resource::new("/news/{area:local|worldwide}");
+		let mut segment_patterns = vec![Pattern::parse("news"), Pattern::parse("{area}")].into_iter();
 
 		resource.check_uri_segments_are_the_same(None, &mut segment_patterns);
 	}
@@ -1487,26 +1495,37 @@ mod test {
 	#[test]
 	#[should_panic(expected = "is not unique in the path")]
 	fn resource_check_names_are_unique_in_the_path1() {
-		let mut parent = Resource::new("/abc0/$abc1:@(p)/*abc2");
-		let faulty_resource = Resource::new("/$abc1:@cn(p)");
+		let mut parent = Resource::new("/st_0_0/{rx_1_0:p1}/{wl_2_0}");
+		let resource = Resource::new("/{rx_1_0:p2}");
 
-		parent.add_subresource(faulty_resource);
+		parent.add_subresource(resource);
 	}
 
 	#[test]
 	#[should_panic(expected = "is not unique in the path")]
 	fn resource_check_names_are_unique_in_the_path2() {
-		let mut parent = Resource::new("/abc0/$abc1:@(p)/*abc2/abc3");
-		let mut abc4 = Resource::new("/abc4");
-		let faulty_abc2 = Resource::new("/*abc2");
-		abc4.add_subresource(faulty_abc2);
+		let mut parent = Resource::new("/st_0_0/{rx_1_0:p1}/{wl_2_0}/st_3_0");
+		let mut child = Resource::new("/st_4_0");
+		let grandchild = Resource::new("/{rx_1_0:p2}");
+		child.add_subresource(grandchild);
 
-		parent.add_subresource(abc4);
+		parent.add_subresource(child);
 	}
 
 	#[test]
 	fn resource_add_subresource_under() {
-		let mut parent = Resource::new("/abc0_0/*abc1_0");
+		//	/st_0_0	->	/{wl_1_0}	->	/{rx_2_0:p}	->	/st_3_0
+		//											|								|	->	/{rx_3_1:p}	->	/{wl_4_0}
+		//											|																|	->	/st_4_1
+		//											|																|	->	/st_4_2
+		//											|
+		//											|	->	/st_2_1	->	/{wl_3_0}	->	/{rx_4_0:p}
+		//																	|							|	->	/{rx_4_1:p}
+		//																	|
+		//																	|	->	/{rx_3_1:p}
+
+		let parent_route = "/st_0_0/{wl_1_0}".to_string();
+		let mut parent = Resource::new(&parent_route);
 
 		struct Case<'a> {
 			full_path: &'a str,
@@ -1518,59 +1537,73 @@ mod test {
 
 		let cases = [
 			Case {
-				full_path: "/abc0_0/*abc1_0/$abc2_0:@(p)/abc3_0",
-				prefix_route_from_parent: "/$abc2_0:@(p)",
-				resource_pattern: "abc3_0",
-				route_from_parent: "/$abc2_0:@(p)/abc3_0",
+				full_path: "/st_0_0/{wl_1_0}/{rx_2_0:p}/st_3_0",
+				prefix_route_from_parent: "/{rx_2_0:p}",
+				resource_pattern: "st_3_0",
+				route_from_parent: "/{rx_2_0:p}/st_3_0",
 				resource_has_handler: true,
 			},
 			Case {
-				full_path: "/abc0_0/*abc1_0/$abc2_0:@(p)/abc3_0/*abc4_0",
-				prefix_route_from_parent: "/$abc2_0:@(p)/",
-				resource_pattern: "*abc4_0",
-				route_from_parent: "/$abc2_0:@(p)/abc3_0/*abc4_0",
+				full_path: "/st_0_0/{wl_1_0}/{rx_2_0:p}/{rx_3_1:p}/",
+				prefix_route_from_parent: "/{rx_2_0:p}",
+				resource_pattern: "{rx_3_1:p}",
+				route_from_parent: "/{rx_2_0:p}/{rx_3_1:p}/",
+				resource_has_handler: true,
+			},
+			Case {
+				full_path: "/st_0_0/{wl_1_0}/{rx_2_0:p}/{rx_3_1:p}/{wl_4_0}",
+				prefix_route_from_parent: "/{rx_2_0:p}/{rx_3_1:p}/",
+				resource_pattern: "{wl_4_0}",
+				route_from_parent: "/{rx_2_0:p}/{rx_3_1:p}/{wl_4_0}",
 				resource_has_handler: false,
 			},
 			Case {
-				full_path: "/abc0_0/*abc1_0/$abc2_0:@(p)/abc3_0/abc4_1",
+				full_path: "/st_0_0/{wl_1_0}/{rx_2_0:p}/{rx_3_1:p}/st_4_1",
 				prefix_route_from_parent: "",
-				resource_pattern: "abc4_1",
-				route_from_parent: "/$abc2_0:@(p)/abc3_0/abc4_1",
+				resource_pattern: "st_4_1",
+				route_from_parent: "/{rx_2_0:p}/{rx_3_1:p}/st_4_1",
 				resource_has_handler: true,
 			},
 			Case {
-				full_path: "/abc0_0/*abc1_0/*abc2_1/abc3_0",
+				full_path: "/st_0_0/{wl_1_0}/{rx_2_0:p}/{rx_3_1:p}/st_4_2",
 				prefix_route_from_parent: "",
-				resource_pattern: "abc3_0",
-				route_from_parent: "/*abc2_1/abc3_0",
+				resource_pattern: "st_4_2",
+				route_from_parent: "/{rx_2_0:p}/{rx_3_1:p}/st_4_2",
 				resource_has_handler: false,
 			},
 			Case {
-				full_path: "/abc0_0/*abc1_0/*abc2_1/abc3_0/$abc4_0:@cn(p)/",
-				prefix_route_from_parent: "/*abc2_1/abc3_0",
-				resource_pattern: "$abc4_0:@cn(p)",
-				route_from_parent: "/*abc2_1/abc3_0/$abc4_0:@cn(p)",
+				full_path: "/st_0_0/{wl_1_0}/st_2_1/{wl_3_0}",
+				prefix_route_from_parent: "",
+				resource_pattern: "{wl_3_0}",
+				route_from_parent: "/st_2_1/{wl_3_0}",
+				resource_has_handler: false,
+			},
+			Case {
+				full_path: "/st_0_0/{wl_1_0}/st_2_1/{wl_3_0}/{rx_4_0:p}/",
+				prefix_route_from_parent: "/st_2_1/{wl_3_0}",
+				resource_pattern: "{rx_4_0:p}",
+				route_from_parent: "/st_2_1/{wl_3_0}/{rx_4_0:p}/",
 				resource_has_handler: true,
 			},
 			Case {
-				full_path: "/abc0_0/*abc1_0/*abc2_1/abc3_0/$abc4_1:@cn(p)/",
-				prefix_route_from_parent: "/*abc2_1/abc3_0",
-				resource_pattern: "$abc4_1:@cn(p)",
-				route_from_parent: "/*abc2_1/abc3_0/$abc4_1:@cn(p)",
+				full_path: "/st_0_0/{wl_1_0}/st_2_1/{wl_3_0}/{rx_4_1:p}/",
+				prefix_route_from_parent: "/st_2_1/{wl_3_0}/",
+				resource_pattern: "{rx_4_1:p}",
+				route_from_parent: "/st_2_1/{wl_3_0}/{rx_4_1:p}",
 				resource_has_handler: false,
 			},
 			Case {
-				full_path: "/abc0_0/*abc1_0/*abc2_1/abc3_0/$abc4_1:@cn(p)/abc5_0",
-				prefix_route_from_parent: "/*abc2_1/abc3_0/$abc4_1:@cn(p)",
-				resource_pattern: "abc5_0",
-				route_from_parent: "/*abc2_1/abc3_0/$abc4_1:@cn(p)/abc5_0",
+				full_path: "/st_0_0/{wl_1_0}/st_2_1/{wl_3_0}/{rx_4_1:p}/st_5_0",
+				prefix_route_from_parent: "/st_2_1/{wl_3_0}/{rx_4_1:p}",
+				resource_pattern: "st_5_0",
+				route_from_parent: "/st_2_1/{wl_3_0}/{rx_4_1:p}/st_5_0",
 				resource_has_handler: false,
 			},
 			Case {
-				full_path: "/abc0_0/*abc1_0/*abc2_1/$abc3_1:@(p)",
-				prefix_route_from_parent: "/*abc2_1",
-				resource_pattern: "$abc3_1:@(p)",
-				route_from_parent: "/*abc2_1/$abc3_1:@(p)",
+				full_path: "/st_0_0/{wl_1_0}/st_2_1/{rx_3_1:p}",
+				prefix_route_from_parent: "/st_2_1",
+				resource_pattern: "{rx_3_1:p}",
+				route_from_parent: "/st_2_1/{rx_3_1:p}",
 				resource_has_handler: false,
 			},
 		];
@@ -1597,63 +1630,71 @@ mod test {
 		}
 
 		{
-			let mut resource3_0 = Resource::new("/abc3_0");
-			resource3_0
-				.subresource_mut("/*abc4_0")
+			// Existing rx_3_1 has a handler. The new_ex_3_1 should not replace it.
+			let mut new_rx_3_1 = Resource::new("/{rx_3_1:p}");
+			new_rx_3_1
+				.subresource_mut("/{wl_4_0}")
+				// Existing wl_4_0 doesn't have a handler. It should be replaced with the new one.
 				.set_handler(post(DummyHandler::<DefaultResponseFuture>::new()));
 
-			let resource4_1 = Resource::new("/abc4_2");
-			resource3_0.add_subresource_under("", resource4_1);
+			// Existing st_4_1 has a handler. The new_st_4_1 should not replace it.
+			let new_st_4_1 = Resource::new("/st_4_1");
+			new_rx_3_1.add_subresource_under("", new_st_4_1);
+			new_rx_3_1.subresource_mut("/{rx_4_3:p}");
 
-			parent.add_subresource_under(cases[0].prefix_route_from_parent, resource3_0);
+			parent.add_subresource_under(cases[1].prefix_route_from_parent, new_rx_3_1);
 
-			let (resource3_0, _) = parent.leaf_resource(RouteSegments::new(cases[0].route_from_parent));
-			assert_eq!(resource3_0.static_resources.len(), 2);
-			assert_eq!(resource3_0.method_handlers.count(), 1);
+			let (rx_3_1, _) = parent.leaf_resource(RouteSegments::new(cases[1].route_from_parent));
+			assert_eq!(rx_3_1.static_resources.len(), 2);
+			assert_eq!(rx_3_1.regex_resources.len(), 1);
+			assert!(rx_3_1.some_wildcard_resource.is_some());
+			assert_eq!(rx_3_1.method_handlers.count(), 1);
 
-			let (resource4_0, _) = parent.leaf_resource(RouteSegments::new(cases[1].route_from_parent));
-			assert_eq!(resource4_0.method_handlers.count(), 1);
+			let (wl_4_0, _) = parent.leaf_resource(RouteSegments::new(cases[2].route_from_parent));
+			assert_eq!(wl_4_0.method_handlers.count(), 1);
 
-			let (resource4_1, _) = parent.leaf_resource(RouteSegments::new(cases[2].route_from_parent));
-			assert_eq!(resource4_1.method_handlers.count(), 1);
+			let (st_4_1, _) = parent.leaf_resource(RouteSegments::new(cases[3].route_from_parent));
+			assert_eq!(st_4_1.method_handlers.count(), 1);
 		}
 
 		{
-			let mut resource2_1 = Resource::new("/abc0_0/*abc1_0/*abc2_1");
-			resource2_1.set_handler(get(DummyHandler::<DefaultResponseFuture>::new()));
+			// Existing st_2_1 doesn't have a handler. It should be replaced with the new one.
+			let mut new_st_2_1 = Resource::new("/st_0_0/{wl_1_0}/st_2_1");
+			new_st_2_1.set_handler(get(DummyHandler::<DefaultResponseFuture>::new()));
 
-			let mut resource4_0 = Resource::new("/$abc4_0:@cn(p)");
-			resource4_0
-				.subresource_mut("/*abc5_0")
+			let mut new_rx_4_1 = Resource::new("/{rx_4_1:p}");
+			new_rx_4_1
+				// New subresource.
+				.subresource_mut("/{wl_5_1}")
 				.set_handler(get(DummyHandler::<DefaultResponseFuture>::new()));
-			resource2_1.add_subresource_under("/abc3_0", resource4_0);
+			new_st_2_1.add_subresource_under("/{wl_3_0}", new_rx_4_1);
 
-			let mut resource4_1 = Resource::new("/$abc4_1:@cn(p)/");
-			resource4_1.set_handler(put(DummyHandler::<DefaultResponseFuture>::new()));
-			resource2_1.add_subresource_under("/abc3_0", resource4_1);
+			let mut new_rx_4_1 = Resource::new("/{rx_4_1:p}/");
+			new_rx_4_1.set_handler(put(DummyHandler::<DefaultResponseFuture>::new()));
+			// Existing rx_4_1 shouldn't have a handler. It should be replaced with the new one.
+			new_st_2_1.add_subresource_under("/{wl_3_0}", new_rx_4_1);
 
-			let resource5_0 = Resource::new("/abc0_0/*abc1_0/*abc2_1/abc3_0/*abc4_2/$abc5_0:@(p)");
-			resource2_1.add_subresource_under("/abc3_0", resource5_0);
+			let rx_5_0 = Resource::new("/st_0_0/{wl_1_0}/st_2_1/{rx_3_1:p}/st_4_0/{rx_5_0:p}");
+			new_st_2_1.add_subresource_under("/{rx_3_1:p}", rx_5_0);
 
-			parent.add_subresource_under("", resource2_1);
+			parent.add_subresource_under("", new_st_2_1);
 
-			let (resource2_1, _) = parent.leaf_resource(RouteSegments::new("/*abc2_1"));
-			assert_eq!(resource2_1.static_resources.len(), 1);
-			assert_eq!(resource2_1.regex_resources.len(), 1);
-			assert_eq!(resource2_1.method_handlers.count(), 1);
+			let (st_2_1, _) = parent.leaf_resource(RouteSegments::new("/st_2_1"));
+			assert_eq!(st_2_1.static_resources.len(), 0);
+			assert_eq!(st_2_1.regex_resources.len(), 1);
+			assert!(st_2_1.some_wildcard_resource.is_some());
+			assert_eq!(st_2_1.method_handlers.count(), 1);
 
-			let (resource4_0, _) =
-				resource2_1.leaf_resource(RouteSegments::new("/abc3_0/$abc4_0:@cn(p)"));
-			assert!(resource4_0.some_wildcard_resource.is_some());
-			assert_eq!(resource4_0.method_handlers.count(), 1);
+			let (rx_4_1, _) = st_2_1.leaf_resource(RouteSegments::new("/{wl_3_0}/{rx_4_1:p}"));
+			assert!(rx_4_1.some_wildcard_resource.is_some());
+			assert_eq!(rx_4_1.method_handlers.count(), 1);
 
-			let (resource4_1, _) =
-				resource2_1.leaf_resource(RouteSegments::new("/abc3_0/$abc4_1:@cn(p)"));
-			assert_eq!(resource4_1.static_resources.len(), 1);
-			assert_eq!(resource4_1.method_handlers.count(), 1);
+			let (rx_3_1, _) = st_2_1.leaf_resource(RouteSegments::new("/{rx_3_1:p}"));
+			assert_eq!(rx_3_1.static_resources.len(), 1);
+			assert_eq!(rx_3_1.method_handlers.count(), 0);
 
-			let (resource4_2, _) = resource2_1.leaf_resource(RouteSegments::new("/abc3_0/*abc4_2"));
-			assert_eq!(resource4_2.regex_resources.len(), 1);
+			let (st_4_0, _) = st_2_1.leaf_resource(RouteSegments::new("/{rx_3_1:p}/st_4_0"));
+			assert_eq!(st_4_0.regex_resources.len(), 1);
 		}
 	}
 }

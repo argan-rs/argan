@@ -1680,11 +1680,12 @@ mod test {
 
 	use crate::common::Deferred;
 
-	const FILE: &'static str = "test";
 	const FILE_SIZE: usize = 32 * 1024;
 
 	#[tokio::test]
 	async fn single_range_streaming() {
+		const FILE: &'static str = "test_single_range";
+
 		let mut contents = Vec::<u8>::with_capacity(FILE_SIZE);
 		for i in 0..FILE_SIZE {
 			contents.push({ i % 7 } as u8);
@@ -2060,6 +2061,8 @@ mod test {
 
 	#[tokio::test]
 	async fn stream_multipart_ranges() {
+		const FILE: &str = "test_multipart";
+
 		let mut contents = Vec::with_capacity(FILE_SIZE);
 		for i in 0..FILE_SIZE {
 			contents.push({ i % 7 } as u8);
@@ -2067,7 +2070,7 @@ mod test {
 
 		let _ = std::fs::write(FILE, &contents).unwrap();
 
-		let _deferred = Deferred::call(|| std::fs::remove_file("test").unwrap());
+		let _deferred = Deferred::call(|| std::fs::remove_file(FILE).unwrap());
 
 		let file_size_string = &FILE_SIZE.to_string();
 
@@ -2081,7 +2084,7 @@ mod test {
 
 		// -------------------------
 
-		let mut file_stream = FileStream::open("test").unwrap();
+		let mut file_stream = FileStream::open(FILE).unwrap();
 		assert!(file_stream.set_boundary("boundary\r".into()).is_err());
 		assert!(file_stream.set_boundary("boundary".into()).is_ok());
 		assert!(file_stream
@@ -2129,7 +2132,7 @@ mod test {
 
 		// -------------------------
 
-		let mut file_stream = FileStream::open("test").unwrap();
+		let mut file_stream = FileStream::open(FILE).unwrap();
 		file_stream.set_content_type(content_type_value.clone());
 
 		assert!(file_stream.set_boundary(boundary_value.into()).is_ok());
@@ -2170,7 +2173,7 @@ mod test {
 
 		// -------------------------
 
-		let mut file_stream = FileStream::open_ranges("test", "bytes=12-24", false).unwrap();
+		let mut file_stream = FileStream::open_ranges(FILE, "bytes=12-24", false).unwrap();
 		file_stream.set_content_type(content_type_value.clone());
 
 		assert!(file_stream
@@ -2226,7 +2229,7 @@ mod test {
 
 		// -------------------------
 
-		let mut file_stream = FileStream::open_ranges("test", "bytes=12-24, 1024-4095", false).unwrap();
+		let mut file_stream = FileStream::open_ranges(FILE, "bytes=12-24, 1024-4095", false).unwrap();
 		file_stream.set_content_type(content_type_value.clone());
 
 		assert!(file_stream
@@ -2303,7 +2306,7 @@ mod test {
 
 		// -------------------------
 
-		let mut file_stream = FileStream::open_ranges("test", "bytes=1024-4095, 12-24", true).unwrap();
+		let mut file_stream = FileStream::open_ranges(FILE, "bytes=1024-4095, 12-24", true).unwrap();
 		file_stream.set_content_type(content_type_value.clone());
 
 		assert!(file_stream
@@ -2381,7 +2384,7 @@ mod test {
 		// -------------------------
 
 		let mut file_stream =
-			FileStream::open_ranges("test", "bytes=12-2048, 1024-4095, -512", false).unwrap();
+			FileStream::open_ranges(FILE, "bytes=12-2048, 1024-4095, -512", false).unwrap();
 
 		file_stream.set_content_type(content_type_value.clone());
 
@@ -2450,7 +2453,7 @@ mod test {
 		// -------------------------
 
 		let mut file_stream =
-			FileStream::open_ranges("test", "bytes=1024-4095, 12-2048, -512", true).unwrap();
+			FileStream::open_ranges(FILE, "bytes=1024-4095, 12-2048, -512", true).unwrap();
 
 		file_stream.set_content_type(content_type_value.clone());
 
@@ -2519,7 +2522,7 @@ mod test {
 		// -------------------------
 
 		let mut file_stream = FileStream::open_ranges(
-			"test",
+			FILE,
 			"bytes=100-100, 500-1000, 1100-7000, 5000-6000, -1500, 7000-8000, -500",
 			true,
 		)
@@ -2621,7 +2624,7 @@ mod test {
 		// -------------------------
 
 		let mut file_stream = FileStream::open_ranges(
-			"test",
+			FILE,
 			"bytes=-500, 7000-8000, -1500, 5000-6000, 1100-7000, 500-1000, 100-100",
 			true,
 		)
@@ -2723,7 +2726,7 @@ mod test {
 		// -------------------------
 
 		let mut file_stream = FileStream::open_ranges(
-			"test",
+			FILE,
 			"bytes=10-11, -0, 1000-7000, -40000, 8000-40000",
 			false,
 		)
@@ -2771,12 +2774,9 @@ mod test {
 
 		// -------------------------
 
-		let mut file_stream = FileStream::open_ranges(
-			"test",
-			"bytes=8000-40000, -40000, 1000-7000, -0, 10-11",
-			true,
-		)
-		.unwrap();
+		let mut file_stream =
+			FileStream::open_ranges(FILE, "bytes=8000-40000, -40000, 1000-7000, -0, 10-11", true)
+				.unwrap();
 
 		assert!(file_stream.set_boundary(boundary_value.into()).is_ok());
 
