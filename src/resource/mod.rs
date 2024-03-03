@@ -1195,6 +1195,8 @@ mod test {
 
 	use super::*;
 
+	use test::config::drop_on_unmatching_slash;
+
 	// --------------------------------------------------------------------------------
 
 	#[test]
@@ -1629,5 +1631,121 @@ mod test {
 			let (st_4_0, _) = st_2_1.leaf_resource(RouteSegments::new("/{rx_3_1:p}/st_4_0"));
 			assert_eq!(st_4_0.regex_resources.len(), 1);
 		}
+	}
+
+	#[test]
+	fn resource_subresource_mut() {
+		//	/st_0_0	->	/{wl_1_0}	->	/{rx_2_0:p}	->	/st_3_0
+		//																			|	->	/{rx_3_1:p}	->	/{wl_4_0}
+		//																											|	->	/st_4_1
+
+		let mut parent = Resource::new("https://example.com/");
+		parent
+			.subresource_mut("/st_0_0")
+			.set_handler(get(DummyHandler::<DefaultResponseFuture>::new()));
+
+		parent
+			.subresource_mut("/st_0_0/{wl_1_0}/{rx_2_0:p}/st_3_0")
+			.set_handler(get(DummyHandler::<DefaultResponseFuture>::new()));
+
+		parent
+			.subresource_mut("/st_0_0/{wl_1_0}/{rx_2_0:p}/{rx_3_1:p}/{wl_4_0}/")
+			.set_handler(get(DummyHandler::<DefaultResponseFuture>::new()));
+
+		let wl_1_0 = parent.subresource_mut("/st_0_0/{wl_1_0}");
+		assert_eq!(wl_1_0.method_handlers.count(), 0);
+
+		let st_0_0 = parent.subresource_mut("/st_0_0");
+		assert_eq!(st_0_0.method_handlers.count(), 1);
+
+		// First time we're accessing the rx_3_1. It must be configured to end with a slash.
+		let rx_3_1 = parent.subresource_mut("/st_0_0/{wl_1_0}/{rx_2_0:p}/{rx_3_1:p}/");
+		assert_eq!(rx_3_1.method_handlers.count(), 0);
+		assert!(rx_3_1.config_flags.has(ConfigFlags::ENDS_WITH_SLASH));
+
+		let st_3_0 = parent.subresource_mut("/st_0_0/{wl_1_0}/{rx_2_0:p}/st_3_0");
+		assert_eq!(st_3_0.method_handlers.count(), 1);
+
+		let st_4_1 = parent.subresource_mut("/st_0_0/{wl_1_0}/{rx_2_0:p}/{rx_3_1:p}/st_4_1");
+		assert_eq!(st_4_1.method_handlers.count(), 0);
+
+		let wl_4_0 = parent.subresource_mut("/st_0_0/{wl_1_0}/{rx_2_0:p}/{rx_3_1:p}/{wl_4_0}/");
+		assert_eq!(wl_4_0.method_handlers.count(), 1);
+	}
+
+	#[test]
+	#[should_panic(expected = "mismatching trailing slash")]
+	fn resource_subresource_mut_panic1() {
+		//	/st_0_0	->	/{wl_1_0}	->	/{rx_2_0:p}	->	/st_3_0
+
+		let mut parent = Resource::new("https://example.com/");
+		parent
+			.subresource_mut("/st_0_0")
+			.set_handler(get(DummyHandler::<DefaultResponseFuture>::new()));
+
+		parent
+			.subresource_mut("/st_0_0/{wl_1_0}/{rx_2_0:p}/st_3_0")
+			.set_handler(get(DummyHandler::<DefaultResponseFuture>::new()));
+
+		let st_3_0 = parent.subresource_mut("/st_0_0/{wl_1_0}/{rx_2_0:p}/st_3_0/");
+	}
+
+	#[test]
+	#[should_panic(expected = "mismatching trailing slash")]
+	fn resource_subresource_mut_panic2() {
+		//	/st_0_0	->	/{wl_1_0}	->	/{rx_2_0:p}	->	/st_3_0
+
+		let mut parent = Resource::new("https://example.com/");
+		parent
+			.subresource_mut("/st_0_0")
+			.set_handler(get(DummyHandler::<DefaultResponseFuture>::new()));
+
+		parent
+			.subresource_mut("/st_0_0/{wl_1_0}/{rx_2_0:p}/st_3_0/")
+			.set_handler(get(DummyHandler::<DefaultResponseFuture>::new()));
+
+		let st_3_0 = parent.subresource_mut("/st_0_0/{wl_1_0}/{rx_2_0:p}/st_3_0");
+	}
+
+	#[test]
+	fn resource_for_each_subresource() {
+		let mut parent = Resource::new("/");
+		parent.subresource_mut("/st_0_0");
+		parent.subresource_mut("/{rx_0_0:p}/{wl_1_0}/");
+		parent.subresource_mut("/{wl_0_0}/st_1_0");
+
+		parent.for_each_subresource((), |_, resource| {
+			resource.set_config(drop_on_unmatching_slash());
+			if resource.is("{rx_0_0:p}") {
+				Iteration::Skip
+			} else {
+				Iteration::Continue
+			}
+		});
+
+		assert!(parent
+			.subresource_mut("/st_0_0")
+			.config_flags
+			.has(ConfigFlags::DROPS_ON_UNMATCHING_SLASH));
+
+		assert!(parent
+			.subresource_mut("/{rx_0_0:p}")
+			.config_flags
+			.has(ConfigFlags::DROPS_ON_UNMATCHING_SLASH));
+
+		assert!(!parent
+			.subresource_mut("/{rx_0_0:p}/{wl_1_0}/")
+			.config_flags
+			.has(ConfigFlags::DROPS_ON_UNMATCHING_SLASH));
+
+		assert!(parent
+			.subresource_mut("/{wl_0_0}")
+			.config_flags
+			.has(ConfigFlags::DROPS_ON_UNMATCHING_SLASH));
+
+		assert!(parent
+			.subresource_mut("/{wl_0_0}/st_1_0")
+			.config_flags
+			.has(ConfigFlags::DROPS_ON_UNMATCHING_SLASH));
 	}
 }
