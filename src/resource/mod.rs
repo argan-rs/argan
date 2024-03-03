@@ -687,7 +687,20 @@ impl Resource {
 		let segments = RouteSegments::new(relative_path);
 		let (leaf_resource_in_the_path, segments) = self.leaf_resource_mut(segments);
 
-		leaf_resource_in_the_path.new_subresource_mut(segments)
+		let route_ends_with_slash = segments.ends_with_slash();
+
+		let subresource = leaf_resource_in_the_path.new_subresource_mut(segments);
+
+		if !subresource.has_some_effect() && route_ends_with_slash {
+			subresource.config_flags.add(ConfigFlags::ENDS_WITH_SLASH);
+		} else if route_ends_with_slash != subresource.config_flags.has(ConfigFlags::ENDS_WITH_SLASH) {
+			panic!(
+				"mismatching trailing slash with the existing resource at '{}'",
+				relative_path
+			);
+		}
+
+		subresource
 	}
 
 	fn leaf_resource<'s, 'r>(
