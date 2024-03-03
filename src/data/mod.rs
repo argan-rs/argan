@@ -86,13 +86,6 @@ where
 	}
 }
 
-impl IntoResponse for String {
-	#[inline]
-	fn into_response(self) -> Response {
-		Cow::<'_, str>::Owned(self).into_response()
-	}
-}
-
 // ----------
 
 data_extractor_error! {
@@ -100,6 +93,16 @@ data_extractor_error! {
 	pub TextExtractorError {
 		#[error("decoding failure: {0}")]
 		(DecodingFailure(#[from] FromUtf8Error)) [(_)]; StatusCode::BAD_REQUEST;
+	}
+}
+
+// --------------------------------------------------
+// String
+
+impl IntoResponse for String {
+	#[inline]
+	fn into_response(self) -> Response {
+		Cow::<'_, str>::Owned(self).into_response()
 	}
 }
 
@@ -283,3 +286,252 @@ impl IntoResponse for Full<Bytes> {
 }
 
 // --------------------------------------------------------------------------------
+// --------------------------------------------------------------------------------
+
+#[cfg(test)]
+mod test {
+	use core::panic;
+
+	use http::Extensions;
+
+	use crate::{
+		body::HttpBody,
+		routing::{RouteTraversal, RoutingState},
+	};
+
+	use self::extensions::NodeExtensions;
+
+	use super::*;
+
+	// --------------------------------------------------------------------------------
+	// --------------------------------------------------------------------------------
+
+	#[tokio::test]
+	async fn text_extractor() {
+		let body = "Hello, World!".to_string();
+
+		let request = Request::builder()
+			.header(
+				CONTENT_TYPE,
+				HeaderValue::from_static(mime::TEXT_PLAIN_UTF_8.as_ref()),
+			)
+			.body(body.clone())
+			.unwrap();
+
+		let mut args = Args::default();
+
+		let Text(data) = Text::<1024>::from_request(request, &mut args)
+			.await
+			.unwrap();
+
+		assert_eq!(data, body.as_ref());
+
+		// ----------
+
+		let request = Request::new(body.clone());
+
+		let error = Text::<1024>::from_request(request, &mut args)
+			.await
+			.unwrap_err();
+
+		match error {
+			TextExtractorError::MissingContentType => {}
+			error => panic!("unexpected error {}", error),
+		}
+
+		// ----------
+
+		let request = Request::builder()
+			.header(
+				CONTENT_TYPE,
+				HeaderValue::from_static(mime::OCTET_STREAM.as_ref()),
+			)
+			.body(body.clone())
+			.unwrap();
+
+		let error = Text::<1024>::from_request(request, &mut args)
+			.await
+			.unwrap_err();
+
+		match error {
+			TextExtractorError::UnsupportedMediaType => {}
+			error => panic!("unexpected error {}", error),
+		}
+
+		// ----------
+
+		let request = Request::builder()
+			.header(
+				CONTENT_TYPE,
+				HeaderValue::from_static(mime::TEXT_PLAIN_UTF_8.as_ref()),
+			)
+			.body(body.clone())
+			.unwrap();
+
+		let error = Text::<8>::from_request(request, &mut args)
+			.await
+			.unwrap_err();
+
+		match error {
+			TextExtractorError::ContentTooLarge => {}
+			error => panic!("unexpected error {}", error),
+		}
+	}
+
+	#[tokio::test]
+	async fn octets_extractor() {
+		let body = &b"Hello, World!"[..];
+		let full_body = Full::new(body);
+		let request = Request::builder()
+			.header(
+				CONTENT_TYPE,
+				HeaderValue::from_static(mime::APPLICATION_OCTET_STREAM.as_ref()),
+			)
+			.body(full_body.clone())
+			.unwrap();
+
+		let mut args = Args::default();
+
+		let Octets(data) = Octets::<1024>::from_request(request, &mut args)
+			.await
+			.unwrap();
+
+		assert_eq!(&data, body);
+
+		// ----------
+
+		let request = Request::new(full_body.clone());
+
+		let error = Octets::<1024>::from_request(request, &mut args)
+			.await
+			.unwrap_err();
+
+		match error {
+			OctetsExtractorError::MissingContentType => {}
+			error => panic!("unexpected error {}", error),
+		}
+
+		// ----------
+
+		let full_body = Full::new(body);
+		let request = Request::builder()
+			.header(
+				CONTENT_TYPE,
+				HeaderValue::from_static(mime::TEXT_PLAIN.as_ref()),
+			)
+			.body(full_body.clone())
+			.unwrap();
+
+		let error = Octets::<1024>::from_request(request, &mut args)
+			.await
+			.unwrap_err();
+
+		match error {
+			OctetsExtractorError::UnsupportedMediaType => {}
+			error => panic!("unexpected error {}", error),
+		}
+
+		// ----------
+
+		let full_body = Full::new(body);
+		let request = Request::builder()
+			.header(
+				CONTENT_TYPE,
+				HeaderValue::from_static(mime::APPLICATION_OCTET_STREAM.as_ref()),
+			)
+			.body(full_body.clone())
+			.unwrap();
+
+		let error = Octets::<8>::from_request(request, &mut args)
+			.await
+			.unwrap_err();
+
+		match error {
+			OctetsExtractorError::ContentTooLarge => {}
+			error => panic!("unexpected error {}", error),
+		}
+	}
+
+	#[tokio::test]
+	async fn raw_body_extractor() {
+		let body = &b"Hello, World!"[..];
+		let full_body = Full::new(body);
+
+		let request = Request::builder()
+			.header(
+				CONTENT_TYPE,
+				HeaderValue::from_static(mime::TEXT_PLAIN_UTF_8.as_ref()),
+			)
+			.body(full_body.clone())
+			.unwrap();
+
+		let mut args = Args::default();
+
+		let RawBody(data) = RawBody::<1024>::from_request(request, &mut args)
+			.await
+			.unwrap();
+
+		assert_eq!(&data, body);
+
+		// ----------
+
+		let request = Request::builder()
+			.header(
+				CONTENT_TYPE,
+				HeaderValue::from_static(mime::APPLICATION_OCTET_STREAM.as_ref()),
+			)
+			.body(full_body.clone())
+			.unwrap();
+
+		let mut args = Args::default();
+
+		let RawBody(data) = RawBody::<1024>::from_request(request, &mut args)
+			.await
+			.unwrap();
+
+		assert_eq!(&data, body);
+
+		// ----------
+
+		let request = Request::new(full_body.clone());
+
+		let RawBody(data) = RawBody::<1024>::from_request(request, &mut args)
+			.await
+			.unwrap();
+
+		assert_eq!(&data, body);
+
+		// ----------
+
+		let full_body = Full::new(body);
+		let request = Request::builder()
+			.header(
+				CONTENT_TYPE,
+				HeaderValue::from_static(mime::APPLICATION_OCTET_STREAM.as_ref()),
+			)
+			.body(full_body.clone())
+			.unwrap();
+
+		let error = RawBody::<8>::from_request(request, &mut args)
+			.await
+			.unwrap_err();
+
+		match error {
+			RawBodyExtractorError::ContentTooLarge => {}
+			error => panic!("unexpected error {}", error),
+		}
+
+		// ----------
+
+		let request = Request::new(full_body.clone());
+
+		let error = RawBody::<8>::from_request(request, &mut args)
+			.await
+			.unwrap_err();
+
+		match error {
+			RawBodyExtractorError::ContentTooLarge => {}
+			error => panic!("unexpected error {}", error),
+		}
+	}
+}
