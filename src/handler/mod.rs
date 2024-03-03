@@ -356,6 +356,14 @@ pub struct Args<'r, Ext = ()> {
 }
 
 impl Args<'_, ()> {
+	pub(crate) fn default() -> Args<'static> {
+		Args {
+			routing_state: RoutingState::default(),
+			node_extensions: NodeExtensions::new_owned(Extensions::new()),
+			handler_extension: &(),
+		}
+	}
+
 	#[inline]
 	pub(crate) fn node_extensions_replaced<'e>(&mut self, extensions: &'e Extensions) -> Args<'e> {
 		let Args {
