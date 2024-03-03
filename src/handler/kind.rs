@@ -14,9 +14,9 @@ use super::{BoxedHandler, FinalHandler, Handler, IntoHandler};
 // --------------------------------------------------------------------------------
 // --------------------------------------------------------------------------------
 
-pub struct HandlerKind(pub(crate) Inner);
+pub struct HandlerKind(pub(crate) HandlerKindValue);
 
-pub(crate) enum Inner {
+pub(crate) enum HandlerKindValue {
 	Method(Method, BoxedHandler),
 	WildcardMethod(BoxedHandler),
 	MistargetedRequest(BoxedHandler),
@@ -42,7 +42,7 @@ macro_rules! handler_kind_by_method {
 			let final_handler =
 				ResponseResultFutureBoxer::wrap(IntoResponseResultAdapter::wrap(handler.into_handler()));
 
-			HandlerKind(Inner::Method(
+			HandlerKind(HandlerKindValue::Method(
 				$http_method,
 				final_handler.into_boxed_handler(),
 			))
@@ -74,7 +74,10 @@ where
 	let final_handler =
 		ResponseResultFutureBoxer::wrap(IntoResponseResultAdapter::wrap(handler.into_handler()));
 
-	HandlerKind(Inner::Method(method, final_handler.into_boxed_handler()))
+	HandlerKind(HandlerKindValue::Method(
+		method,
+		final_handler.into_boxed_handler(),
+	))
 }
 
 pub fn wildcard_method<H, Mark>(handler: H) -> HandlerKind
@@ -87,7 +90,9 @@ where
 	let final_handler =
 		ResponseResultFutureBoxer::wrap(IntoResponseResultAdapter::wrap(handler.into_handler()));
 
-	HandlerKind(Inner::WildcardMethod(final_handler.into_boxed_handler()))
+	HandlerKind(HandlerKindValue::WildcardMethod(
+		final_handler.into_boxed_handler(),
+	))
 }
 
 pub fn mistargeted_request<H, Mark>(handler: H) -> HandlerKind
@@ -100,7 +105,7 @@ where
 	let final_handler =
 		ResponseResultFutureBoxer::wrap(IntoResponseResultAdapter::wrap(handler.into_handler()));
 
-	HandlerKind(Inner::MistargetedRequest(
+	HandlerKind(HandlerKindValue::MistargetedRequest(
 		final_handler.into_boxed_handler(),
 	))
 }

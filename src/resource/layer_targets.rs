@@ -55,13 +55,13 @@ macro_rules! layer_target_wrapper {
 	};
 }
 
-layer_target_wrapper!(request_receiver_with, RequestReceiver);
+layer_target_wrapper!(request_receiver, RequestReceiver);
 
-layer_target_wrapper!(request_passer_with, RequestPasser);
+layer_target_wrapper!(request_passer, RequestPasser);
 
-layer_target_wrapper!(request_handler_with, RequestHandler);
+layer_target_wrapper!(request_handler, RequestHandler);
 
-pub fn method_handler_of<M, const N: usize, L, Mark>(methods: M, layer: L) -> ResourceLayerTarget
+pub fn method_handler<M, const N: usize, L, Mark>(methods: M, layer: L) -> ResourceLayerTarget
 where
 	M: IntoArray<Method, N>,
 	L: IntoLayer<Mark, AdaptiveHandler>,
@@ -81,8 +81,8 @@ where
 	))
 }
 
-layer_target_wrapper!(wildcard_method_handler_with, WildcardMethodHandler);
+layer_target_wrapper!(wildcard_method_handler, WildcardMethodHandler);
 
-layer_target_wrapper!(mistargeted_request_handler_with, MistargetedRequestHandler);
+layer_target_wrapper!(mistargeted_request_handler, MistargetedRequestHandler);
 
 // --------------------------------------------------------------------------------
