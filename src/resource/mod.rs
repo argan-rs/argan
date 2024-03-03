@@ -14,28 +14,29 @@ use crate::{
 		request_handlers::{
 			handle_mistargeted_request, wrap_mistargeted_request_handler, MethodHandlers,
 		},
-		AdaptiveHandler, BoxedHandler, HandlerKind, IntoHandler,
+		AdaptiveHandler, BoxedHandler, HandlerKind, HandlerKindValue, IntoHandler,
 	},
 	middleware::{IntoResponseResultAdapter, ResponseResultFutureBoxer},
 	pattern::{split_uri_host_and_path, Pattern, Similarity},
 	request::{FromRequest, FromRequestHead, Request, RequestHead},
+	resource::{config::ResourceConfigOptionValue, layer_targets::request_receiver},
 	response::Response,
 	routing::{RouteSegments, RoutingState},
 };
 
 // --------------------------------------------------
 
-mod config;
-mod layer_targets;
+pub mod config;
+pub mod layer_targets;
 mod service;
 mod static_files;
 
 use self::{
 	config::{ConfigFlags, ResourceConfigOption},
+	layer_targets::ResourceLayerTarget,
 	service::{RequestHandler, RequestPasser, RequestReceiver},
 };
 
-pub use layer_targets::*;
 pub use service::ResourceService;
 pub use static_files::StaticFiles;
 
@@ -84,7 +85,6 @@ impl Resource {
 
 		if path_patterns_str == "/" {
 			let pattern = Pattern::parse(path_patterns_str);
-			let pattern = dbg!(pattern);
 
 			return Self::with_uri_patterns(some_host_pattern, Vec::new(), pattern, false);
 		}
@@ -164,6 +164,13 @@ impl Resource {
 	}
 
 	// -------------------------
+
+	#[inline(always)]
+	pub(crate) fn is<P: AsRef<str>>(&self, pattern: P) -> bool {
+		let pattern = Pattern::parse(pattern.as_ref());
+
+		self.pattern.compare(&pattern) == Similarity::Same
+	}
 
 	#[inline(always)]
 	pub(crate) fn pattern_string(&self) -> String {
@@ -916,7 +923,7 @@ impl Resource {
 	{
 		let handler_kinds = handler_kinds.into_array();
 		for handler_kind in handler_kinds {
-			use crate::handler::Inner::*;
+			use HandlerKindValue::*;
 
 			match handler_kind.0 {
 				Method(method, handler) => self.method_handlers.set_handler(method, handler),
@@ -931,92 +938,6 @@ impl Resource {
 		L: IntoArray<ResourceLayerTarget, N>,
 	{
 		self.middleware.extend(layer_targets.into_array());
-
-		// for layer_target in layer_targets {
-		// 	use crate::middleware::Inner::*;
-		//
-		// 	match layer_target.0 {
-		// 		RequestReceiver(boxed_layer) => {
-		// 			let boxed_request_receiver = match self.some_request_receiver.take() {
-		// 				Some(request_receiver) => request_receiver,
-		// 				None => {
-		// 					let request_receiver = <fn(Request) -> RequestReceiverFuture as IntoHandler<(
-		// 						Private,
-		// 						Request,
-		// 					)>>::into_handler(request_receiver);
-		//
-		// 					ResponseFutureBoxer::wrap(request_receiver).into_boxed_handler()
-		// 				}
-		// 			};
-		//
-		// 			let boxed_request_receiver =
-		// 				boxed_layer.wrap(AdaptiveHandler::from(boxed_request_receiver));
-		// 			self.some_request_receiver.replace(boxed_request_receiver);
-		// 		}
-		// 		RequestPasser(boxed_layer) => {
-		// 			let boxed_request_passer = match self.some_request_passer.take() {
-		// 				Some(request_passer) => request_passer,
-		// 				None => {
-		// 					let request_passer = <fn(Request) -> RequestPasserFuture as IntoHandler<(
-		// 						Private,
-		// 						Request,
-		// 					)>>::into_handler(request_passer);
-		//
-		// 					ResponseFutureBoxer::wrap(request_passer).into_boxed_handler()
-		// 				}
-		// 			};
-		//
-		// 			let boxed_request_passer = boxed_layer.wrap(AdaptiveHandler::from(boxed_request_passer));
-		// 			self.some_request_passer.replace(boxed_request_passer);
-		// 		}
-		// 		RequestHandler(boxed_layer) => {
-		// 			let boxed_request_handler = match self.some_request_handler.take() {
-		// 				Some(request_handler) => request_handler,
-		// 				None => {
-		// 					let request_handler = <fn(Request) -> BoxedFuture<Response> as IntoHandler<
-		// 						Request,
-		// 					>>::into_handler(request_handler);
-		//
-		// 					request_handler.into_boxed_handler()
-		// 				}
-		// 			};
-		//
-		// 			let boxed_request_handler =
-		// 				boxed_layer.wrap(AdaptiveHandler::from(boxed_request_handler));
-		// 			self.some_request_handler.replace(boxed_request_handler);
-		// 		}
-		// 		MethodHandler(methods, boxed_layer) => {
-		// 			for method in methods {
-		// 				self
-		// 					.method_handlers
-		// 					.wrap_handler_of(method, boxed_layer.boxed_clone());
-		// 			}
-		// 		}
-		// 		AllMethodsHandler(boxed_layer) => {
-		// 			self.method_handlers.wrap_all_methods_handler(boxed_layer);
-		// 		}
-		// 		MisdirectedRequestHandler(boxed_layer) => {
-		// 			let boxed_misdirected_request_handler = match self.some_misdirected_request_handler.take()
-		// 			{
-		// 				Some(misdirected_request_handler) => misdirected_request_handler,
-		// 				None => {
-		// 					let misdirected_request_handler = <fn(Request) -> Ready<Response> as IntoHandler<
-		// 						(Private, Request),
-		// 					>>::into_handler(handle_misdirected_request);
-		//
-		// 					ResponseFutureBoxer::wrap(misdirected_request_handler).into_boxed_handler()
-		// 				}
-		// 			};
-		//
-		// 			let boxed_misdirected_request_handler =
-		// 				boxed_layer.wrap(AdaptiveHandler::from(boxed_misdirected_request_handler));
-		//
-		// 			self
-		// 				.some_misdirected_request_handler
-		// 				.replace(boxed_misdirected_request_handler);
-		// 		}
-		// 	}
-		// }
 	}
 
 	pub fn set_config<C, const N: usize>(&mut self, config_options: C)
@@ -1026,7 +947,7 @@ impl Resource {
 		let config_options = config_options.into_array();
 
 		for config_option in config_options {
-			use self::config::ResourceConfigOptionValue::*;
+			use ResourceConfigOptionValue::*;
 
 			match config_option.0 {
 				DropOnUnmatchingSlash => {
@@ -1047,8 +968,7 @@ impl Resource {
 					self.config_flags.add(ConfigFlags::SUBTREE_HANDLER);
 				}
 				ModifyRequestExtensions(request_extensions_modifier_layer) => {
-					let request_receiver_layer_target =
-						request_receiver_with(request_extensions_modifier_layer);
+					let request_receiver_layer_target = request_receiver(request_extensions_modifier_layer);
 
 					self.middleware.insert(0, request_receiver_layer_target);
 				}
@@ -1075,7 +995,7 @@ impl Resource {
 			};
 
 			match func(&mut param, subresource) {
-				Iteration::SkipSubtree => continue,
+				Iteration::Skip => continue,
 				Iteration::Stop => break param,
 				_ => {}
 			}
@@ -1246,7 +1166,7 @@ impl IntoArray<Resource, 1> for Resource {
 #[repr(u8)]
 pub enum Iteration {
 	Continue,
-	SkipSubtree,
+	Skip,
 	Stop,
 }
 
