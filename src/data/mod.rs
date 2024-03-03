@@ -52,6 +52,7 @@ impl IntoResponse for &'static str {
 // --------------------------------------------------
 // String
 
+#[derive(Debug)]
 pub struct Text<const SIZE_LIMIT: usize = { 2 * 1024 * 1024 }>(String);
 
 impl<B, E, const SIZE_LIMIT: usize> FromRequest<B, E> for Text<SIZE_LIMIT>
@@ -66,7 +67,7 @@ where
 	async fn from_request(request: Request<B>, _args: &mut Args<'_, E>) -> Result<Self, Self::Error> {
 		let content_type = content_type(&request)?;
 
-		if content_type == mime::TEXT_PLAIN_UTF_8 {
+		if content_type == mime::TEXT_PLAIN_UTF_8 || content_type == mime::TEXT_PLAIN {
 			match Limited::new(request, SIZE_LIMIT).collect().await {
 				Ok(body) => String::from_utf8(body.to_bytes().into())
 					.map(|value| Self(value))
@@ -155,38 +156,98 @@ impl IntoResponse for Cow<'static, [u8]> {
 }
 
 // --------------------------------------------------
-// Bytes
+// Octets
 
-pub struct Binary<const SIZE_LIMIT: usize = { 16 * 1024 * 1024 }>(Bytes);
+#[derive(Debug)]
+pub struct Octets<const SIZE_LIMIT: usize = { 16 * 1024 * 1024 }>(Bytes);
 
-impl<B, E, const SIZE_LIMIT: usize> FromRequest<B, E> for Binary<SIZE_LIMIT>
+impl<B, E, const SIZE_LIMIT: usize> FromRequest<B, E> for Octets<SIZE_LIMIT>
 where
 	B: HttpBody + Send,
 	B::Data: Send,
 	B::Error: Into<BoxedError>,
 	E: Sync,
 {
-	type Error = BinaryExtractorError;
+	type Error = OctetsExtractorError;
 
 	async fn from_request(request: Request<B>, _args: &mut Args<'_, E>) -> Result<Self, Self::Error> {
-		let content_type_str = content_type(&request)?;
+		let content_type = content_type(&request)?;
 
-		if content_type_str == mime::APPLICATION_OCTET_STREAM {
+		if content_type == mime::APPLICATION_OCTET_STREAM || content_type == mime::OCTET_STREAM {
 			match Limited::new(request, SIZE_LIMIT).collect().await {
-				Ok(body) => Ok(Binary(body.to_bytes())),
+				Ok(body) => Ok(Octets(body.to_bytes())),
 				Err(error) => Err(
 					error
 						.downcast_ref::<LengthLimitError>()
-						.map_or(BinaryExtractorError::BufferingFailure, |_| {
-							BinaryExtractorError::ContentTooLarge
+						.map_or(OctetsExtractorError::BufferingFailure, |_| {
+							OctetsExtractorError::ContentTooLarge
 						}),
 				),
 			}
 		} else {
-			Err(BinaryExtractorError::UnsupportedMediaType)
+			Err(OctetsExtractorError::UnsupportedMediaType)
 		}
 	}
 }
+
+// ----------
+
+data_extractor_error! {
+	#[derive(Debug)]
+	pub OctetsExtractorError {}
+}
+
+// --------------------------------------------------
+// RawBody
+
+#[derive(Debug)]
+pub struct RawBody<const SIZE_LIMIT: usize = { 16 * 1024 * 1024 }>(Bytes);
+
+impl<B, E, const SIZE_LIMIT: usize> FromRequest<B, E> for RawBody<SIZE_LIMIT>
+where
+	B: HttpBody + Send,
+	B::Data: Send,
+	B::Error: Into<BoxedError>,
+	E: Sync,
+{
+	type Error = RawBodyExtractorError;
+
+	async fn from_request(request: Request<B>, _args: &mut Args<'_, E>) -> Result<Self, Self::Error> {
+		match Limited::new(request, SIZE_LIMIT).collect().await {
+			Ok(body) => Ok(RawBody(body.to_bytes())),
+			Err(error) => Err(
+				error
+					.downcast_ref::<LengthLimitError>()
+					.map_or(RawBodyExtractorError::BufferingFailure, |_| {
+						RawBodyExtractorError::ContentTooLarge
+					}),
+			),
+		}
+	}
+}
+
+// ----------
+
+#[non_exhaustive]
+#[derive(Debug, crate::ImplError)]
+pub enum RawBodyExtractorError {
+	#[error("content too large")]
+	ContentTooLarge,
+	#[error("buffering failure")]
+	BufferingFailure,
+}
+
+impl IntoResponse for RawBodyExtractorError {
+	fn into_response(self) -> Response {
+		match self {
+			Self::ContentTooLarge => StatusCode::PAYLOAD_TOO_LARGE.into_response(),
+			Self::BufferingFailure => StatusCode::INTERNAL_SERVER_ERROR.into_response(),
+		}
+	}
+}
+
+// --------------------------------------------------
+// Bytes
 
 impl IntoResponse for Bytes {
 	#[inline]
@@ -199,13 +260,6 @@ impl IntoResponse for Bytes {
 
 		response
 	}
-}
-
-// ----------
-
-data_extractor_error! {
-	#[derive(Debug)]
-	pub BinaryExtractorError {}
 }
 
 // --------------------------------------------------
