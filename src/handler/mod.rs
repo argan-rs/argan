@@ -26,7 +26,7 @@ mod kind;
 pub(crate) mod request_handlers;
 
 use self::futures::{DefaultResponseFuture, ResponseToResultFuture, ResultToResponseFuture};
-pub use impls::*;
+pub(crate) use impls::*;
 pub use kind::*;
 
 // --------------------------------------------------------------------------------
@@ -314,34 +314,6 @@ impl Handler for DummyHandler<BoxedFuture<Result<Response, BoxedErrorResponse>>>
 	#[inline(always)]
 	fn handle(&self, _req: Request, _args: &mut Args) -> Self::Future {
 		Box::pin(DefaultResponseFuture::new())
-	}
-}
-
-// --------------------------------------------------
-// AdaptiveHandler
-
-#[derive(Clone)]
-pub struct AdaptiveHandler(BoxedHandler);
-
-impl<B> Handler<B> for AdaptiveHandler
-where
-	B: HttpBody<Data = Bytes> + Send + Sync + 'static,
-	B::Error: Into<BoxedError>,
-{
-	type Response = Response;
-	type Error = BoxedErrorResponse;
-	type Future = BoxedFuture<Result<Self::Response, Self::Error>>;
-
-	#[inline(always)]
-	fn handle(&self, request: Request<B>, args: &mut Args<'_, ()>) -> Self::Future {
-		self.0.handle(request.map(Body::new), args)
-	}
-}
-
-impl From<BoxedHandler> for AdaptiveHandler {
-	#[inline(always)]
-	fn from(boxed_handler: BoxedHandler) -> Self {
-		Self(boxed_handler)
 	}
 }
 

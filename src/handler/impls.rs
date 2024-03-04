@@ -8,7 +8,7 @@ use std::{
 use pin_project::pin_project;
 
 use crate::{
-	body::Body,
+	body::{Body, Bytes, HttpBody},
 	common::{mark::Private, BoxedError, BoxedFuture},
 	data::extensions::NodeExtensions,
 	request::{FromRequest, FromRequestHead, Request},
@@ -16,10 +16,41 @@ use crate::{
 	routing::RoutingState,
 };
 
-use super::{Args, Handler, IntoHandler};
+use super::{Args, BoxedHandler, Handler, IntoHandler};
 
 // --------------------------------------------------------------------------------
 // --------------------------------------------------------------------------------
+
+// --------------------------------------------------
+// AdaptiveHandler
+
+#[derive(Clone)]
+pub struct AdaptiveHandler(BoxedHandler);
+
+impl<B> Handler<B> for AdaptiveHandler
+where
+	B: HttpBody<Data = Bytes> + Send + Sync + 'static,
+	B::Error: Into<BoxedError>,
+{
+	type Response = Response;
+	type Error = BoxedErrorResponse;
+	type Future = BoxedFuture<Result<Self::Response, Self::Error>>;
+
+	#[inline(always)]
+	fn handle(&self, request: Request<B>, args: &mut Args<'_, ()>) -> Self::Future {
+		self.0.handle(request.map(Body::new), args)
+	}
+}
+
+impl From<BoxedHandler> for AdaptiveHandler {
+	#[inline(always)]
+	fn from(boxed_handler: BoxedHandler) -> Self {
+		Self(boxed_handler)
+	}
+}
+
+// --------------------------------------------------
+// HandlerFn
 
 #[derive(Debug)]
 pub struct HandlerFn<Func, Mark> {

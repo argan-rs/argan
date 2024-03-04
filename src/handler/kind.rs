@@ -14,19 +14,24 @@ use super::{BoxedHandler, FinalHandler, Handler, IntoHandler};
 // --------------------------------------------------------------------------------
 // --------------------------------------------------------------------------------
 
-pub struct HandlerKind(pub(crate) HandlerKindValue);
+mod private {
+	use super::*;
 
-pub(crate) enum HandlerKindValue {
-	Method(Method, BoxedHandler),
-	WildcardMethod(BoxedHandler),
-	MistargetedRequest(BoxedHandler),
-}
+	#[allow(private_interfaces)]
+	pub enum HandlerKind {
+		Method(Method, BoxedHandler),
+		WildcardMethod(BoxedHandler),
+		MistargetedRequest(BoxedHandler),
+	}
 
-impl IntoArray<HandlerKind, 1> for HandlerKind {
-	fn into_array(self) -> [HandlerKind; 1] {
-		[self]
+	impl IntoArray<HandlerKind, 1> for HandlerKind {
+		fn into_array(self) -> [HandlerKind; 1] {
+			[self]
+		}
 	}
 }
+
+pub(crate) use private::HandlerKind;
 
 // --------------------------------------------------
 
@@ -42,10 +47,7 @@ macro_rules! handler_kind_by_method {
 			let final_handler =
 				ResponseResultFutureBoxer::wrap(IntoResponseResultAdapter::wrap(handler.into_handler()));
 
-			HandlerKind(HandlerKindValue::Method(
-				$http_method,
-				final_handler.into_boxed_handler(),
-			))
+			HandlerKind::Method($http_method, final_handler.into_boxed_handler())
 		}
 	};
 }
@@ -74,10 +76,7 @@ where
 	let final_handler =
 		ResponseResultFutureBoxer::wrap(IntoResponseResultAdapter::wrap(handler.into_handler()));
 
-	HandlerKind(HandlerKindValue::Method(
-		method,
-		final_handler.into_boxed_handler(),
-	))
+	HandlerKind::Method(method, final_handler.into_boxed_handler())
 }
 
 pub fn wildcard_method<H, Mark>(handler: H) -> HandlerKind
@@ -90,9 +89,7 @@ where
 	let final_handler =
 		ResponseResultFutureBoxer::wrap(IntoResponseResultAdapter::wrap(handler.into_handler()));
 
-	HandlerKind(HandlerKindValue::WildcardMethod(
-		final_handler.into_boxed_handler(),
-	))
+	HandlerKind::WildcardMethod(final_handler.into_boxed_handler())
 }
 
 pub fn mistargeted_request<H, Mark>(handler: H) -> HandlerKind
@@ -105,9 +102,7 @@ where
 	let final_handler =
 		ResponseResultFutureBoxer::wrap(IntoResponseResultAdapter::wrap(handler.into_handler()));
 
-	HandlerKind(HandlerKindValue::MistargetedRequest(
-		final_handler.into_boxed_handler(),
-	))
+	HandlerKind::MistargetedRequest(final_handler.into_boxed_handler())
 }
 
 // --------------------------------------------------------------------------------

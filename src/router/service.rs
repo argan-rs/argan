@@ -91,11 +91,9 @@ impl RequestPasser {
 		let mut maybe_boxed_request_passer = MaybeBoxed::Unboxed(request_passer);
 
 		for mut layer in middleware.into_iter().rev() {
-			use super::RouterLayerTargetValue;
-
-			match layer.0 {
-				RouterLayerTargetValue::RequestPasser(_) => {
-					let RouterLayerTargetValue::RequestPasser(boxed_layer) = layer.0.take() else {
+			match layer {
+				RouterLayerTarget::RequestPasser(_) => {
+					let RouterLayerTarget::RequestPasser(boxed_layer) = layer.take() else {
 						unreachable!()
 					};
 

@@ -14,12 +14,12 @@ use crate::{
 		request_handlers::{
 			handle_mistargeted_request, wrap_mistargeted_request_handler, MethodHandlers,
 		},
-		AdaptiveHandler, BoxedHandler, HandlerKind, HandlerKindValue, IntoHandler,
+		AdaptiveHandler, BoxedHandler, HandlerKind, IntoHandler,
 	},
 	middleware::{IntoResponseResultAdapter, ResponseResultFutureBoxer},
 	pattern::{split_uri_host_and_path, Pattern, Similarity},
 	request::{FromRequest, FromRequestHead, Request, RequestHead},
-	resource::{config::ResourceConfigOptionValue, layer_targets::request_receiver},
+	resource::layer_targets::request_receiver,
 	response::Response,
 	routing::{RouteSegments, RoutingState},
 };
@@ -936,9 +936,9 @@ impl Resource {
 	{
 		let handler_kinds = handler_kinds.into_array();
 		for handler_kind in handler_kinds {
-			use HandlerKindValue::*;
+			use HandlerKind::*;
 
-			match handler_kind.0 {
+			match handler_kind {
 				Method(method, handler) => self.method_handlers.set_handler(method, handler),
 				WildcardMethod(handler) => self.method_handlers.set_wildcard_method_handler(handler),
 				MistargetedRequest(handler) => self.some_mistargeted_request_handler = Some(handler),
@@ -960,9 +960,9 @@ impl Resource {
 		let config_options = config_options.into_array();
 
 		for config_option in config_options {
-			use ResourceConfigOptionValue::*;
+			use ResourceConfigOption::*;
 
-			match config_option.0 {
+			match config_option {
 				DropOnUnmatchingSlash => {
 					self
 						.config_flags

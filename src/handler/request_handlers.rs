@@ -10,7 +10,7 @@ use crate::{
 	data::extensions::NodeExtensions,
 	middleware::{Layer, ResponseResultFutureBoxer},
 	request::Request,
-	resource::layer_targets::{ResourceLayerTarget, ResourceLayerTargetValue},
+	resource::layer_targets::ResourceLayerTarget,
 	response::{BoxedErrorResponse, IntoResponse, Response, ResponseError},
 	routing::{RoutingState, UnusedRequest},
 };
@@ -196,11 +196,9 @@ pub(crate) fn wrap_mistargeted_request_handler(
 	mut some_mistargeted_request_handler: Option<BoxedHandler>,
 	middleware: &mut Vec<ResourceLayerTarget>,
 ) -> Option<BoxedHandler> {
-	use ResourceLayerTargetValue;
-
 	for layer in middleware.iter_mut().rev() {
-		if let ResourceLayerTargetValue::MistargetedRequestHandler(_) = &mut layer.0 {
-			let ResourceLayerTargetValue::MistargetedRequestHandler(boxed_layer) = layer.0.take() else {
+		if let ResourceLayerTarget::MistargetedRequestHandler(_) = layer {
+			let ResourceLayerTarget::MistargetedRequestHandler(boxed_layer) = layer.take() else {
 				unreachable!()
 			};
 

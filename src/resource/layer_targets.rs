@@ -10,26 +10,31 @@ use crate::{
 // --------------------------------------------------------------------------------
 // --------------------------------------------------------------------------------
 
-pub struct ResourceLayerTarget(pub(crate) ResourceLayerTargetValue);
+mod private {
+	use super::*;
 
-#[derive(Default)]
-pub(crate) enum ResourceLayerTargetValue {
-	#[default]
-	None,
-	RequestReceiver(BoxedLayer),
-	RequestPasser(BoxedLayer),
-	RequestHandler(BoxedLayer),
-	MethodHandler(Vec<Method>, BoxedLayer),
-	WildcardMethodHandler(BoxedLayer),
-	MistargetedRequestHandler(BoxedLayer),
-}
+	#[allow(private_interfaces)]
+	#[derive(Default)]
+	pub enum ResourceLayerTarget {
+		#[default]
+		None,
+		RequestReceiver(BoxedLayer),
+		RequestPasser(BoxedLayer),
+		RequestHandler(BoxedLayer),
+		MethodHandler(Vec<Method>, BoxedLayer),
+		WildcardMethodHandler(BoxedLayer),
+		MistargetedRequestHandler(BoxedLayer),
+	}
 
-impl ResourceLayerTargetValue {
-	#[inline(always)]
-	pub(crate) fn take(&mut self) -> Self {
-		std::mem::take(self)
+	impl ResourceLayerTarget {
+		#[inline(always)]
+		pub(crate) fn take(&mut self) -> Self {
+			std::mem::take(self)
+		}
 	}
 }
+
+pub(crate) use private::ResourceLayerTarget;
 
 // ----------
 
@@ -48,9 +53,7 @@ macro_rules! layer_target_wrapper {
 				+ Sync
 				+ 'static,
 		{
-			ResourceLayerTarget(ResourceLayerTargetValue::$kind(BoxedLayer::new(
-				layer.into_layer(),
-			)))
+			ResourceLayerTarget::$kind(BoxedLayer::new(layer.into_layer()))
 		}
 	};
 }
@@ -75,10 +78,10 @@ where
 		+ Sync
 		+ 'static,
 {
-	ResourceLayerTarget(ResourceLayerTargetValue::MethodHandler(
+	ResourceLayerTarget::MethodHandler(
 		methods.into_array().into(),
 		BoxedLayer::new(layer.into_layer()),
-	))
+	)
 }
 
 layer_target_wrapper!(wildcard_method_handler, WildcardMethodHandler);
