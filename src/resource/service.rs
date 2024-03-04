@@ -4,6 +4,7 @@ use std::{
 	convert::Infallible,
 	fmt::Debug,
 	future::{ready, IntoFuture},
+	pin::Pin,
 	process::Output,
 	sync::Arc,
 };
@@ -28,7 +29,7 @@ use crate::{
 	middleware::{BoxedLayer, Layer, ResponseResultFutureBoxer},
 	pattern::{ParamsList, Pattern},
 	request::Request,
-	response::{BoxedErrorResponse, IntoResponse, Redirect, Response},
+	response::{BoxedErrorResponse, InfallibleResponseFuture, IntoResponse, Redirect, Response},
 	routing::{self, RouteTraversal, RoutingState, UnusedRequest},
 };
 
@@ -105,8 +106,8 @@ where
 	B::Error: Into<BoxedError>,
 {
 	type Response = Response;
-	type Error = BoxedErrorResponse;
-	type Future = BoxedFuture<Result<Self::Response, Self::Error>>;
+	type Error = Infallible;
+	type Future = InfallibleResponseFuture;
 
 	fn call(&self, request: Request<B>) -> Self::Future {
 		let mut request = request.map(Body::new);
@@ -129,7 +130,9 @@ where
 				result
 			} else {
 				let Ok(decoded_segment) = percent_decode_str(next_segment).decode_utf8() else {
-					return Box::pin(ready(Ok(StatusCode::BAD_REQUEST.into_response()))); // ???
+					return InfallibleResponseFuture::from(Box::pin(ready(Ok(
+						StatusCode::NOT_FOUND.into_response(),
+					))));
 				};
 
 				if let Some(result) = self
@@ -158,19 +161,21 @@ where
 		if matched {
 			match &self.request_receiver {
 				MaybeBoxed::Boxed(boxed_request_receiver) => {
-					boxed_request_receiver.handle(request, &mut args)
+					InfallibleResponseFuture::from(boxed_request_receiver.handle(request, &mut args))
 				}
-				MaybeBoxed::Unboxed(request_receiver) => request_receiver.handle(request, &mut args),
+				MaybeBoxed::Unboxed(request_receiver) => {
+					InfallibleResponseFuture::from(request_receiver.handle(request, &mut args))
+				}
 			}
 		} else {
-			handle_mistargeted_request(
+			InfallibleResponseFuture::from(handle_mistargeted_request(
 				request,
 				args.routing_state,
 				self
 					.some_mistargeted_request_handler
 					.as_ref()
 					.map(|handler| (handler, args.node_extensions)),
-			)
+			))
 		}
 	}
 }
@@ -677,237 +682,238 @@ impl Handler for RequestHandler {
 
 // --------------------------------------------------------------------------------
 
-// #[cfg(test)]
-// mod test {
-// 	use std::str::FromStr;
-//
-// 	use http::{header::CONTENT_TYPE, Method, StatusCode, Uri};
-// 	use http_body_util::BodyExt;
-// 	use serde::{Deserialize, Serialize};
-//
-// 	use crate::{
-// 		body::{Bytes, Empty},
-// 		data::Json,
-// 		handler::{get, method, post},
-// 		request::PathParam,
-// 		resource::Resource,
-// 	};
-//
-// 	use super::*;
-//
-// 	// --------------------------------------------------
-//
-// 	#[tokio::test]
-// 	async fn resource_service() {
-// 		let mut root = Resource::new("/");
-// 		let handler = |_request: Request| async {};
-// 		root.subresource_mut("/abc").set_handler(get(handler));
-// 		assert_eq!(root.subresource_mut("/abc").pattern(), "abc");
-// 		assert!(root.subresource_mut("/abc").can_handle_request());
-//
-// 		let service = root.into_service();
-// 		let static_resource = &service.some_static_resources.as_ref().unwrap();
-// 		assert_eq!(static_resource.len(), 1);
-// 		assert_eq!(static_resource[0].0.pattern.to_string(), "abc");
-//
-// 		let request = Request::get("/abc").body(Empty::<Bytes>::new()).unwrap();
-// 		let response = service.call(request).await.unwrap();
-// 		assert_eq!(response.status(), StatusCode::OK);
-//
-// 		// --------------------------------------------------
-// 		// --------------------------------------------------
-// 		//		abc0_0 -> *abc1_0 -> $abc2_0:@(abc2_0)
-// 		//					 |					-> $abc2_1:@cn(abc2_1)-cba -> *abc3_0
-// 		//					 |
-// 		//					 -> $abc1_1:@cn(abc1_1)-cba -> abc2_0
-//
-// 		let mut resource = Resource::new("/abc0_0");
-// 		resource.set_handler(get(hello_world));
-//
-// 		resource.subresource_mut("/*abc1_0").set_handler(method(
-// 			"PUT",
-// 			|PathParam(wildcard): PathParam<String>| async move {
-// 				println!("got param: {}", wildcard);
-//
-// 				wildcard
-// 			},
-// 		));
-//
-// 		resource
-// 			.subresource_mut("/*abc1_0/$abc2_0:@(abc2_0)")
-// 			.set_handler(post(
-// 				|PathParam(path_values): PathParam<PathValues1_0_2_0>| async move {
-// 					println!("got path values: {:?}", path_values);
-//
-// 					Json(path_values)
-// 				},
-// 			));
-//
-// 		#[derive(Debug, Serialize, Deserialize)]
-// 		struct PathValues1_0_2_0 {
-// 			abc1_0: String,
-// 			abc2_0: Option<String>,
-// 			abc3_0: Option<u64>,
-// 		}
-//
-// 		resource
-// 			.subresource_mut("/*abc1_0/$abc2_1:@cn(abc2_1)-cba/*abc3_0")
-// 			.set_handler(get(
-// 				|PathParam(path_values): PathParam<PathValues1_0_2_1_3_0>| async move {
-// 					println!("got path values: {:?}", path_values);
-//
-// 					Json(path_values)
-// 				},
-// 			));
-//
-// 		#[derive(Debug, Serialize, Deserialize)]
-// 		struct PathValues1_0_2_1_3_0 {
-// 			abc1_0: Option<String>,
-// 			abc2_1: String,
-// 			abc3_0: u64,
-// 		}
-//
-// 		resource
-// 			.subresource_mut("/$abc1_1:@cn(abc1_1)-cba")
-// 			.set_handler(get(|PathParam(value): PathParam<String>| async move {
-// 				let vector = Vec::from(value);
-// 				println!("got path values: {:?}", vector);
-//
-// 				vector
-// 			}));
-//
-// 		resource
-// 			.subresource_mut("/$abc1_1:@cn(abc1_1)-cba/abc2_0")
-// 			.set_handler(get(hello_world));
-//
-// 		dbg!();
-//
-// 		let service = resource.into_service();
-//
-// 		dbg!();
-//
-// 		let request = new_request("GET", "/abc0_0");
-// 		let response = service.call(request).await.unwrap();
-// 		assert_eq!(response.status(), StatusCode::OK);
-//
-// 		dbg!();
-//
-// 		let request = new_request("PUT", "/abc0_0/abc1_0");
-// 		let response = service.call(request).await.unwrap();
-// 		assert_eq!(response.status(), StatusCode::OK);
-// 		assert_eq!(
-// 			response
-// 				.headers()
-// 				.get(CONTENT_TYPE)
-// 				.unwrap()
-// 				.to_str()
-// 				.unwrap(),
-// 			mime::TEXT_PLAIN_UTF_8,
-// 		);
-//
-// 		let body = response.into_body().collect().await.unwrap().to_bytes();
-// 		assert_eq!(body.as_ref(), "abc1_0".as_bytes());
-//
-// 		dbg!();
-//
-// 		let request = new_request("POST", "/abc0_0/abc1_0/abc2_0");
-// 		let response = service.call(request).await.unwrap();
-// 		assert_eq!(response.status(), StatusCode::OK);
-// 		assert_eq!(
-// 			response
-// 				.headers()
-// 				.get(CONTENT_TYPE)
-// 				.unwrap()
-// 				.to_str()
-// 				.unwrap(),
-// 			mime::APPLICATION_JSON,
-// 		);
-//
-// 		let json_body = String::from_utf8(
-// 			response
-// 				.into_body()
-// 				.collect()
-// 				.await
-// 				.unwrap()
-// 				.to_bytes()
-// 				.to_vec(),
-// 		)
-// 		.unwrap();
-// 		assert_eq!(
-// 			json_body,
-// 			r#"{"abc1_0":"abc1_0","abc2_0":"abc2_0","abc3_0":null}"#
-// 		);
-//
-// 		dbg!();
-//
-// 		let request = new_request("GET", "/abc0_0/abc1_1-cba");
-// 		let response = service.call(request).await.unwrap();
-// 		assert_eq!(response.status(), StatusCode::OK);
-// 		assert_eq!(
-// 			response
-// 				.headers()
-// 				.get(CONTENT_TYPE)
-// 				.unwrap()
-// 				.to_str()
-// 				.unwrap(),
-// 			mime::APPLICATION_OCTET_STREAM,
-// 		);
-//
-// 		let vector_body = response
-// 			.into_body()
-// 			.collect()
-// 			.await
-// 			.unwrap()
-// 			.to_bytes()
-// 			.to_vec();
-// 		assert_eq!(vector_body, b"abc1_1".to_vec());
-//
-// 		dbg!();
-//
-// 		let request = new_request("GET", "/abc0_0/abc1_1-cba/abc2_0");
-// 		let response = service.call(request).await.unwrap();
-// 		assert_eq!(response.status(), StatusCode::OK);
-//
-// 		dbg!();
-//
-// 		let request = new_request("GET", "/abc0_0/abc1_0-wildcard/abc2_1-cba/30");
-// 		let response = service.call(request).await.unwrap();
-// 		assert_eq!(response.status(), StatusCode::OK);
-// 		assert_eq!(
-// 			response
-// 				.headers()
-// 				.get(CONTENT_TYPE)
-// 				.unwrap()
-// 				.to_str()
-// 				.unwrap(),
-// 			mime::APPLICATION_JSON,
-// 		);
-//
-// 		let json_body = String::from_utf8(
-// 			response
-// 				.into_body()
-// 				.collect()
-// 				.await
-// 				.unwrap()
-// 				.to_bytes()
-// 				.to_vec(),
-// 		)
-// 		.unwrap();
-// 		assert_eq!(
-// 			json_body,
-// 			r#"{"abc1_0":"abc1_0-wildcard","abc2_1":"abc2_1","abc3_0":30}"#
-// 		);
-// 	}
-//
-// 	fn new_request(method: &str, uri: &str) -> Request<Empty<Bytes>> {
-// 		let mut request = Request::new(Empty::<Bytes>::new());
-// 		*request.method_mut() = Method::from_str(method).unwrap();
-// 		*request.uri_mut() = Uri::from_str(uri).unwrap();
-//
-// 		request
-// 	}
-//
-// 	async fn hello_world() -> &'static str {
-// 		"Hello, World!"
-// 	}
-// }
+#[cfg(test)]
+mod test {
+	use http::{
+		header::{CONTENT_TYPE, LOCATION},
+		Method, StatusCode, Uri,
+	};
+	use http_body_util::{BodyExt, Empty};
+	use serde::{Deserialize, Serialize};
+
+	use crate::{
+		body::Bytes,
+		data::json::{self, Json},
+		handler::{get, method, post, wildcard_method},
+		request::PathParams,
+		resource::Resource,
+		response::IntoResponseResult,
+	};
+
+	use super::*;
+
+	// --------------------------------------------------
+
+	#[tokio::test]
+	async fn resource_service() {
+		//	/st_0_0	->	/{wl_1_0}	->	/{rx_2_0:p_0}/
+		//				|							|	->	/{rx_2_1:p_1}-abc	->	/{wl_3_0}
+		//				|
+		//				|	->	/{rx_1_1:p_0}-abc	->	/st_2_0
+		//															|	->	/st_2_1
+
+		#[allow(non_camel_case_types)]
+		#[derive(Debug, Serialize, Deserialize)]
+		struct Rx_2_0 {
+			wl_1_0: u32,
+			rx_2_0: String,
+		}
+
+		#[allow(non_camel_case_types)]
+		#[derive(Debug, Serialize, Deserialize)]
+		struct Wl_3_0 {
+			wl_1_0: u32,
+			rx_2_1: String,
+			wl_3_0: bool,
+		}
+
+		#[allow(non_camel_case_types)]
+		#[derive(Debug, Serialize, Deserialize)]
+		struct Rx_1_1 {
+			rx_1_1: String,
+		}
+
+		// ----------
+
+		let handler = |_request: Request| async {};
+
+		// -------------------------
+
+		let mut root = Resource::new("/");
+		root.subresource_mut("/st_0_0").set_handler(get(handler));
+		root
+			.subresource_mut("/st_0_0/{wl_1_0}/{rx_2_0:p_0}/")
+			.set_handler(get(|PathParams(data): PathParams<Rx_2_0>| async {
+				Json(data)
+			}));
+
+		root
+			.subresource_mut("/st_0_0/{wl_1_0}/{rx_2_1:p_1}-abc/{wl_3_0}")
+			.set_handler(post(|PathParams(data): PathParams<Wl_3_0>| async {
+				Json(data)
+			}));
+
+		root
+			.subresource_mut("/st_0_0/{rx_1_1:p_0}-abc/st_2_0")
+			.set_handler(get(|PathParams(data): PathParams<Rx_1_1>| async {
+				Json(data)
+			}));
+
+		root
+			.subresource_mut("/st_0_0/{rx_1_1:p_0}-abc/")
+			.set_handler(wildcard_method(
+				|PathParams(data): PathParams<Rx_1_1>| async { Json(data) },
+			));
+
+		root
+			.subresource_mut("/st_0_0/{rx_1_1:p_0}-abc/st_2_1")
+			.set_handler(get(|| async { "Hello, World!" }));
+
+		let service = root.into_service();
+
+		// -------------------------
+
+		let request = new_request("GET", "/st_0_0");
+		let response = service.call(request).await.unwrap();
+		assert_eq!(response.status(), StatusCode::OK);
+
+		// ----------
+		// rx_2_0
+
+		let request = new_request("GET", "/st_0_0/42/p_0");
+		let response = service.call(request).await.unwrap();
+		assert_eq!(response.status(), StatusCode::PERMANENT_REDIRECT);
+
+		let location = response.headers().get(LOCATION).unwrap().to_str().unwrap();
+		assert_eq!(location, "/st_0_0/42/p_0/");
+		assert_eq!(
+			response
+				.into_body()
+				.collect()
+				.await
+				.unwrap()
+				.to_bytes()
+				.len(),
+			0
+		);
+
+		// ----------
+		// rx_2_0
+
+		let request = new_request("GET", "/st_0_0/42/p_0/");
+		let response = service.call(request).await.unwrap();
+		assert_eq!(response.status(), StatusCode::OK);
+
+		let content_type = response
+			.headers()
+			.get(CONTENT_TYPE)
+			.unwrap()
+			.to_str()
+			.unwrap();
+		assert_eq!(content_type, mime::APPLICATION_JSON.as_ref());
+
+		let json_body = response.into_body().collect().await.unwrap().to_bytes();
+		let data = serde_json::from_slice::<Rx_2_0>(&json_body).unwrap();
+
+		// ----------
+		// wl_3_0
+
+		let request = new_request("POST", "/st_0_0/42/p_1-abc/true");
+		let response = service.call(request).await.unwrap();
+		assert_eq!(response.status(), StatusCode::OK);
+
+		let content_type = response
+			.headers()
+			.get(CONTENT_TYPE)
+			.unwrap()
+			.to_str()
+			.unwrap();
+		assert_eq!(content_type, mime::APPLICATION_JSON.as_ref());
+
+		let json_body = response.into_body().collect().await.unwrap().to_bytes();
+		let data = serde_json::from_slice::<Wl_3_0>(&json_body).unwrap();
+
+		// ----------
+		// st_2_0
+
+		let request = new_request("GET", "/st_0_0/p_0-abc/st_2_0");
+		let response = service.call(request).await.unwrap();
+		assert_eq!(response.status(), StatusCode::OK);
+
+		let content_type = response
+			.headers()
+			.get(CONTENT_TYPE)
+			.unwrap()
+			.to_str()
+			.unwrap();
+		assert_eq!(content_type, mime::APPLICATION_JSON.as_ref());
+
+		let json_body = response.into_body().collect().await.unwrap().to_bytes();
+		let data = serde_json::from_slice::<Rx_1_1>(&json_body).unwrap();
+
+		// ----------
+		// rx_1_1
+
+		let request = new_request("GET", "/st_0_0/p_0-abc");
+		let response = service.call(request).await.unwrap();
+		assert_eq!(response.status(), StatusCode::PERMANENT_REDIRECT);
+
+		let location = response.headers().get(LOCATION).unwrap().to_str().unwrap();
+		assert_eq!(location, "/st_0_0/p_0-abc/");
+		assert_eq!(
+			response
+				.into_body()
+				.collect()
+				.await
+				.unwrap()
+				.to_bytes()
+				.len(),
+			0
+		);
+
+		// ----------
+		// rx_1_1
+
+		let request = new_request("PUT", "/st_0_0/p_0-abc/");
+		let response = service.call(request).await.unwrap();
+		assert_eq!(response.status(), StatusCode::OK);
+
+		let content_type = response
+			.headers()
+			.get(CONTENT_TYPE)
+			.unwrap()
+			.to_str()
+			.unwrap();
+		assert_eq!(content_type, mime::APPLICATION_JSON.as_ref());
+
+		let json_body = response.into_body().collect().await.unwrap().to_bytes();
+		let data = serde_json::from_slice::<Rx_1_1>(&json_body).unwrap();
+
+		// ----------
+		// st_2_1
+
+		let request = new_request("GET", "/st_0_0/p_0-abc/st_2_1");
+		let response = service.call(request).await.unwrap();
+		assert_eq!(response.status(), StatusCode::OK);
+
+		let content_type = response
+			.headers()
+			.get(CONTENT_TYPE)
+			.unwrap()
+			.to_str()
+			.unwrap();
+		assert_eq!(content_type, mime::TEXT_PLAIN_UTF_8.as_ref());
+
+		let text_body = response.into_body().collect().await.unwrap().to_bytes();
+		let data = String::from_utf8(text_body.into()).unwrap();
+		assert_eq!(data, "Hello, World!");
+	}
+
+	fn new_request(method: &str, uri: &str) -> Request<Empty<Bytes>> {
+		Request::builder()
+			.method(method)
+			.uri(uri)
+			.body(Empty::default())
+			.unwrap()
+	}
+}

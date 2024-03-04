@@ -770,11 +770,8 @@ mod test {
 		// -------------------------
 
 		let request = Request::get("/files").body(Empty::default()).unwrap();
-		let result = static_files.call(request).await;
-		assert_eq!(
-			StatusCode::NOT_FOUND,
-			result.unwrap_err().into_response().status()
-		);
+		let response = static_files.call(request).await.unwrap();
+		assert_eq!(StatusCode::NOT_FOUND, response.status());
 
 		// -------------------------
 

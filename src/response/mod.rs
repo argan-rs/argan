@@ -1,5 +1,13 @@
-use std::{any::Any, convert::Infallible, fmt::Display};
+use std::{
+	any::Any,
+	convert::Infallible,
+	fmt::Display,
+	future::Future,
+	pin::Pin,
+	task::{Context, Poll},
+};
 
+use futures_util::FutureExt;
 use http::{
 	header::{InvalidHeaderName, InvalidHeaderValue, LOCATION},
 	response::Parts,
@@ -8,7 +16,7 @@ use http::{
 
 use crate::{
 	body::{Body, BodyExt, Bytes, HttpBody},
-	common::{BoxedError, SCOPE_VALIDITY},
+	common::{BoxedError, BoxedFuture, SCOPE_VALIDITY},
 	request::FromRequestHead,
 };
 
@@ -76,6 +84,35 @@ where
 		Ok(self.into_response())
 	}
 }
+
+// --------------------------------------------------
+// InffallibelResponseFuture
+
+mod private {
+	use super::*;
+
+	pub struct InfallibleResponseFuture(BoxedFuture<Result<Response, BoxedErrorResponse>>);
+
+	impl InfallibleResponseFuture {
+		pub(crate) fn from(boxed_future: BoxedFuture<Result<Response, BoxedErrorResponse>>) -> Self {
+			Self(boxed_future)
+		}
+	}
+
+	impl Future for InfallibleResponseFuture {
+		type Output = Result<Response, Infallible>;
+
+		#[inline]
+		fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+			self.0.poll_unpin(cx).map(|output| match output {
+				Ok(response) => Ok(response),
+				Err(error_response) => Ok(error_response.into_response()),
+			})
+		}
+	}
+}
+
+pub(crate) use private::InfallibleResponseFuture;
 
 // --------------------------------------------------
 // StatusCode

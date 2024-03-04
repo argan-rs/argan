@@ -11,7 +11,7 @@ use crate::{
 	pattern::ParamsList,
 	request::Request,
 	resource::ResourceService,
-	response::{BoxedErrorResponse, IntoResponse, Response},
+	response::{BoxedErrorResponse, InfallibleResponseFuture, IntoResponse, Response},
 	routing::{RouteTraversal, RoutingState},
 };
 
@@ -63,13 +63,13 @@ where
 	B::Error: Into<BoxedError>,
 {
 	type Response = Response;
-	type Error = BoxedErrorResponse;
-	type Future = BoxedFuture<Result<Self::Response, Self::Error>>;
+	type Error = Infallible;
+	type Future = InfallibleResponseFuture;
 
 	fn call(&self, request: Request<B>) -> Self::Future {
 		macro_rules! handle_unmatching_host {
 			() => {
-				Box::pin(ready(Ok(StatusCode::NOT_FOUND.into_response())))
+				InfallibleResponseFuture::from(Box::pin(ready(Ok(StatusCode::NOT_FOUND.into_response()))))
 			};
 		}
 
@@ -85,13 +85,13 @@ where
 		};
 
 		if let Some(result) = self.pattern.is_static_match(host) {
-			return self.root_resource.handle(request, &mut args);
+			return InfallibleResponseFuture::from(self.root_resource.handle(request, &mut args));
 		} else {
 			if let Some(result) = self
 				.pattern
 				.is_regex_match(host, &mut args.routing_state.uri_params)
 			{
-				return self.root_resource.handle(request, &mut args);
+				return InfallibleResponseFuture::from(self.root_resource.handle(request, &mut args));
 			}
 		}
 
