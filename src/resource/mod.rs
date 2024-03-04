@@ -213,7 +213,7 @@ impl Resource {
 		let new_resources = new_resources.into_array();
 
 		for new_resource in new_resources {
-			if new_resource.pattern_string() == "/" {
+			if new_resource.is("/") {
 				panic!("a root resource cannot be a subresource");
 			}
 
@@ -592,7 +592,7 @@ impl Resource {
 		let new_resources = new_resources.into_array();
 
 		for new_resource in new_resources {
-			if new_resource.pattern_string() == "/" {
+			if new_resource.is("/") {
 				panic!("a root resource cannot be a subresource");
 			}
 
