@@ -34,6 +34,10 @@ impl Host {
 			.host()
 			.expect("pattern should have an authority component");
 
+		if !root.is("/") {
+			panic!("host can only have a root resource");
+		}
+
 		let host_pattern = Pattern::parse(host);
 		if host_pattern.is_wildcard() {
 			panic!("host pattern cannot be a wildcard");
@@ -43,10 +47,6 @@ impl Host {
 	}
 
 	pub(crate) fn with_pattern(host_pattern: Pattern, mut root: Resource) -> Self {
-		if root.pattern_string() != "/" {
-			panic!("host can only have a root resource");
-		}
-
 		root
 			.host_pattern_ref()
 			.is_some_and(|resource_host_pattern| {

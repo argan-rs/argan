@@ -61,7 +61,7 @@ impl Router {
 			.host_pattern_ref()
 			.and_then(|host_pattern| self.existing_host_mut(host_pattern))
 		{
-			if new_resource.pattern_string() == "/" {
+			if new_resource.is("/") {
 				host.merge_or_replace_root(new_resource);
 			} else {
 				host.root_mut().add_subresource(new_resource);
@@ -71,7 +71,7 @@ impl Router {
 		}
 
 		if let Some(host_pattern) = new_resource.host_pattern_ref().map(Clone::clone) {
-			let root = if new_resource.pattern_string() == "/" {
+			let root = if new_resource.is("/") {
 				new_resource
 			} else {
 				let mut root = Resource::with_uri_patterns(
@@ -91,7 +91,7 @@ impl Router {
 			return;
 		}
 
-		if new_resource.pattern_string() == "/" {
+		if new_resource.is("/") {
 			self.merge_or_replace_root(new_resource);
 		} else {
 			if let Some(boxed_root) = self.some_root_resource.as_mut() {
@@ -165,7 +165,7 @@ impl Router {
 			.map(|host_pattern| Pattern::parse(host_pattern));
 		let path_patterns = uri_pattern.path();
 
-		let new_resource_is_root = new_resource.pattern_string() == "/";
+		let new_resource_is_root = new_resource.is("/");
 
 		if new_resource_is_root {
 			if !path_patterns.is_empty() {
