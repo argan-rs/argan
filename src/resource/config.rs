@@ -66,33 +66,38 @@ impl Default for ConfigFlags {
 
 // ----------
 
-pub struct ResourceConfigOption(pub(super) ResourceConfigOptionValue);
+mod private {
+	use super::*;
 
-pub(super) enum ResourceConfigOptionValue {
-	DropOnUnmatchingSlash,
-	HandleOnUnmatchingSlash,
-	SubtreeHandler,
-	ModifyRequestExtensions(RequestExtensionsModifierLayer),
-}
+	#[allow(private_interfaces)]
+	pub enum ResourceConfigOption {
+		DropOnUnmatchingSlash,
+		HandleOnUnmatchingSlash,
+		SubtreeHandler,
+		ModifyRequestExtensions(RequestExtensionsModifierLayer),
+	}
 
-impl IntoArray<ResourceConfigOption, 1> for ResourceConfigOption {
-	fn into_array(self) -> [ResourceConfigOption; 1] {
-		[self]
+	impl IntoArray<ResourceConfigOption, 1> for ResourceConfigOption {
+		fn into_array(self) -> [ResourceConfigOption; 1] {
+			[self]
+		}
 	}
 }
+
+pub(super) use private::ResourceConfigOption;
 
 // ----------
 
 pub fn drop_on_unmatching_slash() -> ResourceConfigOption {
-	ResourceConfigOption(ResourceConfigOptionValue::DropOnUnmatchingSlash)
+	ResourceConfigOption::DropOnUnmatchingSlash
 }
 
 pub fn handle_on_unmatching_slash() -> ResourceConfigOption {
-	ResourceConfigOption(ResourceConfigOptionValue::HandleOnUnmatchingSlash)
+	ResourceConfigOption::HandleOnUnmatchingSlash
 }
 
 pub fn subtree_handler() -> ResourceConfigOption {
-	ResourceConfigOption(ResourceConfigOptionValue::SubtreeHandler)
+	ResourceConfigOption::SubtreeHandler
 }
 
 pub fn modify_request_extensions<Func>(modifier: Func) -> ResourceConfigOption
@@ -101,7 +106,5 @@ where
 {
 	let request_extensions_modifier_layer = RequestExtensionsModifierLayer::new(modifier);
 
-	ResourceConfigOption(ResourceConfigOptionValue::ModifyRequestExtensions(
-		request_extensions_modifier_layer,
-	))
+	ResourceConfigOption::ModifyRequestExtensions(request_extensions_modifier_layer)
 }

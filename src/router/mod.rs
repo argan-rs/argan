@@ -325,7 +325,7 @@ impl Router {
 		let config_options = config_options.into_array();
 
 		for config_option in config_options {
-			let RouterConfigOptionValue(request_extensions_modifier_layer) = config_option.0;
+			let RouterConfigOption(request_extensions_modifier_layer) = config_option;
 			let request_passer_layer_target = request_passer(request_extensions_modifier_layer);
 
 			self.middleware.insert(0, request_passer_layer_target);
@@ -421,64 +421,83 @@ impl Router {
 // --------------------------------------------------
 // RouterLayerTarget
 
-pub struct RouterLayerTarget(RouterLayerTargetValue);
+pub mod layer_targets {
+	use super::*;
 
-#[derive(Default)]
-enum RouterLayerTargetValue {
-	#[default]
-	None,
-	RequestPasser(BoxedLayer),
-}
+	mod private {
+		use super::*;
 
-impl RouterLayerTargetValue {
-	#[inline(always)]
-	fn take(&mut self) -> Self {
-		std::mem::take(self)
+		#[allow(private_interfaces)]
+		#[derive(Default)]
+		pub enum RouterLayerTarget {
+			#[default]
+			None,
+			RequestPasser(BoxedLayer),
+		}
+
+		impl RouterLayerTarget {
+			#[inline(always)]
+			pub(crate) fn take(&mut self) -> Self {
+				std::mem::take(self)
+			}
+		}
+	}
+
+	pub(super) use private::RouterLayerTarget;
+
+	// ----------
+
+	pub fn request_passer<L, M>(layer: L) -> RouterLayerTarget
+	where
+		L: IntoLayer<M, AdaptiveHandler>,
+		L::Layer: Layer<AdaptiveHandler> + Clone + 'static,
+		<L::Layer as Layer<AdaptiveHandler>>::Handler: Handler<
+				Response = Response,
+				Error = BoxedErrorResponse,
+				Future = BoxedFuture<Result<Response, BoxedErrorResponse>>,
+			> + Clone
+			+ Send
+			+ Sync
+			+ 'static,
+	{
+		RouterLayerTarget::RequestPasser(BoxedLayer::new(layer.into_layer()))
 	}
 }
 
-// ----------
-
-pub fn request_passer<L, M>(layer: L) -> RouterLayerTarget
-where
-	L: IntoLayer<M, AdaptiveHandler>,
-	L::Layer: Layer<AdaptiveHandler> + Clone + 'static,
-	<L::Layer as Layer<AdaptiveHandler>>::Handler: Handler<
-			Response = Response,
-			Error = BoxedErrorResponse,
-			Future = BoxedFuture<Result<Response, BoxedErrorResponse>>,
-		> + Clone
-		+ Send
-		+ Sync
-		+ 'static,
-{
-	RouterLayerTarget(RouterLayerTargetValue::RequestPasser(BoxedLayer::new(
-		layer.into_layer(),
-	)))
-}
+use layer_targets::{request_passer, RouterLayerTarget};
 
 // --------------------------------------------------
 // RouterConfigOption
 
-pub struct RouterConfigOption(RouterConfigOptionValue);
+pub mod config {
+	use super::*;
 
-struct RouterConfigOptionValue(RequestExtensionsModifierLayer);
+	mod private {
+		use super::*;
 
-impl IntoArray<RouterConfigOption, 1> for RouterConfigOption {
-	fn into_array(self) -> [RouterConfigOption; 1] {
-		[self]
+		pub struct RouterConfigOption(pub(crate) RequestExtensionsModifierLayer);
+
+		impl IntoArray<RouterConfigOption, 1> for RouterConfigOption {
+			fn into_array(self) -> [RouterConfigOption; 1] {
+				[self]
+			}
+		}
+	}
+
+	pub(super) use private::RouterConfigOption;
+
+	// ----------
+
+	pub fn modify_request_extensions<Func>(modifier: Func) -> RouterConfigOption
+	where
+		Func: Fn(&mut Extensions) + Clone + Send + Sync + 'static,
+	{
+		let request_extensions_modifier_layer = RequestExtensionsModifierLayer::new(modifier);
+
+		RouterConfigOption(request_extensions_modifier_layer)
 	}
 }
 
-// ----------
-
-pub fn modify_request_extensions<Func>(modifier: Func) -> RouterConfigOption
-where
-	Func: Fn(&mut Extensions) + Clone + Send + Sync + 'static,
-{
-	let request_extensions_modifier_layer = RequestExtensionsModifierLayer::new(modifier);
-
-	RouterConfigOption(RouterConfigOptionValue(request_extensions_modifier_layer))
-}
+use config::RouterConfigOption;
 
 // --------------------------------------------------------------------------------

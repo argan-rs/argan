@@ -209,9 +209,7 @@ impl RequestReceiver {
 		let mut maybe_boxed_request_receiver = MaybeBoxed::Unboxed(request_receiver);
 
 		for layer in middleware {
-			use super::layer_targets::ResourceLayerTargetValue;
-
-			if let ResourceLayerTargetValue::RequestReceiver(boxed_layer) = layer.0 {
+			if let ResourceLayerTarget::RequestReceiver(boxed_layer) = layer {
 				match maybe_boxed_request_receiver {
 					MaybeBoxed::Boxed(mut boxed_request_receiver) => {
 						maybe_boxed_request_receiver =
@@ -430,11 +428,9 @@ impl RequestPasser {
 		let mut maybe_boxed_request_passer = MaybeBoxed::Unboxed(request_passer);
 
 		for layer in middleware.iter_mut().rev() {
-			use super::layer_targets::ResourceLayerTargetValue;
-
-			match layer.0 {
-				ResourceLayerTargetValue::RequestPasser(_) => {
-					let ResourceLayerTargetValue::RequestPasser(boxed_layer) = layer.0.take() else {
+			match layer {
+				ResourceLayerTarget::RequestPasser(_) => {
+					let ResourceLayerTarget::RequestPasser(boxed_layer) = layer.take() else {
 						unreachable!()
 					};
 
@@ -577,12 +573,10 @@ impl RequestHandler {
 
 		let mut request_handler_middleware_exists = false;
 
-		use super::layer_targets::ResourceLayerTargetValue;
-
 		for layer in middleware.iter_mut().rev() {
-			match layer.0 {
-				ResourceLayerTargetValue::MethodHandler(..) => {
-					let ResourceLayerTargetValue::MethodHandler(methods, boxed_layer) = layer.0.take() else {
+			match layer {
+				ResourceLayerTarget::MethodHandler(..) => {
+					let ResourceLayerTarget::MethodHandler(methods, boxed_layer) = layer.take() else {
 						unreachable!()
 					};
 
@@ -592,14 +586,14 @@ impl RequestHandler {
 						}
 					}
 				}
-				ResourceLayerTargetValue::WildcardMethodHandler(_) => {
-					let ResourceLayerTargetValue::WildcardMethodHandler(boxed_layer) = layer.0.take() else {
+				ResourceLayerTarget::WildcardMethodHandler(_) => {
+					let ResourceLayerTarget::WildcardMethodHandler(boxed_layer) = layer.take() else {
 						unreachable!()
 					};
 
 					request_handler.wrap_wildcard_method_handler(boxed_layer);
 				}
-				ResourceLayerTargetValue::RequestHandler(_) => request_handler_middleware_exists = true,
+				ResourceLayerTarget::RequestHandler(_) => request_handler_middleware_exists = true,
 				_ => {}
 			}
 		}
@@ -608,8 +602,8 @@ impl RequestHandler {
 			let mut boxed_request_handler = BoxedHandler::new(request_handler);
 
 			for layer in middleware.iter_mut().rev() {
-				if let ResourceLayerTargetValue::RequestHandler(_) = layer.0 {
-					let ResourceLayerTargetValue::RequestHandler(boxed_layer) = layer.0.take() else {
+				if let ResourceLayerTarget::RequestHandler(_) = layer {
+					let ResourceLayerTarget::RequestHandler(boxed_layer) = layer.take() else {
 						unreachable!()
 					};
 
