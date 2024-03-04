@@ -343,22 +343,24 @@ impl Resource {
 			}
 		}
 
-		let self_path_segment_patterns = self
-			.prefix_segment_patterns
-			.iter()
-			.chain(std::iter::once(&self.pattern));
+		if !self.is("/") {
+			let self_path_segment_patterns = self
+				.prefix_segment_patterns
+				.iter()
+				.chain(std::iter::once(&self.pattern));
 
-		for self_path_segment_pattern in self_path_segment_patterns {
-			let Some(prefix_segment_pattern) = prefix_segment_patterns.next() else {
-				panic!("prefix path patterns must be the same with the path patterns of the parent")
-			};
+			for self_path_segment_pattern in self_path_segment_patterns {
+				let Some(prefix_segment_pattern) = prefix_segment_patterns.next() else {
+					panic!("prefix path patterns must be the same with the path patterns of the parent")
+				};
 
-			if self_path_segment_pattern.compare(&prefix_segment_pattern) != Similarity::Same {
-				panic!(
-					"no segment '{}' exists among the prefix path segments of the resource '{}'",
-					prefix_segment_pattern,
-					self.pattern_string(),
-				)
+				if self_path_segment_pattern.compare(&prefix_segment_pattern) != Similarity::Same {
+					panic!(
+						"no segment '{}' exists among the prefix path segments of the resource '{}'",
+						prefix_segment_pattern,
+						self.pattern_string(),
+					)
+				}
 			}
 		}
 	}
@@ -1449,15 +1451,15 @@ mod test {
 
 	#[test]
 	fn resource_add_subresource_under() {
-		//	/st_0_0	->	/{wl_1_0}	->	/{rx_2_0:p}	->	/st_3_0
-		//											|								|	->	/{rx_3_1:p}	->	/{wl_4_0}
-		//											|																|	->	/st_4_1
-		//											|																|	->	/st_4_2
+		//	/st_0_0	->	/{wl_1_0}	->	/{rx_2_0:p0}	->	/st_3_0
+		//											|									|	->	/{rx_3_1:p0}	->	/{wl_4_0}
+		//											|																		|	->	/st_4_1
+		//											|																		|	->	/st_4_2
 		//											|
-		//											|	->	/st_2_1	->	/{wl_3_0}	->	/{rx_4_0:p}
-		//																	|							|	->	/{rx_4_1:p}
+		//											|	->	/st_2_1	->	/{wl_3_0}	->	/{rx_4_0:p0}
+		//																	|							|	->	/{rx_4_1:p1}
 		//																	|
-		//																	|	->	/{rx_3_1:p}
+		//																	|	->	/{rx_3_1:p0}
 
 		let parent_route = "/st_0_0/{wl_1_0}".to_string();
 		let mut parent = Resource::new(&parent_route);
@@ -1472,38 +1474,38 @@ mod test {
 
 		let cases = [
 			Case {
-				full_path: "/st_0_0/{wl_1_0}/{rx_2_0:p}/st_3_0",
-				prefix_route_from_parent: "/{rx_2_0:p}",
+				full_path: "/st_0_0/{wl_1_0}/{rx_2_0:p0}/st_3_0",
+				prefix_route_from_parent: "/{rx_2_0:p0}",
 				resource_pattern: "st_3_0",
-				route_from_parent: "/{rx_2_0:p}/st_3_0",
+				route_from_parent: "/{rx_2_0:p0}/st_3_0",
 				resource_has_handler: true,
 			},
 			Case {
-				full_path: "/st_0_0/{wl_1_0}/{rx_2_0:p}/{rx_3_1:p}/",
-				prefix_route_from_parent: "/{rx_2_0:p}",
-				resource_pattern: "{rx_3_1:p}",
-				route_from_parent: "/{rx_2_0:p}/{rx_3_1:p}/",
+				full_path: "/st_0_0/{wl_1_0}/{rx_2_0:p0}/{rx_3_1:p0}/",
+				prefix_route_from_parent: "/{rx_2_0:p0}",
+				resource_pattern: "{rx_3_1:p0}",
+				route_from_parent: "/{rx_2_0:p0}/{rx_3_1:p0}/",
 				resource_has_handler: true,
 			},
 			Case {
-				full_path: "/st_0_0/{wl_1_0}/{rx_2_0:p}/{rx_3_1:p}/{wl_4_0}",
-				prefix_route_from_parent: "/{rx_2_0:p}/{rx_3_1:p}/",
+				full_path: "/st_0_0/{wl_1_0}/{rx_2_0:p0}/{rx_3_1:p0}/{wl_4_0}",
+				prefix_route_from_parent: "/{rx_2_0:p0}/{rx_3_1:p0}/",
 				resource_pattern: "{wl_4_0}",
-				route_from_parent: "/{rx_2_0:p}/{rx_3_1:p}/{wl_4_0}",
+				route_from_parent: "/{rx_2_0:p0}/{rx_3_1:p0}/{wl_4_0}",
 				resource_has_handler: false,
 			},
 			Case {
-				full_path: "/st_0_0/{wl_1_0}/{rx_2_0:p}/{rx_3_1:p}/st_4_1",
+				full_path: "/st_0_0/{wl_1_0}/{rx_2_0:p0}/{rx_3_1:p0}/st_4_1",
 				prefix_route_from_parent: "",
 				resource_pattern: "st_4_1",
-				route_from_parent: "/{rx_2_0:p}/{rx_3_1:p}/st_4_1",
+				route_from_parent: "/{rx_2_0:p0}/{rx_3_1:p0}/st_4_1",
 				resource_has_handler: true,
 			},
 			Case {
-				full_path: "/st_0_0/{wl_1_0}/{rx_2_0:p}/{rx_3_1:p}/st_4_2",
+				full_path: "/st_0_0/{wl_1_0}/{rx_2_0:p0}/{rx_3_1:p0}/st_4_2",
 				prefix_route_from_parent: "",
 				resource_pattern: "st_4_2",
-				route_from_parent: "/{rx_2_0:p}/{rx_3_1:p}/st_4_2",
+				route_from_parent: "/{rx_2_0:p0}/{rx_3_1:p0}/st_4_2",
 				resource_has_handler: false,
 			},
 			Case {
@@ -1514,31 +1516,31 @@ mod test {
 				resource_has_handler: false,
 			},
 			Case {
-				full_path: "/st_0_0/{wl_1_0}/st_2_1/{wl_3_0}/{rx_4_0:p}/",
+				full_path: "/st_0_0/{wl_1_0}/st_2_1/{wl_3_0}/{rx_4_0:p0}/",
 				prefix_route_from_parent: "/st_2_1/{wl_3_0}",
-				resource_pattern: "{rx_4_0:p}",
-				route_from_parent: "/st_2_1/{wl_3_0}/{rx_4_0:p}/",
+				resource_pattern: "{rx_4_0:p0}",
+				route_from_parent: "/st_2_1/{wl_3_0}/{rx_4_0:p0}/",
 				resource_has_handler: true,
 			},
 			Case {
-				full_path: "/st_0_0/{wl_1_0}/st_2_1/{wl_3_0}/{rx_4_1:p}/",
+				full_path: "/st_0_0/{wl_1_0}/st_2_1/{wl_3_0}/{rx_4_1:p1}/",
 				prefix_route_from_parent: "/st_2_1/{wl_3_0}/",
-				resource_pattern: "{rx_4_1:p}",
-				route_from_parent: "/st_2_1/{wl_3_0}/{rx_4_1:p}",
+				resource_pattern: "{rx_4_1:p1}",
+				route_from_parent: "/st_2_1/{wl_3_0}/{rx_4_1:p1}",
 				resource_has_handler: false,
 			},
 			Case {
-				full_path: "/st_0_0/{wl_1_0}/st_2_1/{wl_3_0}/{rx_4_1:p}/st_5_0",
-				prefix_route_from_parent: "/st_2_1/{wl_3_0}/{rx_4_1:p}",
+				full_path: "/st_0_0/{wl_1_0}/st_2_1/{wl_3_0}/{rx_4_1:p1}/st_5_0",
+				prefix_route_from_parent: "/st_2_1/{wl_3_0}/{rx_4_1:p1}",
 				resource_pattern: "st_5_0",
-				route_from_parent: "/st_2_1/{wl_3_0}/{rx_4_1:p}/st_5_0",
+				route_from_parent: "/st_2_1/{wl_3_0}/{rx_4_1:p1}/st_5_0",
 				resource_has_handler: false,
 			},
 			Case {
-				full_path: "/st_0_0/{wl_1_0}/st_2_1/{rx_3_1:p}",
+				full_path: "/st_0_0/{wl_1_0}/st_2_1/{rx_3_1:p0}",
 				prefix_route_from_parent: "/st_2_1",
-				resource_pattern: "{rx_3_1:p}",
-				route_from_parent: "/st_2_1/{rx_3_1:p}",
+				resource_pattern: "{rx_3_1:p0}",
+				route_from_parent: "/st_2_1/{rx_3_1:p0}",
 				resource_has_handler: false,
 			},
 		];
@@ -1566,7 +1568,7 @@ mod test {
 
 		{
 			// Existing rx_3_1 has a handler. The new_ex_3_1 should not replace it.
-			let mut new_rx_3_1 = Resource::new("/{rx_3_1:p}");
+			let mut new_rx_3_1 = Resource::new("/{rx_3_1:p0}");
 			new_rx_3_1
 				.subresource_mut("/{wl_4_0}")
 				// Existing wl_4_0 doesn't have a handler. It should be replaced with the new one.
@@ -1575,7 +1577,7 @@ mod test {
 			// Existing st_4_1 has a handler. The new_st_4_1 should not replace it.
 			let new_st_4_1 = Resource::new("/st_4_1");
 			new_rx_3_1.add_subresource_under("", new_st_4_1);
-			new_rx_3_1.subresource_mut("/{rx_4_3:p}");
+			new_rx_3_1.subresource_mut("/{rx_4_3:p0}");
 
 			parent.add_subresource_under(cases[1].prefix_route_from_parent, new_rx_3_1);
 
@@ -1597,20 +1599,20 @@ mod test {
 			let mut new_st_2_1 = Resource::new("/st_0_0/{wl_1_0}/st_2_1");
 			new_st_2_1.set_handler(get(DummyHandler::<DefaultResponseFuture>::new()));
 
-			let mut new_rx_4_1 = Resource::new("/{rx_4_1:p}");
+			let mut new_rx_4_1 = Resource::new("/{rx_4_1:p1}");
 			new_rx_4_1
 				// New subresource.
 				.subresource_mut("/{wl_5_1}")
 				.set_handler(get(DummyHandler::<DefaultResponseFuture>::new()));
 			new_st_2_1.add_subresource_under("/{wl_3_0}", new_rx_4_1);
 
-			let mut new_rx_4_1 = Resource::new("/{rx_4_1:p}/");
+			let mut new_rx_4_1 = Resource::new("/{rx_4_1:p1}/");
 			new_rx_4_1.set_handler(put(DummyHandler::<DefaultResponseFuture>::new()));
 			// Existing rx_4_1 shouldn't have a handler. It should be replaced with the new one.
 			new_st_2_1.add_subresource_under("/{wl_3_0}", new_rx_4_1);
 
-			let rx_5_0 = Resource::new("/st_0_0/{wl_1_0}/st_2_1/{rx_3_1:p}/st_4_0/{rx_5_0:p}");
-			new_st_2_1.add_subresource_under("/{rx_3_1:p}", rx_5_0);
+			let rx_5_0 = Resource::new("/st_0_0/{wl_1_0}/st_2_1/{rx_3_1:p0}/st_4_0/{rx_5_0:p0}");
+			new_st_2_1.add_subresource_under("/{rx_3_1:p0}", rx_5_0);
 
 			parent.add_subresource_under("", new_st_2_1);
 
@@ -1620,24 +1622,24 @@ mod test {
 			assert!(st_2_1.some_wildcard_resource.is_some());
 			assert_eq!(st_2_1.method_handlers.count(), 1);
 
-			let (rx_4_1, _) = st_2_1.leaf_resource(RouteSegments::new("/{wl_3_0}/{rx_4_1:p}"));
+			let (rx_4_1, _) = st_2_1.leaf_resource(RouteSegments::new("/{wl_3_0}/{rx_4_1:p1}"));
 			assert!(rx_4_1.some_wildcard_resource.is_some());
 			assert_eq!(rx_4_1.method_handlers.count(), 1);
 
-			let (rx_3_1, _) = st_2_1.leaf_resource(RouteSegments::new("/{rx_3_1:p}"));
+			let (rx_3_1, _) = st_2_1.leaf_resource(RouteSegments::new("/{rx_3_1:p0}"));
 			assert_eq!(rx_3_1.static_resources.len(), 1);
 			assert_eq!(rx_3_1.method_handlers.count(), 0);
 
-			let (st_4_0, _) = st_2_1.leaf_resource(RouteSegments::new("/{rx_3_1:p}/st_4_0"));
+			let (st_4_0, _) = st_2_1.leaf_resource(RouteSegments::new("/{rx_3_1:p0}/st_4_0"));
 			assert_eq!(st_4_0.regex_resources.len(), 1);
 		}
 	}
 
 	#[test]
 	fn resource_subresource_mut() {
-		//	/st_0_0	->	/{wl_1_0}	->	/{rx_2_0:p}	->	/st_3_0
-		//																			|	->	/{rx_3_1:p}	->	/{wl_4_0}
-		//																											|	->	/st_4_1
+		//	/st_0_0	->	/{wl_1_0}	->	/{rx_2_0:p0}	->	/st_3_0
+		//																				|	->	/{rx_3_1:p0}	->	/{wl_4_0}
+		//																													|	->	/st_4_1
 
 		let mut parent = Resource::new("https://example.com/");
 		parent
@@ -1645,11 +1647,11 @@ mod test {
 			.set_handler(get(DummyHandler::<DefaultResponseFuture>::new()));
 
 		parent
-			.subresource_mut("/st_0_0/{wl_1_0}/{rx_2_0:p}/st_3_0")
+			.subresource_mut("/st_0_0/{wl_1_0}/{rx_2_0:p0}/st_3_0")
 			.set_handler(get(DummyHandler::<DefaultResponseFuture>::new()));
 
 		parent
-			.subresource_mut("/st_0_0/{wl_1_0}/{rx_2_0:p}/{rx_3_1:p}/{wl_4_0}/")
+			.subresource_mut("/st_0_0/{wl_1_0}/{rx_2_0:p0}/{rx_3_1:p0}/{wl_4_0}/")
 			.set_handler(get(DummyHandler::<DefaultResponseFuture>::new()));
 
 		let wl_1_0 = parent.subresource_mut("/st_0_0/{wl_1_0}");
@@ -1659,17 +1661,17 @@ mod test {
 		assert_eq!(st_0_0.method_handlers.count(), 1);
 
 		// First time we're accessing the rx_3_1. It must be configured to end with a slash.
-		let rx_3_1 = parent.subresource_mut("/st_0_0/{wl_1_0}/{rx_2_0:p}/{rx_3_1:p}/");
+		let rx_3_1 = parent.subresource_mut("/st_0_0/{wl_1_0}/{rx_2_0:p0}/{rx_3_1:p0}/");
 		assert_eq!(rx_3_1.method_handlers.count(), 0);
 		assert!(rx_3_1.config_flags.has(ConfigFlags::ENDS_WITH_SLASH));
 
-		let st_3_0 = parent.subresource_mut("/st_0_0/{wl_1_0}/{rx_2_0:p}/st_3_0");
+		let st_3_0 = parent.subresource_mut("/st_0_0/{wl_1_0}/{rx_2_0:p0}/st_3_0");
 		assert_eq!(st_3_0.method_handlers.count(), 1);
 
-		let st_4_1 = parent.subresource_mut("/st_0_0/{wl_1_0}/{rx_2_0:p}/{rx_3_1:p}/st_4_1");
+		let st_4_1 = parent.subresource_mut("/st_0_0/{wl_1_0}/{rx_2_0:p0}/{rx_3_1:p0}/st_4_1");
 		assert_eq!(st_4_1.method_handlers.count(), 0);
 
-		let wl_4_0 = parent.subresource_mut("/st_0_0/{wl_1_0}/{rx_2_0:p}/{rx_3_1:p}/{wl_4_0}/");
+		let wl_4_0 = parent.subresource_mut("/st_0_0/{wl_1_0}/{rx_2_0:p0}/{rx_3_1:p0}/{wl_4_0}/");
 		assert_eq!(wl_4_0.method_handlers.count(), 1);
 	}
 
