@@ -17,14 +17,14 @@ use crate::common::SCOPE_VALIDITY;
 
 // --------------------------------------------------
 
-pub(crate) fn split_uri_host_and_path(uri: &str) -> (Option<&str>, Option<&str>) {
-	if uri.is_empty() {
-		panic!("empty URI")
+pub(crate) fn split_uri_host_and_path(uri_pattern: &str) -> (Option<&str>, Option<&str>) {
+	if uri_pattern.is_empty() {
+		panic!("empty URI pattern")
 	}
 
-	if let Some(uri) = uri
+	if let Some(uri) = uri_pattern
 		.strip_prefix("https://")
-		.or_else(|| uri.strip_prefix("http://"))
+		.or_else(|| uri_pattern.strip_prefix("http://"))
 	{
 		if let Some(position) = uri.find("/") {
 			if position == 0 {
@@ -37,7 +37,7 @@ pub(crate) fn split_uri_host_and_path(uri: &str) -> (Option<&str>, Option<&str>)
 		return (Some(uri), None);
 	}
 
-	(None, Some(uri))
+	(None, Some(uri_pattern))
 }
 
 // --------------------------------------------------
@@ -74,7 +74,7 @@ impl Pattern {
 		let mut segments = split(chars);
 
 		if segments.is_empty() {
-			panic!("incomplete regex pattern")
+			panic!("empty or incomplete pattern")
 		}
 
 		let replacer = Regex::new("(%2f)|(%2F)").expect("hard coded regex replacer must be valid");
