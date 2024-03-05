@@ -1,12 +1,7 @@
-use core::panic;
-use std::str::FromStr;
-
-use http::Uri;
-
 use crate::{
-	common::IntoArray,
+	common::{IntoArray, SCOPE_VALIDITY},
 	handler::HandlerKind,
-	pattern::{Pattern, Similarity},
+	pattern::{split_uri_host_and_path, Pattern, Similarity},
 	resource::{self, Resource},
 };
 
@@ -29,41 +24,46 @@ impl Host {
 	where
 		P: AsRef<str>,
 	{
-		let uri = Uri::from_str(host_pattern.as_ref()).expect("host pattern should be a valid URI");
-		let host = uri
-			.host()
-			.expect("pattern should have an authority component");
+		let host_pattern = match parse_host_pattern(host_pattern) {
+			Ok(host_pattern) => host_pattern,
+			Err(HostPatternError::Empty) => panic!("empty host pattern"),
+			Err(HostPatternError::Wildcard) => panic!("host pattern cannot be a wildcard"),
+		};
 
 		if !root.is("/") {
 			panic!("host can only have a root resource");
-		}
-
-		let host_pattern = Pattern::parse(host);
-		if host_pattern.is_wildcard() {
-			panic!("host pattern cannot be a wildcard");
 		}
 
 		Self::with_pattern(host_pattern, root)
 	}
 
 	pub(crate) fn with_pattern(host_pattern: Pattern, mut root: Resource) -> Self {
-		root
-			.host_pattern_ref()
-			.is_some_and(|resource_host_pattern| {
-				if resource_host_pattern.compare(&host_pattern) != Similarity::Same {
-					panic!(
-						"resource is intended to belong to a host {}",
-						resource_host_pattern.to_string(),
-					);
-				}
+		if root.host_pattern_ref().is_none() {
+			root.set_host_pattern(host_pattern.clone());
+		} else {
+			let resource_host_pattern = root.host_pattern_ref().expect(SCOPE_VALIDITY);
 
-				true
-			});
+			if resource_host_pattern.compare(&host_pattern) != Similarity::Same {
+				panic!(
+					"resource is intended to belong to a host {}",
+					resource_host_pattern.to_string(),
+				);
+			}
+		}
 
 		Self {
 			pattern: host_pattern,
 			root_resource: root,
 		}
+	}
+
+	// -------------------------
+
+	#[inline(always)]
+	pub fn is<P: AsRef<str>>(&self, pattern: P) -> bool {
+		let pattern = Pattern::parse(pattern.as_ref());
+
+		self.pattern.compare(&pattern) == Similarity::Same
 	}
 
 	#[inline(always)]
@@ -121,6 +121,41 @@ impl Host {
 
 		HostService::new(pattern, root_resource.into_service())
 	}
+}
+
+pub(crate) fn parse_host_pattern<P: AsRef<str>>(
+	host_pattern: P,
+) -> Result<Pattern, HostPatternError> {
+	let host_pattern_str = host_pattern.as_ref();
+
+	if host_pattern_str.is_empty() {
+		return Err(HostPatternError::Empty);
+	}
+
+	let host_pattern_str = host_pattern_str
+		.strip_prefix("https://")
+		.or_else(|| host_pattern_str.strip_prefix("http://"))
+		.unwrap_or(host_pattern_str);
+
+	let host_pattern = if host_pattern_str.ends_with('/') {
+		Pattern::parse(&host_pattern_str[..host_pattern_str.len() - 1])
+	} else {
+		Pattern::parse(host_pattern_str)
+	};
+
+	if host_pattern.is_wildcard() {
+		return Err(HostPatternError::Wildcard);
+	}
+
+	Ok(host_pattern)
+}
+
+#[derive(Debug, crate::ImplError)]
+pub(crate) enum HostPatternError {
+	#[error("empty host pattern")]
+	Empty,
+	#[error("wildcard host pattern")]
+	Wildcard,
 }
 
 // --------------------------------------------------------------------------------

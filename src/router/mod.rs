@@ -8,7 +8,7 @@ use crate::{
 	handler::{AdaptiveHandler, BoxedHandler, Handler},
 	host::Host,
 	middleware::{BoxedLayer, IntoLayer, Layer, RequestExtensionsModifierLayer},
-	pattern::{Pattern, Similarity},
+	pattern::{split_uri_host_and_path, Pattern, Similarity},
 	resource::{Iteration, Resource},
 	response::{BoxedErrorResponse, Response},
 };
@@ -74,7 +74,7 @@ impl Router {
 			let root = if new_resource.is("/") {
 				new_resource
 			} else {
-				let mut root = Resource::with_uri_patterns(
+				let mut root = Resource::with_uri_pattern(
 					Some(host_pattern.clone()),
 					Vec::new(),
 					Pattern::parse("/"),
@@ -151,36 +151,43 @@ impl Router {
 		U: AsRef<str>,
 		R: IntoArray<Resource, N>,
 	{
-		let uri_pattern = Uri::from_str(uri_pattern.as_ref()).expect("invalid URI pattern");
+		let (some_host_pattern_str, some_path_pattern_str) =
+			split_uri_host_and_path(uri_pattern.as_ref());
+
 		let new_resources = new_resources.into_array();
 
 		for new_resource in new_resources {
-			self.add_single_resource_under(&uri_pattern, new_resource)
+			self.add_single_resource_under(some_host_pattern_str, some_path_pattern_str, new_resource)
 		}
 	}
 
-	fn add_single_resource_under(&mut self, uri_pattern: &Uri, new_resource: Resource) {
-		let some_host_pattern = uri_pattern
-			.host()
-			.map(|host_pattern| Pattern::parse(host_pattern));
-		let path_patterns = uri_pattern.path();
+	fn add_single_resource_under(
+		&mut self,
+		some_host_pattern_str: Option<&str>,
+		some_path_pattern_str: Option<&str>,
+		new_resource: Resource,
+	) {
+		let some_host_pattern = some_host_pattern_str.map(|host_pattern| Pattern::parse(host_pattern));
 
 		let new_resource_is_root = new_resource.is("/");
 
-		if new_resource_is_root {
-			if !path_patterns.is_empty() {
-				panic!("a root resource cannot be a subresource");
-			}
+		if new_resource_is_root && some_path_pattern_str.is_some() {
+			panic!("a root resource cannot be a subresource of another resource");
 		}
+
+		let relative_path_pattern_str = some_path_pattern_str.unwrap_or("");
 
 		if let Some(host_pattern) = some_host_pattern {
 			if let Some(host) = self.existing_host_mut(&host_pattern) {
 				if new_resource_is_root {
 					host.merge_or_replace_root(new_resource);
 				} else {
-					host
-						.root_mut()
-						.add_subresource_under(path_patterns, new_resource);
+					let root = host.root_mut();
+					if relative_path_pattern_str == "/" {
+						root.add_subresource(new_resource);
+					} else {
+						root.add_subresource_under(relative_path_pattern_str, new_resource);
+					}
 				}
 
 				return;
@@ -189,14 +196,18 @@ impl Router {
 			let root = if new_resource_is_root {
 				new_resource
 			} else {
-				let mut root = Resource::with_uri_patterns(
+				let mut root = Resource::with_uri_pattern(
 					Some(host_pattern.clone()),
 					Vec::new(),
 					Pattern::parse("/"),
 					false,
 				);
 
-				root.add_subresource_under(path_patterns, new_resource);
+				if relative_path_pattern_str == "/" {
+					root.add_subresource(new_resource);
+				} else {
+					root.add_subresource_under(relative_path_pattern_str, new_resource);
+				}
 
 				root
 			};
@@ -209,13 +220,19 @@ impl Router {
 		if new_resource_is_root {
 			self.merge_or_replace_root(new_resource);
 		} else {
-			if let Some(boxed_root) = self.some_root_resource.as_mut() {
-				boxed_root.add_subresource_under(path_patterns, new_resource);
+			let boxed_root = if let Some(boxed_root) = self.some_root_resource.as_mut() {
+				boxed_root
 			} else {
 				let mut root = Resource::with_pattern(Pattern::parse("/"));
-				root.add_subresource_under(path_patterns, new_resource);
-
 				self.some_root_resource = Some(Box::new(root));
+
+				self.some_root_resource.as_mut().expect(SCOPE_VALIDITY)
+			};
+
+			if relative_path_pattern_str == "/" {
+				boxed_root.add_subresource(new_resource);
+			} else {
+				boxed_root.add_subresource_under(relative_path_pattern_str, new_resource);
 			}
 		}
 	}
@@ -224,22 +241,27 @@ impl Router {
 	where
 		U: AsRef<str>,
 	{
-		let uri_pattern = Uri::from_str(uri_pattern.as_ref()).expect("invalid URI pattern");
-		let resource_is_root = uri_pattern.path() == "/";
+		let (some_host_pattern_str, Some(path_pattern_str)) =
+			split_uri_host_and_path(uri_pattern.as_ref())
+		else {
+			panic!("empty path pattern");
+		};
 
-		if let Some(host_pattern) = uri_pattern.host().map(Pattern::parse) {
+		let resource_is_root = path_pattern_str == "/";
+
+		if let Some(host_pattern) = some_host_pattern_str.map(Pattern::parse) {
 			let new_host =
 				match &host_pattern {
 					Pattern::Static(_) => {
 						if let Some(position) = self.static_hosts.iter().position(|static_host| {
 							static_host.compare_pattern(&host_pattern) == Similarity::Same
 						}) {
-							return if resource_is_root || uri_pattern.path().is_empty() {
+							return if resource_is_root {
 								self.static_hosts[position].root_mut()
 							} else {
 								self.static_hosts[position]
 									.root_mut()
-									.subresource_mut(uri_pattern.path())
+									.subresource_mut(path_pattern_str)
 							};
 						}
 
@@ -256,12 +278,12 @@ impl Router {
 							.iter()
 							.position(|regex_host| regex_host.compare_pattern(&host_pattern) == Similarity::Same)
 						{
-							return if resource_is_root || uri_pattern.path().is_empty() {
+							return if resource_is_root {
 								self.regex_hosts[position].root_mut()
 							} else {
 								self.regex_hosts[position]
 									.root_mut()
-									.subresource_mut(uri_pattern.path())
+									.subresource_mut(path_pattern_str)
 							};
 						}
 
@@ -275,15 +297,11 @@ impl Router {
 					Pattern::Wildcard(_) => unreachable!(),
 				};
 
-			if resource_is_root || uri_pattern.path().is_empty() {
+			if resource_is_root {
 				return new_host.root_mut();
 			}
 
-			return new_host.root_mut().subresource_mut(uri_pattern.path());
-		}
-
-		if uri_pattern.path().is_empty() {
-			panic!("invalid URI pattern");
+			return new_host.root_mut().subresource_mut(path_pattern_str);
 		}
 
 		if self.some_root_resource.is_none() {
@@ -298,7 +316,7 @@ impl Router {
 		if resource_is_root {
 			root
 		} else {
-			root.subresource_mut(uri_pattern.path())
+			root.subresource_mut(path_pattern_str)
 		}
 	}
 
@@ -334,39 +352,33 @@ impl Router {
 
 	pub fn for_each_root<T, F>(&mut self, mut param: T, mut func: F) -> T
 	where
-		F: FnMut(&mut T, Option<&str>, &mut Resource) -> Iteration,
+		F: FnMut(&mut T, &mut Resource) -> Iteration,
 	{
 		let mut root_resources = Vec::new();
 		root_resources.extend(
 			self
 				.static_hosts
 				.iter_mut()
-				.map(|static_host| (Some(static_host.pattern_string()), static_host.root_mut())),
+				.map(|static_host| static_host.root_mut()),
 		);
 
 		root_resources.extend(
 			self
 				.regex_hosts
 				.iter_mut()
-				.map(|regex_host| (Some(regex_host.pattern_string()), regex_host.root_mut())),
+				.map(|regex_host| regex_host.root_mut()),
 		);
 
 		if let Some(root) = self.some_root_resource.as_deref_mut() {
-			root_resources.push((None, root));
+			root_resources.push(root);
 		}
 
 		loop {
-			let Some((some_host_pattern, root)) = root_resources.pop() else {
+			let Some(root) = root_resources.pop() else {
 				break param;
 			};
 
-			match func(
-				&mut param,
-				some_host_pattern
-					.as_ref()
-					.map(|host_pattern| host_pattern.as_str()),
-				root,
-			) {
+			match func(&mut param, root) {
 				Iteration::Stop => break param,
 				_ => {}
 			}
@@ -501,3 +513,619 @@ pub mod config {
 use config::RouterConfigOption;
 
 // --------------------------------------------------------------------------------
+// --------------------------------------------------------------------------------
+
+#[cfg(test)]
+mod test {
+	use crate::{
+		handler::get,
+		resource::config::{drop_on_unmatching_slash, subtree_handler},
+	};
+
+	use super::*;
+
+	#[test]
+	fn router_add_resource() {
+		//	http://example_0.com	->	/st_0_0	->	/{wl_1_0}			->	/{rx_2_0:p0}	->	/st_3_0
+		//											|						|
+		//											|						|	->	/{rx_1_1:p0}	->	/{wl_2_0}
+		//											|															|	->	/st_2_1
+		//											|															|	->	/st_2_2
+		//											|
+		//											|	->	/st_0_1	->	/{wl_1_0}	->	/{rx_2_0:p0}
+		//																								|	->	/{rx_2_1:p1}
+
+		//	http://{sub}.example_1.com	->	/st_0_0	->	/{wl_1_0}			->	/{rx_2_0:p0}	->	/st_3_0
+		//														|						|
+		//														|						|	->	/{rx_1_1:p0}	->	/{wl_2_0}
+		//														|															|	->	/st_2_1
+		//														|															|	->	/st_2_2
+		//														|
+		//														|	->	/st_0_1	->	/{wl_1_0}	->	/{rx_2_0:p0}
+		//																											|	->	/{rx_2_1:p1}
+
+		//	/	->	/st_0_0	->	/{wl_1_0}			->	/{rx_2_0:p0}	->	/st_3_0
+		//	|						|
+		//	|						|	->	/{rx_1_1:p0}	->	/{wl_2_0}
+		//	|															|	->	/st_2_1
+		//	|															|	->	/st_2_2
+		//	|
+		//	|	->	/st_0_1	->	/{wl_1_0}	->	/{rx_2_0:p0}
+		//														|	->	/{rx_2_1:p1}
+
+		let mut router = Router::new();
+
+		let cases = [
+			"http://example_0.com/st_0_0/{wl_1_0}/{rx_2_0:p0}/st_3_0",
+			"http://example_0.com/st_0_0/{rx_1_1:p0}/{wl_2_0}",
+			"http://example_0.com/st_0_0/{rx_1_1:p0}/st_2_1",
+			"http://example_0.com/st_0_0/{rx_1_1:p0}/st_2_1",
+			"http://example_0.com/st_0_1/{wl_1_0}/{rx_2_0:p0}",
+			"http://example_0.com/st_0_1/{wl_1_0}/{rx_2_1:p1}",
+			// -----
+			"http://{sub}.example_1.com/st_0_0/{wl_1_0}/{rx_2_0:p0}/st_3_0",
+			"http://{sub}.example_1.com/st_0_0/{rx_1_1:p0}/{wl_2_0}",
+			"http://{sub}.example_1.com/st_0_0/{rx_1_1:p0}/st_2_1",
+			"http://{sub}.example_1.com/st_0_0/{rx_1_1:p0}/st_2_1",
+			"http://{sub}.example_1.com/st_0_1/{wl_1_0}/{rx_2_0:p0}",
+			"http://{sub}.example_1.com/st_0_1/{wl_1_0}/{rx_2_1:p1}",
+			// -----
+			"/st_0_0/{wl_1_0}/{rx_2_0:p0}/st_3_0",
+			"/st_0_0/{rx_1_1:p0}/{wl_2_0}",
+			"/st_0_0/{rx_1_1:p0}/st_2_1",
+			"/st_0_0/{rx_1_1:p0}/st_2_1",
+			"/st_0_1/{wl_1_0}/{rx_2_0:p0}",
+			"/st_0_1/{wl_1_0}/{rx_2_1:p1}",
+		];
+
+		for case in cases {
+			dbg!(case);
+
+			let resource = Resource::new(case);
+			router.add_resource(resource);
+		}
+
+		// ----------
+
+		dbg!();
+
+		{
+			assert_eq!(router.static_hosts.len(), 1);
+			let example_com = router
+				.existing_host_mut(&Pattern::parse("example_0.com"))
+				.unwrap();
+
+			assert_eq!(example_com.root_mut().static_resources().len(), 2);
+		}
+
+		{
+			assert_eq!(router.regex_hosts.len(), 1);
+			let sub_example_com = router
+				.existing_host_mut(&Pattern::parse("{sub}.example_1.com"))
+				.unwrap();
+
+			assert_eq!(sub_example_com.root_mut().static_resources().len(), 2);
+		}
+
+		{
+			let root = router.some_root_resource.as_ref().unwrap();
+			assert_eq!(root.static_resources().len(), 2);
+		}
+
+		// ----------
+
+		dbg!();
+
+		router.add_resource(Resource::new("http://example_0.com/{wl_0_2}"));
+		router.add_resource(Resource::new("http://{sub}.example_1.com/{wl_0_2}"));
+		router.add_resource(Resource::new("http://{sub}.example_2.com/{rx_0_0:p0}"));
+		router.add_resource(Resource::new("/{wl_0_2}"));
+
+		{
+			assert_eq!(router.static_hosts.len(), 1);
+			let example_0_com = router
+				.existing_host_mut(&Pattern::parse("example_0.com"))
+				.unwrap();
+
+			let root = example_0_com.root_mut();
+			assert_eq!(root.static_resources().len(), 2);
+			assert_eq!(root.regex_resources().len(), 0);
+			assert!(root.wildcard_resources().is_some());
+		}
+
+		{
+			assert_eq!(router.regex_hosts.len(), 2);
+			let sub_example_1_com = router
+				.existing_host_mut(&Pattern::parse("{sub}.example_1.com"))
+				.unwrap();
+
+			let root = sub_example_1_com.root_mut();
+			assert_eq!(root.static_resources().len(), 2);
+			assert_eq!(root.regex_resources().len(), 0);
+			assert!(root.wildcard_resources().is_some());
+		}
+
+		{
+			let sub_example_2_com = router
+				.existing_host_mut(&Pattern::parse("{sub}.example_2.com"))
+				.unwrap();
+
+			let root = sub_example_2_com.root_mut();
+			assert_eq!(root.static_resources().len(), 0);
+			assert_eq!(root.regex_resources().len(), 1);
+			assert!(root.wildcard_resources().is_none());
+		}
+
+		{
+			let root = router.some_root_resource.as_ref().unwrap();
+			assert_eq!(root.static_resources().len(), 2);
+			assert_eq!(root.regex_resources().len(), 0);
+			assert!(root.wildcard_resources().is_some());
+		}
+
+		// ----------
+
+		dbg!();
+
+		{
+			let mut new_root = Resource::new("http://example_0.com/");
+			new_root.set_handler(get(|| async {}));
+			router.add_resource(new_root);
+
+			let example_0_com = router
+				.existing_host_mut(&Pattern::parse("example_0.com"))
+				.unwrap();
+
+			let root = example_0_com.root_mut();
+			assert!(root.can_handle_request());
+			assert_eq!(root.static_resources().len(), 2);
+			assert_eq!(root.regex_resources().len(), 0);
+			assert!(root.wildcard_resources().is_some());
+		}
+
+		{
+			let mut new_root = Resource::new("/");
+			new_root.set_handler(get(|| async {}));
+			router.add_resource(new_root);
+
+			let root = router.some_root_resource.as_ref().unwrap();
+			assert!(root.can_handle_request());
+			assert_eq!(root.static_resources().len(), 2);
+			assert_eq!(root.regex_resources().len(), 0);
+			assert!(root.wildcard_resources().is_some());
+		}
+	}
+
+	#[test]
+	fn router_add_resource_under() {
+		//	http://example_0.com	->	/st_0_0	->	/{wl_1_0}			->	/{rx_2_0:p0}	->	/st_3_0
+		//											|						|
+		//											|						|	->	/{rx_1_1:p0}	->	/{wl_2_0}
+		//											|															|	->	/st_2_1
+		//											|															|	->	/st_2_2
+		//											|
+		//											|	->	/st_0_1	->	/{wl_1_0}	->	/{rx_2_0:p0}
+		//																								|	->	/{rx_2_1:p1}
+
+		//	http://{sub}.example_1.com	->	/st_0_0	->	/{wl_1_0}			->	/{rx_2_0:p0}	->	/st_3_0
+		//														|						|
+		//														|						|	->	/{rx_1_1:p0}	->	/{wl_2_0}
+		//														|															|	->	/st_2_1
+		//														|															|	->	/st_2_2
+		//														|
+		//														|	->	/st_0_1	->	/{wl_1_0}	->	/{rx_2_0:p0}
+		//																											|	->	/{rx_2_1:p1}
+
+		//	/	->	/st_0_0	->	/{wl_1_0}			->	/{rx_2_0:p0}	->	/st_3_0
+		//	|						|
+		//	|						|	->	/{rx_1_1:p0}	->	/{wl_2_0}
+		//	|															|	->	/st_2_1
+		//	|															|	->	/st_2_2
+		//	|
+		//	|	->	/st_0_1	->	/{wl_1_0}	->	/{rx_2_0:p0}
+		//														|	->	/{rx_2_1:p1}
+
+		let mut router = Router::new();
+
+		#[derive(Debug)]
+		struct Case {
+			prefix_uri: &'static str,
+			resource_uri: &'static str,
+		}
+
+		let cases = [
+			Case {
+				prefix_uri: "http://example_0.com/st_0_0/{wl_1_0}/{rx_2_0:p0}",
+				resource_uri: "/st_3_0",
+			},
+			Case {
+				prefix_uri: "http://example_0.com/st_0_0/",
+				resource_uri: "/st_0_0/{rx_1_1:p0}/{wl_2_0}",
+			},
+			Case {
+				prefix_uri: "http://example_0.com/st_0_0/{rx_1_1:p0}",
+				resource_uri: "/st_2_1",
+			},
+			Case {
+				prefix_uri: "http://example_0.com/st_0_0/{rx_1_1:p0}/",
+				resource_uri: "http://example_0.com/st_0_0/{rx_1_1:p0}/st_2_2",
+			},
+			Case {
+				prefix_uri: "https://example_0.com/",
+				resource_uri: "http://example_0.com/st_0_1/{wl_1_0}/{rx_2_0:p0}/",
+			},
+			Case {
+				prefix_uri: "https://example_0.com/st_0_1/",
+				resource_uri: "http://example_0.com/st_0_1/{wl_1_0}/{rx_2_1:p1}/",
+			},
+			// -----
+			Case {
+				prefix_uri: "http://{sub}.example_1.com/st_0_0/{wl_1_0}/{rx_2_0:p0}",
+				resource_uri: "/st_3_0",
+			},
+			Case {
+				prefix_uri: "http://{sub}.example_1.com/st_0_0/",
+				resource_uri: "/st_0_0/{rx_1_1:p0}/{wl_2_0}",
+			},
+			Case {
+				prefix_uri: "http://{sub}.example_1.com/st_0_0/{rx_1_1:p0}",
+				resource_uri: "/st_2_1",
+			},
+			Case {
+				prefix_uri: "http://{sub}.example_1.com/st_0_0/{rx_1_1:p0}",
+				resource_uri: "http://{sub}.example_1.com/st_0_0/{rx_1_1:p0}/st_2_2",
+			},
+			Case {
+				prefix_uri: "https://{sub}.example_1.com/",
+				resource_uri: "http://{sub}.example_1.com/st_0_1/{wl_1_0}/{rx_2_0:p0}/",
+			},
+			Case {
+				prefix_uri: "https://{sub}.example_1.com/st_0_1/",
+				resource_uri: "http://{sub}.example_1.com/st_0_1/{wl_1_0}/{rx_2_1:p1}/",
+			},
+			// -----
+			Case {
+				prefix_uri: "/st_0_0/{wl_1_0}/{rx_2_0:p0}",
+				resource_uri: "/st_3_0",
+			},
+			Case {
+				prefix_uri: "/st_0_0/",
+				resource_uri: "/st_0_0/{rx_1_1:p0}/{wl_2_0}",
+			},
+			Case {
+				prefix_uri: "/st_0_0/{rx_1_1:p0}",
+				resource_uri: "/st_2_1",
+			},
+			Case {
+				prefix_uri: "/st_0_0/{rx_1_1:p0}",
+				resource_uri: "/st_0_0/{rx_1_1:p0}/st_2_2",
+			},
+			Case {
+				prefix_uri: "/",
+				resource_uri: "/st_0_1/{wl_1_0}/{rx_2_0:p0}/",
+			},
+			Case {
+				prefix_uri: "/st_0_1/",
+				resource_uri: "/st_0_1/{wl_1_0}/{rx_2_1:p1}/",
+			},
+		];
+
+		for case in &cases {
+			dbg!(case);
+
+			let resource = Resource::new(case.resource_uri);
+			router.add_resource_under(case.prefix_uri, resource);
+		}
+
+		// ----------
+
+		dbg!();
+
+		{
+			assert_eq!(router.static_hosts.len(), 1);
+			let example_com = router
+				.existing_host_mut(&Pattern::parse("example_0.com"))
+				.unwrap();
+
+			assert_eq!(example_com.root_mut().static_resources().len(), 2);
+		}
+
+		{
+			assert_eq!(router.regex_hosts.len(), 1);
+			let sub_example_com = router
+				.existing_host_mut(&Pattern::parse("{sub}.example_1.com"))
+				.unwrap();
+
+			assert_eq!(sub_example_com.root_mut().static_resources().len(), 2);
+		}
+
+		{
+			let root = router.some_root_resource.as_ref().unwrap();
+			assert_eq!(root.static_resources().len(), 2);
+		}
+
+		// ----------
+
+		dbg!();
+
+		router.add_resource_under("http://example_0.com/", Resource::new("/{wl_0_2}"));
+		router.add_resource_under(
+			"http://{sub}.example_1.com/",
+			Resource::new("http://{sub}.example_1.com/{wl_0_2}"),
+		);
+
+		router.add_resource_under(
+			"http://{sub}.example_2.com/",
+			Resource::new("http://{sub}.example_2.com/{rx_0_0:p0}"),
+		);
+
+		router.add_resource_under("/", Resource::new("/{wl_0_2}"));
+
+		{
+			assert_eq!(router.static_hosts.len(), 1);
+			let example_0_com = router
+				.existing_host_mut(&Pattern::parse("example_0.com"))
+				.unwrap();
+
+			let root = example_0_com.root_mut();
+			assert_eq!(root.static_resources().len(), 2);
+			assert_eq!(root.regex_resources().len(), 0);
+			assert!(root.wildcard_resources().is_some());
+		}
+
+		{
+			assert_eq!(router.regex_hosts.len(), 2);
+			let sub_example_1_com = router
+				.existing_host_mut(&Pattern::parse("{sub}.example_1.com"))
+				.unwrap();
+
+			let root = sub_example_1_com.root_mut();
+			assert_eq!(root.static_resources().len(), 2);
+			assert_eq!(root.regex_resources().len(), 0);
+			assert!(root.wildcard_resources().is_some());
+		}
+
+		{
+			let sub_example_2_com = router
+				.existing_host_mut(&Pattern::parse("{sub}.example_2.com"))
+				.unwrap();
+
+			let root = sub_example_2_com.root_mut();
+			assert_eq!(root.static_resources().len(), 0);
+			assert_eq!(root.regex_resources().len(), 1);
+			assert!(root.wildcard_resources().is_none());
+		}
+
+		{
+			let root = router.some_root_resource.as_ref().unwrap();
+			assert_eq!(root.static_resources().len(), 2);
+			assert_eq!(root.regex_resources().len(), 0);
+			assert!(root.wildcard_resources().is_some());
+		}
+
+		// ----------
+
+		dbg!();
+
+		{
+			let mut new_root = Resource::new("http://example_0.com/");
+			new_root.set_handler(get(|| async {}));
+			router.add_resource(new_root);
+
+			let example_0_com = router
+				.existing_host_mut(&Pattern::parse("example_0.com"))
+				.unwrap();
+
+			let root = example_0_com.root_mut();
+			assert!(root.can_handle_request());
+			assert_eq!(root.static_resources().len(), 2);
+			assert_eq!(root.regex_resources().len(), 0);
+			assert!(root.wildcard_resources().is_some());
+		}
+
+		{
+			let mut new_root = Resource::new("/");
+			new_root.set_handler(get(|| async {}));
+			router.add_resource(new_root);
+
+			let root = router.some_root_resource.as_ref().unwrap();
+			assert!(root.can_handle_request());
+			assert_eq!(root.static_resources().len(), 2);
+			assert_eq!(root.regex_resources().len(), 0);
+			assert!(root.wildcard_resources().is_some());
+		}
+	}
+
+	#[test]
+	fn router_resource_mut() {
+		//	http://example_0.com	->	/st_0_0	->	/{wl_1_0}	->	/{rx_2_0:p0}	->	/st_3_0
+		//																								|
+		//																								|	->	/{rx_2_1:p1}	->	/{wl_3_0}
+		//																																	|	->	/st_3_1
+
+		//	http://{sub}.example_1.com	/	->	/st_0_0	->	/{wl_1_0}	->	/{rx_2_0:p0}	->	/st_3_0
+		//																												|
+		//																												|	->	/{rx_2_1:p1}	->	/{wl_3_0}
+		//																																					|	->	/st_3_1
+
+		//	http://{sub}.example_2.com	/	->	/st_0_0	->	/{wl_1_0}	->	/{rx_2_0:p0}	->	/st_3_0
+		//																												|
+		//																												|	->	/{rx_2_1:p1}	->	/{wl_3_0}
+		//																																					|	->	/st_3_1
+
+		//	/	->	/st_0_0	->	/{wl_1_0}	->	/{rx_2_0:p0}	->	/st_3_0
+		//														|
+		//														|	->	/{rx_2_1:p1}	->	/{wl_3_0}
+		//																							|	->	/st_3_1
+
+		let handler = || async {};
+		let mut router = Router::new();
+
+		let cases = [
+			"https://example_0.com/",
+			"https://example_0.com/st_0_0",
+			"http://example_0.com/st_0_0/{wl_1_0}/{rx_2_0:p0}/st_3_0",
+			"http://example_0.com/st_0_0/{wl_1_0}/{rx_2_1:p1}/{wl_3_0}/",
+			// -----
+			"https://{sub}.example_1.com/",
+			"https://{sub}.example_1.com/st_0_0",
+			"http://{sub}.example_1.com/st_0_0/{wl_1_0}/{rx_2_0:p0}/st_3_0",
+			"http://{sub}.example_1.com/st_0_0/{wl_1_0}/{rx_2_1:p1}/{wl_3_0}/",
+			// -----
+			"https://{sub}.example_2.com/",
+			"https://{sub}.example_2.com/st_0_0",
+			"http://{sub}.example_2.com/st_0_0/{wl_1_0}/{rx_2_0:p0}/st_3_0",
+			"http://{sub}.example_2.com/st_0_0/{wl_1_0}/{rx_2_1:p1}/{wl_3_0}/",
+			// -----
+			"/",
+			"/st_0_0",
+			"/st_0_0/{wl_1_0}/{rx_2_0:p0}/st_3_0",
+			"/st_0_0/{wl_1_0}/{rx_2_1:p1}/{wl_3_0}/",
+		];
+
+		for case in cases {
+			dbg!(case);
+
+			router.resource_mut(case).set_handler(get(handler));
+		}
+
+		let cases = [
+			"http://example_0.com".to_string(),
+			"http://{sub}.example_1.com".to_string(),
+			"http://{sub}.example_2.com".to_string(),
+			"".to_string(),
+		];
+
+		for case in cases {
+			let root = router.resource_mut(case.clone() + "/");
+			assert!(root.can_handle_request());
+			assert!(!root.ends_with_slash());
+
+			let wl_1_0 = router.resource_mut(case.clone() + "/st_0_0/{wl_1_0}");
+			assert!(!wl_1_0.can_handle_request());
+
+			let st_0_0 = router.resource_mut(case.clone() + "/st_0_0");
+			assert!(st_0_0.can_handle_request());
+			assert!(!st_0_0.ends_with_slash());
+
+			// First time we're accessing the rx_2_1. It must be configured to end with a slash.
+			let rx_2_1 = router.resource_mut(case.clone() + "/st_0_0/{wl_1_0}/{rx_2_1:p0}/");
+			assert!(!rx_2_1.can_handle_request());
+			assert!(rx_2_1.ends_with_slash());
+
+			let st_3_0 = router.resource_mut(case.clone() + "/st_0_0/{wl_1_0}/{rx_2_0:p0}/st_3_0");
+			assert!(st_3_0.can_handle_request());
+			assert!(!st_3_0.ends_with_slash());
+
+			// New resource.
+			let st_3_2 = router.resource_mut(case.clone() + "/st_0_0/{wl_1_0}/{rx_2_1:p1}/st_3_2/");
+			assert!(!st_3_2.can_handle_request());
+			assert!(st_3_2.ends_with_slash());
+
+			let wl_3_0 = router.resource_mut(case.clone() + "/st_0_0/{wl_1_0}/{rx_2_1:p1}/{wl_3_0}/");
+			assert!(wl_3_0.can_handle_request());
+			assert!(wl_3_0.ends_with_slash());
+		}
+	}
+
+	#[test]
+	fn router_for_each_root() {
+		let mut router = Router::new();
+
+		let cases = [
+			"http://example_0.com/st_0_0",
+			"http://example_0.com/{rx_0_1:p0}/{wl_1_0}/",
+			"http://example_0.com/{wl_0_2}/st_1_0",
+			// -----
+			"http://{sub}.example_1.com/st_0_0",
+			"http://{sub}.example_1.com/{rx_0_1:p0}/{wl_1_0}/",
+			"http://{sub}.example_1.com/{wl_0_2}/st_1_0",
+			// -----
+			"http://{sub}.example_2.com/st_0_0",
+			"http://{sub}.example_2.com/{rx_0_1:p0}/{wl_1_0}/",
+			"http://{sub}.example_2.com/{wl_0_2}/st_1_0",
+			// -----
+			"/st_0_0",
+			"/{rx_0_1:p0}/{wl_1_0}/",
+			"/{wl_0_2}/st_1_0",
+		];
+
+		for case in cases {
+			router.resource_mut(case);
+		}
+
+		router.for_each_root((), |_, root| {
+			if root.host_is("{sub}.example_1.com") {
+				dbg!("{sub}.example_1.com");
+				return Iteration::Continue;
+			}
+
+			root.set_config(drop_on_unmatching_slash());
+			root.for_each_subresource((), |_, resource| {
+				dbg!(resource.pattern_string());
+				resource.set_config(drop_on_unmatching_slash());
+
+				if resource.is("{rx_0_1:p0}") {
+					Iteration::Skip
+				} else {
+					Iteration::Continue
+				}
+			});
+
+			Iteration::Continue
+		});
+
+		let cases = [
+			"http://example_0.com".to_string(),
+			"http://{sub}.example_1.com".to_string(),
+			"http://{sub}.example_2.com".to_string(),
+			"".to_string(),
+		];
+
+		for case in cases {
+			if case == "http://{sub}.example_1.com" {
+				assert!(!router
+					.resource_mut(case.clone() + "/st_0_0")
+					.drops_on_unmatching_slash());
+
+				assert!(!router
+					.resource_mut(case.clone() + "/{rx_0_1:p0}")
+					.drops_on_unmatching_slash());
+
+				assert!(!router
+					.resource_mut(case.clone() + "/{rx_0_1:p0}/{wl_1_0}/")
+					.drops_on_unmatching_slash());
+
+				assert!(!router
+					.resource_mut(case.clone() + "/{wl_0_2}")
+					.drops_on_unmatching_slash());
+
+				assert!(!router
+					.resource_mut(case + "/{wl_0_2}/st_1_0")
+					.drops_on_unmatching_slash());
+
+				continue;
+			}
+
+			assert!(router
+				.resource_mut(case.clone() + "/st_0_0")
+				.drops_on_unmatching_slash());
+
+			assert!(router
+				.resource_mut(case.clone() + "/{rx_0_1:p0}")
+				.drops_on_unmatching_slash());
+
+			assert!(!router
+				.resource_mut(case.clone() + "/{rx_0_1:p0}/{wl_1_0}/")
+				.drops_on_unmatching_slash());
+
+			assert!(router
+				.resource_mut(case.clone() + "/{wl_0_2}")
+				.drops_on_unmatching_slash());
+
+			assert!(router
+				.resource_mut(case + "/{wl_0_2}/st_1_0")
+				.drops_on_unmatching_slash());
+		}
+	}
+}
