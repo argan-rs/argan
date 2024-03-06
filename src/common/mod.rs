@@ -9,7 +9,6 @@ use std::{
 };
 
 use http::StatusCode;
-use hyper::rt::Sleep;
 
 use crate::{
 	handler::BoxedHandler,
@@ -22,6 +21,8 @@ use crate::{
 
 #[macro_use]
 pub(crate) mod macros;
+
+pub(crate) mod timer;
 
 // --------------------------------------------------------------------------------
 // --------------------------------------------------------------------------------
@@ -120,45 +121,6 @@ impl<T> Uncloneable<T> {
 pub(crate) enum MaybeBoxed<H> {
 	Boxed(BoxedHandler),
 	Unboxed(H),
-}
-
-// --------------------------------------------------------------------------------
-
-pub(crate) struct Interval {
-	sleep: Pin<Box<dyn Sleep>>,
-}
-
-impl Interval {
-	pub(crate) fn new(_duration: Duration) -> Self {
-		todo!()
-	}
-
-	pub(crate) fn restart(&mut self) {
-		todo!()
-	}
-
-	pub(crate) fn restart_with_duration(&mut self, _duration: Duration) {
-		todo!()
-	}
-
-	pub(crate) fn pin(&mut self) -> Pin<&mut Self> {
-		Pin::new(self)
-	}
-}
-
-impl Future for Interval {
-	type Output = ();
-
-	fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-		match self.sleep.as_mut().poll(cx) {
-			Poll::Ready(_) => {
-				self.restart();
-
-				Poll::Ready(())
-			}
-			Poll::Pending => Poll::Pending,
-		}
-	}
 }
 
 // --------------------------------------------------------------------------------
