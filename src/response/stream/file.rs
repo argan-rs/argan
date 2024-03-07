@@ -503,7 +503,7 @@ impl HttpBody for FileStream {
 			if self.ranges.len() > 1 {
 				self.some_boundary = Some(
 					generate_boundary(48)
-						.expect("should be valid when the length is no longer than 70 characters"),
+						.expect("boundary should be valid when the length is no longer than 70 characters"),
 				);
 
 				stream_multipart_ranges(self, cx)
