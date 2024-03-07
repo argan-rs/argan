@@ -7,7 +7,7 @@ use std::{
 };
 
 use http::StatusCode;
-use hyper::rt::Sleep;
+use hyper::rt::{Sleep, Timer as RuntimeTimer};
 
 use crate::response::IntoResponse;
 
@@ -16,7 +16,10 @@ use crate::response::IntoResponse;
 
 static TIMER: OnceLock<Timer> = OnceLock::new();
 
-pub(crate) fn set_timer(timer: impl hyper::rt::Timer + Send + Sync + 'static) {
+pub(crate) fn set_timer<T>(timer: T)
+where
+	T: RuntimeTimer + Send + Sync + 'static,
+{
 	TIMER.get_or_init(|| Timer(Box::new(timer)));
 }
 
@@ -56,18 +59,18 @@ impl Interval {
 		Ok(Self { duration, sleep })
 	}
 
-	pub(crate) fn restart(&mut self) {
+	pub(crate) fn reset(&mut self) {
 		let timer = TIMER
 			.get()
-			.expect("a valid instance of the Interval should prove the TIMER was initialized");
+			.expect("a valid instance of Interval should prove the TIMER was initialized");
 
 		timer.reset(&mut self.sleep, Instant::now() + self.duration)
 	}
 
-	pub(crate) fn restart_with_duration(&mut self, duration: Duration) {
+	pub(crate) fn reset_with_duration(&mut self, duration: Duration) {
 		let timer = TIMER
 			.get()
-			.expect("a valid instance of the Interval should prove the TIMER was initialized");
+			.expect("a valid instance of Interval should prove the TIMER was initialized");
 
 		timer.reset(&mut self.sleep, Instant::now() + duration)
 	}
@@ -83,7 +86,7 @@ impl Future for Interval {
 	fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
 		match self.sleep.as_mut().poll(cx) {
 			Poll::Ready(_) => {
-				self.restart();
+				self.reset();
 
 				Poll::Ready(())
 			}
