@@ -59,6 +59,10 @@ impl Interval {
 		Ok(Self { duration, sleep })
 	}
 
+	pub(crate) fn set_duration(&mut self, new_duration: Duration) {
+		self.duration = new_duration;
+	}
+
 	pub(crate) fn reset(&mut self) {
 		let timer = TIMER
 			.get()
