@@ -51,7 +51,8 @@ impl<S> EventStream<S> {
 				.keep_alive_interval
 				.take()
 				.map(|mut interval| {
-					interval.reset_with_duration(duration);
+					interval.set_duration(duration);
+					interval.reset();
 
 					interval
 				})
@@ -149,25 +150,49 @@ where
 
 // --------------------------------------------------
 
+#[derive(Default)]
 pub struct Event {
 	buffer: BytesMut,
 	flags: EventFlags,
 }
 
 impl Event {
+	#[inline(always)]
+	pub fn new() -> Self {
+		Self::default()
+	}
+
 	#[inline]
-	pub fn with_name<T: AsRef<str>>(mut self, name: T) -> Self {
-		self.try_set_name(name).unwrap();
+	pub fn with_id<T: AsRef<str>>(mut self, id: T) -> Self {
+		self.try_set_id(id).unwrap();
 
 		self
 	}
 
-	pub fn try_set_name<T: AsRef<str>>(&mut self, name: T) -> Result<(), EventStreamError> {
-		if self.flags.has(EventFlags::NAME) {
-			return Err(EventStreamError::CannotBeSetMultipleTimes("name"));
+	pub fn try_set_id<T: AsRef<str>>(&mut self, id: T) -> Result<(), EventStreamError> {
+		if self.flags.has(EventFlags::ID) {
+			return Err(EventStreamError::CannotBeSetMultipleTimes("id"));
 		}
 
-		self.try_add_field("event", name.as_ref(), &['\r', '\n']);
+		self.try_add_field("id", id.as_ref(), &['\r', '\n', '\0'])?;
+		self.flags.add(EventFlags::ID);
+
+		Ok(())
+	}
+
+	#[inline]
+	pub fn with_type<T: AsRef<str>>(mut self, name: T) -> Self {
+		self.try_set_type(name).unwrap();
+
+		self
+	}
+
+	pub fn try_set_type<T: AsRef<str>>(&mut self, name: T) -> Result<(), EventStreamError> {
+		if self.flags.has(EventFlags::NAME) {
+			return Err(EventStreamError::CannotBeSetMultipleTimes("event"));
+		}
+
+		self.try_add_field("event", name.as_ref(), &['\r', '\n'])?;
 		self.flags.add(EventFlags::NAME);
 
 		Ok(())
@@ -195,19 +220,20 @@ impl Event {
 			match ch {
 				'\r' => {
 					let value = &value_str[next_segment_index..i];
-					self.try_add_field("data", value, &[]);
+					self.try_add_field("data", value, &[])?;
 
 					next_segment_index = i + 1;
 				}
 				'\n' => {
 					if previous_char == '\r' {
 						previous_char = ch;
+						next_segment_index += 1;
 
 						continue;
 					}
 
 					let value = &value_str[next_segment_index..i];
-					self.try_add_field("data", value, &[]);
+					self.try_add_field("data", value, &[])?;
 
 					next_segment_index = i + 1;
 				}
@@ -215,6 +241,11 @@ impl Event {
 			}
 
 			previous_char = ch;
+		}
+
+		if next_segment_index < value_str.len() {
+			let value = &value_str[next_segment_index..];
+			self.try_add_field("data", value, &[])?;
 		}
 
 		self.flags.add(EventFlags::DATA);
@@ -243,24 +274,6 @@ impl Event {
 			.expect("shouldn't be called when DATA or SERIALIZED_DATA flags exist");
 
 		self.flags.add(EventFlags::SERIALIZED_DATA);
-
-		Ok(())
-	}
-
-	#[inline]
-	pub fn with_id<T: AsRef<str>>(mut self, id: T) -> Self {
-		self.try_set_id(id).unwrap();
-
-		self
-	}
-
-	pub fn try_set_id<T: AsRef<str>>(&mut self, id: T) -> Result<(), EventStreamError> {
-		if self.flags.has(EventFlags::ID) {
-			return Err(EventStreamError::CannotBeSetMultipleTimes("id"));
-		}
-
-		self.try_add_field("id", id.as_ref(), &['\r', '\n', '\0'])?;
-		self.flags.add(EventFlags::ID);
 
 		Ok(())
 	}
@@ -306,7 +319,7 @@ impl Event {
 	) -> Result<(), EventStreamError> {
 		if !forbiddin_chars.is_empty() && value.contains(forbiddin_chars) {
 			return Err(EventStreamError::ForbiddenChars(
-				field,
+				if field.is_empty() { "comment" } else { field },
 				forbiddin_chars.to_vec(),
 			));
 		}
@@ -347,16 +360,6 @@ impl Event {
 	}
 }
 
-impl Default for Event {
-	#[inline(always)]
-	fn default() -> Self {
-		Self {
-			buffer: BytesMut::new(),
-			flags: EventFlags::new(),
-		}
-	}
-}
-
 // ----------
 
 bit_flags! {
@@ -385,7 +388,7 @@ pub enum EventStreamError {
 	CannotCoexistWithExistingData,
 	#[error(transparent)]
 	SerializationError(#[from] serde_json::Error),
-	#[error("'{0}' field value cannot contain any of these [{:?}] characters", .1.as_slice())]
+	#[error("'{0}' field value cannot contain any of these {:?} characters", .1.as_slice())]
 	ForbiddenChars(&'static str, Vec<char>),
 }
 
@@ -396,3 +399,318 @@ impl IntoResponse for EventStreamError {
 }
 
 // --------------------------------------------------------------------------------
+// --------------------------------------------------------------------------------
+
+#[cfg(test)]
+mod test {
+	use core::panic;
+
+	use crate::common::timer::set_timer;
+
+	use super::*;
+
+	// --------------------------------------------------------------------------------
+	// --------------------------------------------------------------------------------
+
+	#[derive(Debug, Serialize)]
+	struct Data {
+		name: &'static str,
+		message: &'static str,
+	}
+
+	#[test]
+	fn event() {
+		// ----------
+
+		let event = Event::new()
+			.with_type("e")
+			.with_id("42")
+			.with_data("data 1")
+			.with_data("data 2\ndata 3")
+			.with_comment("comment 1")
+			.with_comment("comment 2")
+			.with_retry(Duration::from_millis(10))
+			.into_bytes();
+
+		assert_eq!(
+			"event:e\nid:42\ndata:data 1\ndata:data 2\ndata:data 3\n:comment 1\n:comment 2\nretry:10\n\n",
+			event,
+		);
+
+		// ----------
+
+		let data = Data {
+			name: "R2D2",
+			message: "message",
+		};
+
+		let event = Event::new()
+			.with_id("42")
+			.with_comment("comment")
+			.with_json_data(&data)
+			.with_retry(Duration::from_secs(10))
+			.into_bytes();
+
+		assert_eq!(
+			"id:42\n:comment\ndata:{\"name\":\"R2D2\",\"message\":\"message\"}\nretry:10000\n\n",
+			event,
+		);
+
+		// -------------------------
+		// id
+
+		let mut event = Event::new().with_type("test").with_id("42");
+		match event.try_set_id("42").unwrap_err() {
+			EventStreamError::CannotBeSetMultipleTimes("id") => {}
+			error => panic!("unexpected error: {}", error),
+		}
+
+		// ----------
+
+		let mut event = Event::new().with_type("test").with_id("42");
+		match event.try_set_id("").unwrap_err() {
+			EventStreamError::CannotBeSetMultipleTimes("id") => {}
+			error => panic!("unexpected error: {}", error),
+		}
+
+		// ----------
+
+		let mut error = Event::new()
+			.with_type("test")
+			.try_set_id("4\r2")
+			.unwrap_err();
+		match error {
+			EventStreamError::ForbiddenChars("id", forbiddin_chars) => {
+				assert_eq!(forbiddin_chars, ['\r', '\n', '\0']);
+			}
+			error => panic!("unexpected error: {}", error),
+		}
+
+		// ----------
+
+		let mut error = Event::new()
+			.with_type("test")
+			.try_set_id("4\n2")
+			.unwrap_err();
+		match error {
+			EventStreamError::ForbiddenChars("id", forbiddin_chars) => {
+				assert_eq!(forbiddin_chars, ['\r', '\n', '\0']);
+			}
+			error => panic!("unexpected error: {}", error),
+		}
+
+		// ----------
+
+		let mut error = Event::new()
+			.with_type("test")
+			.try_set_id("4\02")
+			.unwrap_err();
+		match error {
+			EventStreamError::ForbiddenChars("id", forbiddin_chars) => {
+				assert_eq!(forbiddin_chars, ['\r', '\n', '\0']);
+			}
+			error => panic!("unexpected error: {}", error),
+		}
+
+		// -------------------------
+		// event type
+
+		let mut event = Event::new().with_type("test");
+		match event.try_set_type("type").unwrap_err() {
+			EventStreamError::CannotBeSetMultipleTimes("event") => {}
+			error => panic!("unexpected error: {}", error),
+		}
+
+		// ----------
+
+		let mut error = Event::new().try_set_type("test\r").unwrap_err();
+		match error {
+			EventStreamError::ForbiddenChars("event", forbidden_chars) => {
+				assert_eq!(forbidden_chars, ['\r', '\n']);
+			}
+			error => panic!("unexpected error: {}", error),
+		}
+
+		// ----------
+
+		let mut error = Event::new().try_set_type("test\n").unwrap_err();
+		match error {
+			EventStreamError::ForbiddenChars("event", forbidden_chars) => {
+				assert_eq!(forbidden_chars, ['\r', '\n']);
+			}
+			error => panic!("unexpected error: {}", error),
+		}
+
+		// -------------------------
+		// data + json data
+
+		let mut event = Event::new().with_id("42").with_data("data");
+		match event.try_set_json_data(&data).unwrap_err() {
+			EventStreamError::CannotCoexistWithExistingData => {}
+			error => panic!("unexpected error: {}", error),
+		}
+
+		// -------------------------
+		// json data + data
+
+		let mut event = Event::new()
+			.with_retry(Duration::from_secs(5))
+			.with_json_data(&data);
+
+		match event.try_add_data("data").unwrap_err() {
+			EventStreamError::CannotCoexistWithSerializedData => {}
+			error => panic!("unexpected error: {}", error),
+		}
+
+		// -------------------------
+		// retry
+
+		let mut event = Event::new()
+			.with_type("test")
+			.with_retry(Duration::from_secs(5));
+
+		match event.try_set_retry(Duration::from_secs(10)).unwrap_err() {
+			EventStreamError::CannotBeSetMultipleTimes("retry") => {}
+			error => panic!("unexpected error: {}", error),
+		}
+
+		// -------------------------
+		// comment
+
+		let mut error = Event::new()
+			.with_id("42")
+			.try_add_comment("\rcomment")
+			.unwrap_err();
+		match error {
+			EventStreamError::ForbiddenChars("comment", forbidden_chars) => {
+				assert_eq!(forbidden_chars, ['\r', '\n']);
+			}
+			error => panic!("unexpected error: {}", error),
+		}
+
+		// ----------
+
+		let mut error = Event::new()
+			.with_id("42")
+			.try_add_comment("\ncomment")
+			.unwrap_err();
+
+		match error {
+			EventStreamError::ForbiddenChars("comment", forbidden_chars) => {
+				assert_eq!(forbidden_chars, ['\r', '\n']);
+			}
+			error => panic!("unexpected error: {}", error),
+		}
+	}
+
+	#[tokio::test]
+	async fn event_stream() {
+		use futures_util::stream::unfold;
+		use hyper_util::rt::TokioTimer;
+
+		// --------------------------------------------------------------------------------
+		// --------------------------------------------------------------------------------
+
+		set_timer(TokioTimer::new());
+
+		let data = &Data {
+			name: "C-3PO",
+			message: "message",
+		};
+
+		// -------------------------
+
+		let stream = unfold(0, move |mut number| async move {
+			if number == 0 {
+				tokio::time::sleep(Duration::from_secs(1)).await;
+
+				let event = Event::new()
+					.with_type("test")
+					.with_id("42")
+					.with_data("data 1\ndata 2");
+
+				return Some((Result::<_, EventStreamError>::Ok(event), number + 1));
+			}
+
+			if number == 1 {
+				tokio::time::sleep(Duration::from_secs(1)).await;
+
+				let event = Event::new()
+					.with_id("42")
+					.with_json_data(&data)
+					.with_comment("...")
+					.with_retry(Duration::from_secs(1));
+
+				return Some((Ok(event), number + 1));
+			}
+
+			None
+		});
+
+		let stream_response = EventStream::new(stream)
+			.with_keep_alive_duration(Some(Duration::from_millis(750)))
+			.into_response();
+
+		assert_eq!(
+			mime::TEXT_EVENT_STREAM.as_ref(),
+			stream_response
+				.headers()
+				.get(CONTENT_TYPE)
+				.unwrap()
+				.to_str()
+				.unwrap()
+		);
+
+		assert_eq!(
+			"no-store",
+			stream_response
+				.headers()
+				.get(CACHE_CONTROL)
+				.unwrap()
+				.to_str()
+				.unwrap()
+		);
+
+		let now = std::time::Instant::now();
+
+		let mut body = stream_response.into_body();
+		let keep_alive = body.frame().await.unwrap().unwrap().into_data().unwrap();
+		assert_eq!(keep_alive, ":\n\n");
+
+		let elapsed = now.elapsed();
+		dbg!(&elapsed);
+		if elapsed < Duration::from_millis(750) {
+			panic!("keep alive came early");
+		}
+
+		let event_1 = body.frame().await.unwrap().unwrap().into_data().unwrap();
+		assert_eq!(event_1, "event:test\nid:42\ndata:data 1\ndata:data 2\n\n");
+
+		let elapsed = now.elapsed();
+		dbg!(&elapsed);
+		if elapsed < Duration::from_secs(1) {
+			panic!("event 1 came early");
+		}
+
+		let keep_alive = body.frame().await.unwrap().unwrap().into_data().unwrap();
+		assert_eq!(keep_alive, ":\n\n");
+
+		let elapsed = now.elapsed();
+		dbg!(&elapsed);
+		if elapsed < Duration::from_millis(1750) {
+			panic!("keep alive came early");
+		}
+
+		let event_2 = body.frame().await.unwrap().unwrap().into_data().unwrap();
+		assert_eq!(
+			event_2,
+			"id:42\ndata:{\"name\":\"C-3PO\",\"message\":\"message\"}\n:...\nretry:1000\n\n"
+		);
+
+		let elapsed = now.elapsed();
+		dbg!(&elapsed);
+		if elapsed < Duration::from_secs(2) {
+			panic!("event 1 came early");
+		}
+	}
+}
