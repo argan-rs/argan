@@ -57,7 +57,6 @@ impl<'de> FromParamsList<'de> {
 macro_rules! declare_deserialize_for_simple_types {
 	($($deserialize:ident)*) => {
 		$(
-			#[inline]
 			fn $deserialize<V>(self, visitor: V) -> Result<V::Value, Self::Error>
 			where
 				V: Visitor<'de>,
@@ -347,7 +346,7 @@ mod test {
 	use serde::Deserialize;
 
 	use crate::{
-		pattern::{ParamsList, Pattern},
+		pattern::{DeserializerError, ParamsList, Pattern},
 		routing::RouteSegments,
 	};
 
@@ -355,60 +354,85 @@ mod test {
 
 	#[test]
 	fn deserialize_path_params() {
-		let path = "/{abc0}/{abc1}/static-{cn1:cp1}_{cn2:42}/{abc3:cp3|42}";
+		let path = "/{wl_0_0}/{wl_1_0}/static-{rx_2_0p1:p1}_{rx_2_0p2:42}/{rx_3_0:cp3|42}";
 		let mut patterns = Vec::new();
 		for (segment, _) in RouteSegments::new(path) {
 			patterns.push(Pattern::parse(segment))
 		}
 
-		let match_path = "/cba0/cba1/static-cp1_42/42";
+		let match_path = "/cba0/cba1/static-p1_42/42";
 
-		let get_path_params = || {
-			let mut path_params = ParamsList::new();
-			let mut patterns_iter = patterns.iter();
+		let mut params_list = ParamsList::new();
+		let mut patterns_iter = patterns.iter();
 
-			for (match_segment, _) in RouteSegments::new(match_path) {
-				let pattern = patterns_iter.next().unwrap();
-				match pattern {
-					Pattern::Static(_) => assert!(pattern.is_static_match(match_segment).is_some_and(|r| r)),
-					Pattern::Regex(_, _) => assert!(pattern
-						.is_regex_match(match_segment.into(), &mut path_params)
-						.is_some_and(|r| r),),
-					Pattern::Wildcard(_) => assert!(pattern
-						.is_wildcard_match(match_segment.into(), &mut path_params)
-						.is_some_and(|r| r),),
-				}
+		for (match_segment, _) in RouteSegments::new(match_path) {
+			let pattern = patterns_iter.next().unwrap();
+			match pattern {
+				Pattern::Static(_) => assert!(pattern.is_static_match(match_segment).is_some_and(|r| r)),
+				Pattern::Regex(_, _) => assert!(pattern
+					.is_regex_match(match_segment.into(), &mut params_list)
+					.is_some_and(|r| r),),
+				Pattern::Wildcard(_) => assert!(pattern
+					.is_wildcard_match(match_segment.into(), &mut params_list)
+					.is_some_and(|r| r),),
 			}
+		}
 
-			path_params
+		// --------------------------------------------------
+
+		let value = Option::<&str>::deserialize(&mut params_list.deserializer()).unwrap();
+		assert_eq!(value, Some("cba0"));
+
+		// ----------
+
+		let mut params_list_with_empty_value = ParamsList::new();
+		assert!(Pattern::parse("{wilcard}")
+			.is_wildcard_match("".into(), &mut params_list_with_empty_value)
+			.is_some_and(|r| r));
+
+		let some_value =
+			Option::<&str>::deserialize(&mut params_list_with_empty_value.deserializer()).unwrap();
+
+		assert!(some_value.is_none());
+
+		// ----------
+
+		let empty_params_list = ParamsList::new();
+		let error = Option::<&str>::deserialize(&mut empty_params_list.deserializer()).unwrap_err();
+		let DeserializerError::NoDataIsAvailable = error else {
+			panic!("unexpected error: {}", error);
 		};
 
-		let mut params_list = get_path_params();
+		// -------------------------
+
 		let values =
 			<(&str, String, &str, u8, i32)>::deserialize(&mut params_list.deserializer()).unwrap();
-		assert_eq!(values, ("cba0", "cba1".to_owned(), "cp1", 42_u8, 42_i32));
 
-		let mut params_list = get_path_params();
+		assert_eq!(values, ("cba0", "cba1".to_owned(), "p1", 42_u8, 42_i32));
+
+		// -------------------------
+
 		let values = <Vec<(&str, &str)>>::deserialize(&mut params_list.deserializer()).unwrap();
 		assert_eq!(
 			values,
 			vec![
-				("abc0", "cba0"),
-				("abc1", "cba1"),
-				("cn1", "cp1"),
-				("cn2", "42"),
-				("abc3", "42")
+				("wl_0_0", "cba0"),
+				("wl_1_0", "cba1"),
+				("rx_2_0p1", "p1"),
+				("rx_2_0p2", "42"),
+				("rx_3_0", "42")
 			],
 		);
 
-		let mut params_list = get_path_params();
+		// -------------------------
+
 		let values = <HashMap<String, String>>::deserialize(&mut params_list.deserializer()).unwrap();
 		let expected_values = [
-			("abc0", "cba0"),
-			("abc1", "cba1"),
-			("cn1", "cp1"),
-			("cn2", "42"),
-			("abc3", "42"),
+			("wl_0_0", "cba0"),
+			("wl_1_0", "cba1"),
+			("rx_2_0p1", "p1"),
+			("rx_2_0p2", "42"),
+			("rx_3_0", "42"),
 		]
 		.iter()
 		.fold(HashMap::new(), |mut map, tuple| {
@@ -417,33 +441,37 @@ mod test {
 		});
 		assert_eq!(values, expected_values);
 
+		// -------------------------
+
 		#[derive(Deserialize, PartialEq, Debug)]
 		struct NewTuple<'a>(String, &'a str, &'a str, i16, u8);
-		let mut params_list = get_path_params();
+
 		let values = NewTuple::deserialize(&mut params_list.deserializer()).unwrap();
 		assert_eq!(
 			values,
-			NewTuple("cba0".to_owned(), "cba1", "cp1", 42_i16, 42_u8)
+			NewTuple("cba0".to_owned(), "cba1", "p1", 42_i16, 42_u8)
 		);
+
+		// -------------------------
 
 		#[derive(Deserialize, PartialEq, Debug)]
 		struct NewStruct<'a> {
-			abc0: String,
-			abc1: &'a str,
-			cn1: &'a str,
-			cn2: Option<u8>,
-			abc3: i16,
+			wl_0_0: String,
+			wl_1_0: &'a str,
+			rx_2_0p1: &'a str,
+			rx_2_0p2: Option<u8>,
+			rx_3_0: i16,
 		}
-		let mut params_list = get_path_params();
+
 		let values = NewStruct::deserialize(&mut params_list.deserializer()).unwrap();
 		assert_eq!(
 			values,
 			NewStruct {
-				abc0: "cba0".to_owned(),
-				abc1: "cba1",
-				cn1: "cp1",
-				cn2: Some(42_u8),
-				abc3: 42_i16
+				wl_0_0: "cba0".to_owned(),
+				wl_1_0: "cba1",
+				rx_2_0p1: "p1",
+				rx_2_0p2: Some(42_u8),
+				rx_3_0: 42_i16
 			},
 		);
 	}
