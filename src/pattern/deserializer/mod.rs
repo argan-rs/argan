@@ -135,7 +135,11 @@ impl<'de> Deserializer<'de> for FromStr<'de> {
 		V: Visitor<'de>,
 	{
 		println!("[{}] from str: deserialize_option", line!());
-		if self.0.is_some() {
+		if self.0.is_none() {
+			return Err(DeserializerError::NoDataIsAvailable);
+		}
+
+		if self.0.is_some_and(|value| !value.is_empty()) {
 			visitor.visit_some(self)
 		} else {
 			visitor.visit_none()

@@ -344,12 +344,17 @@ impl ParamsList {
 	}
 
 	#[inline]
+	pub(crate) fn len(&self) -> usize {
+		self.0.len()
+	}
+
+	#[inline]
 	fn iter(&self) -> slice::Iter<'_, Params> {
 		self.0.iter()
 	}
 
 	#[inline]
-	pub(crate) fn deserializer(&mut self) -> FromParamsList<'_> {
+	pub(crate) fn deserializer(&self) -> FromParamsList<'_> {
 		FromParamsList::new(&self.0)
 	}
 }
