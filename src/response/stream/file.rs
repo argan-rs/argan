@@ -386,6 +386,10 @@ fn single_range_response(mut file_stream: FileStream) -> Response {
 			CONTENT_LENGTH,
 			&file_stream.current_range_remaining_size.to_string()
 		);
+	} else {
+		response
+			.headers_mut()
+			.insert(ACCEPT_RANGES, HeaderValue::from_static("none"));
 	}
 
 	*response.body_mut() = Body::new(file_stream);
@@ -1957,9 +1961,11 @@ mod test {
 		assert!(file_stream
 			.set_content_encoding(HeaderValue::from_static("br"))
 			.is_err());
+
 		assert!(file_stream
 			.set_content_encoding(content_encoding_value.clone())
 			.is_ok());
+
 		assert!(file_stream.set_boundary("boundary".into()).is_err());
 		assert!(file_stream.support_partial_content().is_err());
 
@@ -1976,8 +1982,27 @@ mod test {
 				.unwrap()
 		);
 
+		assert_eq!(
+			"gzip",
+			response
+				.headers()
+				.get(CONTENT_ENCODING)
+				.unwrap()
+				.to_str()
+				.unwrap()
+		);
+
+		assert_eq!(
+			"none",
+			response
+				.headers()
+				.get(ACCEPT_RANGES)
+				.unwrap()
+				.to_str()
+				.unwrap()
+		);
+
 		assert!(response.headers().get(CONTENT_DISPOSITION).is_none());
-		assert!(response.headers().get(ACCEPT_RANGES).is_none());
 		assert!(response.headers().get(CONTENT_LENGTH).is_none());
 
 		let body = response.into_body().collect().await.unwrap().to_bytes();
