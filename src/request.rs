@@ -1,6 +1,6 @@
 use std::{
 	convert::Infallible,
-	fmt::Display,
+	fmt::{Debug, Display},
 	future::{ready, Future, Ready},
 };
 
@@ -76,6 +76,43 @@ where
 }
 
 // --------------------------------------------------------------------------------
+
+// --------------------------------------------------
+
+impl<Ext, T, E> FromRequestHead<Ext> for Result<T, E>
+where
+	Ext: Sync,
+	T: FromRequestHead<Ext, Error = E>,
+{
+	type Error = Infallible;
+
+	async fn from_request_head(
+		head: &mut RequestHead,
+		args: &mut Args<'_, Ext>,
+	) -> Result<Self, Self::Error> {
+		let result = T::from_request_head(head, args).await;
+
+		Ok(result)
+	}
+}
+
+impl<B, Ext, T, E> FromRequest<B, Ext> for Result<T, E>
+where
+	B: Send,
+	Ext: Sync,
+	T: FromRequest<B, Ext, Error = E>,
+{
+	type Error = Infallible;
+
+	async fn from_request(
+		request: Request<B>,
+		args: &mut Args<'_, Ext>,
+	) -> Result<Self, Self::Error> {
+		let result = T::from_request(request, args).await;
+
+		Ok(result)
+	}
+}
 
 // --------------------------------------------------
 // RequestHead
@@ -245,9 +282,20 @@ where
 	}
 }
 
+impl<T> Debug for PathParams<T>
+where
+	T: Debug,
+{
+	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+		f.debug_tuple("PathParams").field(&self.0).finish()
+	}
+}
+
+// ----------
+
 #[derive(Debug, crate::ImplError)]
 #[error(transparent)]
-pub struct PathParamsError(#[from] pattern::DeserializerError);
+pub struct PathParamsError(#[from] pub(crate) pattern::DeserializerError);
 
 impl IntoResponse for PathParamsError {
 	fn into_response(self) -> Response {
