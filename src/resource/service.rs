@@ -675,239 +675,173 @@ impl Handler for RequestHandler {
 }
 
 // --------------------------------------------------------------------------------
+// --------------------------------------------------------------------------------
 
 #[cfg(test)]
 mod test {
-	use http::{
-		header::{CONTENT_TYPE, LOCATION},
-		Method, StatusCode, Uri,
-	};
-	use http_body_util::{BodyExt, Empty};
-	use serde::{Deserialize, Serialize};
+	use http_body_util::Empty;
 
 	use crate::{
-		body::Bytes,
-		data::json::{self, Json},
-		handler::{get, method, post, wildcard_method},
-		request::PathParams,
+		common::test_helpers::{new_root, test_service, Case, DataKind, Rx_1_1, Rx_2_0, Wl_3_0},
+		handler::{get, DummyHandler},
 		resource::Resource,
-		response::IntoResponseResult,
 	};
 
 	use super::*;
 
-	// --------------------------------------------------
+	// --------------------------------------------------------------------------------
+	// --------------------------------------------------------------------------------
 
 	#[tokio::test]
 	async fn resource_service() {
-		//	/st_0_0	->	/{wl_1_0}	->	/{rx_2_0:p_0}/
-		//				|							|	->	/{rx_2_1:p_1}-abc	->	/{wl_3_0}
-		//				|
-		//				|	->	/{rx_1_1:p_0}-abc	->	/st_2_0
-		//															|	->	/st_2_1
+		//	/	->	/st_0_0	->	/{wl_1_0}	->	/{rx_2_0:p_0}/
+		//							|							|	->	/{rx_2_1:p_1}-abc	->	/{wl_3_0}
+		//							|
+		//							|	->	/{rx_1_1:p_0}-abc/	->	/st_2_0
+		//																			|	->	/st_2_1
 
-		#[allow(non_camel_case_types)]
-		#[derive(Debug, Serialize, Deserialize)]
-		struct Rx_2_0 {
-			wl_1_0: u32,
-			rx_2_0: String,
-		}
+		let cases = [
+			Case {
+				name: "root",
+				method: "GET",
+				host: "",
+				path: "/",
+				some_content_type: Some(mime::TEXT_PLAIN_UTF_8),
+				some_redirect_location: None,
+				data_kind: DataKind::String("Hello, World!".to_string()),
+			},
+			Case {
+				name: "st_0_0",
+				method: "GET",
+				host: "",
+				path: "/st_0_0",
+				some_content_type: None,
+				some_redirect_location: None,
+				data_kind: DataKind::None,
+			},
+			Case {
+				name: "rx_2_0",
+				method: "GET",
+				host: "",
+				path: "/st_0_0/42/p_0",
+				some_content_type: None,
+				some_redirect_location: Some("/st_0_0/42/p_0/"),
+				data_kind: DataKind::None,
+			},
+			Case {
+				name: "rx_2_0",
+				method: "GET",
+				host: "",
+				path: "/st_0_0/42/p_0/",
+				some_content_type: Some(mime::APPLICATION_JSON),
+				some_redirect_location: None,
+				data_kind: DataKind::Rx_2_0(Rx_2_0 {
+					sub: None,
+					wl_1_0: 42,
+					rx_2_0: "p_0".to_string(),
+				}),
+			},
+			Case {
+				name: "wl_3_0",
+				method: "POST",
+				host: "",
+				path: "/st_0_0/42/p_1-abc/true/",
+				some_content_type: None,
+				some_redirect_location: Some("/st_0_0/42/p_1-abc/true"),
+				data_kind: DataKind::None,
+			},
+			Case {
+				name: "wl_3_0",
+				method: "POST",
+				host: "",
+				path: "/st_0_0/42/p_1-abc/true",
+				some_content_type: Some(mime::APPLICATION_JSON),
+				some_redirect_location: None,
+				data_kind: DataKind::Wl_3_0(Wl_3_0 {
+					sub: None,
+					wl_1_0: 42,
+					rx_2_1: "p_1".to_string(),
+					wl_3_0: true,
+				}),
+			},
+			Case {
+				name: "st_2_0",
+				method: "GET",
+				host: "",
+				path: "/st_0_0/p_0-abc/st_2_0",
+				some_content_type: Some(mime::APPLICATION_JSON),
+				some_redirect_location: None,
+				data_kind: DataKind::Rx_1_1(Rx_1_1 {
+					sub: None,
+					rx_1_1: "p_0".to_string(),
+				}),
+			},
+			Case {
+				name: "rx_1_1",
+				method: "GET",
+				host: "",
+				path: "/st_0_0/p_0-abc",
+				some_content_type: None,
+				some_redirect_location: Some("/st_0_0/p_0-abc/"),
+				data_kind: DataKind::None,
+			},
+			Case {
+				name: "rx_1_1",
+				method: "PUT",
+				host: "",
+				path: "/st_0_0/p_0-abc/",
+				some_content_type: Some(mime::APPLICATION_JSON),
+				some_redirect_location: None,
+				data_kind: DataKind::Rx_1_1(Rx_1_1 {
+					sub: None,
+					rx_1_1: "p_0".to_string(),
+				}),
+			},
+			Case {
+				name: "st_2_1",
+				method: "GET",
+				host: "",
+				path: "/st_0_0/p_0-abc/st_2_1",
+				some_content_type: Some(mime::TEXT_PLAIN_UTF_8),
+				some_redirect_location: None,
+				data_kind: DataKind::String("Hello, World!".to_string()),
+			},
+		];
 
-		#[allow(non_camel_case_types)]
-		#[derive(Debug, Serialize, Deserialize)]
-		struct Wl_3_0 {
-			wl_1_0: u32,
-			rx_2_1: String,
-			wl_3_0: bool,
-		}
-
-		#[allow(non_camel_case_types)]
-		#[derive(Debug, Serialize, Deserialize)]
-		struct Rx_1_1 {
-			rx_1_1: String,
-		}
-
-		// ----------
-
-		let handler = |_request: Request| async {};
+		let service = new_root().into_service();
+		test_service(service, &cases).await;
 
 		// -------------------------
+		// non-root resource
 
-		let mut root = Resource::new("/");
-		root.subresource_mut("/st_0_0").set_handler(get(handler));
-		root
-			.subresource_mut("/st_0_0/{wl_1_0}/{rx_2_0:p_0}/")
-			.set_handler(get(|PathParams(data): PathParams<Rx_2_0>| async {
-				Json(data)
-			}));
+		let mut resource = Resource::new("/st_0_0");
+		resource.set_handler(get(|| async {}));
+		resource
+			.subresource_mut("/{wl_1_0}")
+			.set_handler(get(|| async {}));
 
-		root
-			.subresource_mut("/st_0_0/{wl_1_0}/{rx_2_1:p_1}-abc/{wl_3_0}")
-			.set_handler(post(|PathParams(data): PathParams<Wl_3_0>| async {
-				Json(data)
-			}));
-
-		root
-			.subresource_mut("/st_0_0/{rx_1_1:p_0}-abc/st_2_0")
-			.set_handler(get(|PathParams(data): PathParams<Rx_1_1>| async {
-				Json(data)
-			}));
-
-		root
-			.subresource_mut("/st_0_0/{rx_1_1:p_0}-abc/")
-			.set_handler(wildcard_method(
-				|PathParams(data): PathParams<Rx_1_1>| async { Json(data) },
-			));
-
-		root
-			.subresource_mut("/st_0_0/{rx_1_1:p_0}-abc/st_2_1")
-			.set_handler(get(|| async { "Hello, World!" }));
-
-		let service = root.into_service();
-
-		// -------------------------
-
-		let request = new_request("GET", "/st_0_0");
-		let response = service.call(request).await.unwrap();
-		assert_eq!(response.status(), StatusCode::OK);
+		let service = resource.into_service();
 
 		// ----------
-		// rx_2_0
 
-		let request = new_request("GET", "/st_0_0/42/p_0");
-		let response = service.call(request).await.unwrap();
-		assert_eq!(response.status(), StatusCode::PERMANENT_REDIRECT);
-
-		let location = response.headers().get(LOCATION).unwrap().to_str().unwrap();
-		assert_eq!(location, "/st_0_0/42/p_0/");
-		assert_eq!(
-			response
-				.into_body()
-				.collect()
-				.await
-				.unwrap()
-				.to_bytes()
-				.len(),
-			0
-		);
-
-		// ----------
-		// rx_2_0
-
-		let request = new_request("GET", "/st_0_0/42/p_0/");
-		let response = service.call(request).await.unwrap();
-		assert_eq!(response.status(), StatusCode::OK);
-
-		let content_type = response
-			.headers()
-			.get(CONTENT_TYPE)
-			.unwrap()
-			.to_str()
-			.unwrap();
-		assert_eq!(content_type, mime::APPLICATION_JSON.as_ref());
-
-		let json_body = response.into_body().collect().await.unwrap().to_bytes();
-		let data = serde_json::from_slice::<Rx_2_0>(&json_body).unwrap();
-
-		// ----------
-		// wl_3_0
-
-		let request = new_request("POST", "/st_0_0/42/p_1-abc/true");
-		let response = service.call(request).await.unwrap();
-		assert_eq!(response.status(), StatusCode::OK);
-
-		let content_type = response
-			.headers()
-			.get(CONTENT_TYPE)
-			.unwrap()
-			.to_str()
-			.unwrap();
-		assert_eq!(content_type, mime::APPLICATION_JSON.as_ref());
-
-		let json_body = response.into_body().collect().await.unwrap().to_bytes();
-		let data = serde_json::from_slice::<Wl_3_0>(&json_body).unwrap();
-
-		// ----------
-		// st_2_0
-
-		let request = new_request("GET", "/st_0_0/p_0-abc/st_2_0");
-		let response = service.call(request).await.unwrap();
-		assert_eq!(response.status(), StatusCode::OK);
-
-		let content_type = response
-			.headers()
-			.get(CONTENT_TYPE)
-			.unwrap()
-			.to_str()
-			.unwrap();
-		assert_eq!(content_type, mime::APPLICATION_JSON.as_ref());
-
-		let json_body = response.into_body().collect().await.unwrap().to_bytes();
-		let data = serde_json::from_slice::<Rx_1_1>(&json_body).unwrap();
-
-		// ----------
-		// rx_1_1
-
-		let request = new_request("GET", "/st_0_0/p_0-abc");
-		let response = service.call(request).await.unwrap();
-		assert_eq!(response.status(), StatusCode::PERMANENT_REDIRECT);
-
-		let location = response.headers().get(LOCATION).unwrap().to_str().unwrap();
-		assert_eq!(location, "/st_0_0/p_0-abc/");
-		assert_eq!(
-			response
-				.into_body()
-				.collect()
-				.await
-				.unwrap()
-				.to_bytes()
-				.len(),
-			0
-		);
-
-		// ----------
-		// rx_1_1
-
-		let request = new_request("PUT", "/st_0_0/p_0-abc/");
-		let response = service.call(request).await.unwrap();
-		assert_eq!(response.status(), StatusCode::OK);
-
-		let content_type = response
-			.headers()
-			.get(CONTENT_TYPE)
-			.unwrap()
-			.to_str()
-			.unwrap();
-		assert_eq!(content_type, mime::APPLICATION_JSON.as_ref());
-
-		let json_body = response.into_body().collect().await.unwrap().to_bytes();
-		let data = serde_json::from_slice::<Rx_1_1>(&json_body).unwrap();
-
-		// ----------
-		// st_2_1
-
-		let request = new_request("GET", "/st_0_0/p_0-abc/st_2_1");
-		let response = service.call(request).await.unwrap();
-		assert_eq!(response.status(), StatusCode::OK);
-
-		let content_type = response
-			.headers()
-			.get(CONTENT_TYPE)
-			.unwrap()
-			.to_str()
-			.unwrap();
-		assert_eq!(content_type, mime::TEXT_PLAIN_UTF_8.as_ref());
-
-		let text_body = response.into_body().collect().await.unwrap().to_bytes();
-		let data = String::from_utf8(text_body.into()).unwrap();
-		assert_eq!(data, "Hello, World!");
-	}
-
-	fn new_request(method: &str, uri: &str) -> Request<Empty<Bytes>> {
-		Request::builder()
-			.method(method)
-			.uri(uri)
+		let request = Request::builder()
+			.method("GET")
+			.uri("/st_0_0")
 			.body(Empty::default())
-			.unwrap()
+			.unwrap();
+
+		let response = service.call(request).await.unwrap();
+		assert_eq!(response.status(), StatusCode::OK);
+
+		// ----------
+
+		let request = Request::builder()
+			.method("GET")
+			.uri("/st_0_0/wl_1_0")
+			.body(Empty::default())
+			.unwrap();
+
+		let response = service.call(request).await.unwrap();
+		assert_eq!(response.status(), StatusCode::OK);
 	}
 }
