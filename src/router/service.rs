@@ -157,3 +157,378 @@ where
 		Box::pin(ready(Ok(StatusCode::NOT_FOUND.into_response())))
 	}
 }
+
+// --------------------------------------------------------------------------------
+// --------------------------------------------------------------------------------
+
+#[cfg(test)]
+mod test {
+	use crate::{
+		common::test_helpers::{new_root, test_service, Case, DataKind, Rx_1_1, Rx_2_0, Wl_3_0},
+		router::Router,
+	};
+
+	use super::*;
+
+	// --------------------------------------------------------------------------------
+	// --------------------------------------------------------------------------------
+
+	#[tokio::test]
+	async fn router_service() {
+		let cases = [
+			// -------------------------
+			//	http://example.com
+			//
+			//	http://example.com/	->	/st_0_0	->	/{wl_1_0}	->	/{rx_2_0:p_0}/
+			//										|						|	->	/{rx_2_1:p_1}-abc	->	/{wl_3_0}
+			//										|
+			//										|	->	/{rx_1_1:p_0}-abc/	->	/st_2_0
+			//																						|	->	/st_2_1
+			//
+			Case {
+				name: "root",
+				method: "GET",
+				host: "http://example.com",
+				path: "",
+				some_content_type: Some(mime::TEXT_PLAIN_UTF_8),
+				some_redirect_location: None,
+				data_kind: DataKind::String("Hello, World!".to_string()),
+			},
+			Case {
+				name: "st_0_0",
+				method: "GET",
+				host: "http://example.com",
+				path: "/st_0_0",
+				some_content_type: None,
+				some_redirect_location: None,
+				data_kind: DataKind::None,
+			},
+			Case {
+				name: "rx_2_0",
+				method: "GET",
+				host: "http://example.com",
+				path: "/st_0_0/42/p_0",
+				some_content_type: None,
+				some_redirect_location: Some("/st_0_0/42/p_0/"),
+				data_kind: DataKind::None,
+			},
+			Case {
+				name: "rx_2_0",
+				method: "GET",
+				host: "http://example.com",
+				path: "/st_0_0/42/p_0/",
+				some_content_type: Some(mime::APPLICATION_JSON),
+				some_redirect_location: None,
+				data_kind: DataKind::Rx_2_0(Rx_2_0 {
+					sub: None,
+					wl_1_0: 42,
+					rx_2_0: "p_0".to_string(),
+				}),
+			},
+			Case {
+				name: "wl_3_0",
+				method: "POST",
+				host: "http://example.com",
+				path: "/st_0_0/42/p_1-abc/true/",
+				some_content_type: None,
+				some_redirect_location: Some("/st_0_0/42/p_1-abc/true"),
+				data_kind: DataKind::None,
+			},
+			Case {
+				name: "wl_3_0",
+				method: "POST",
+				host: "http://example.com",
+				path: "/st_0_0/42/p_1-abc/true",
+				some_content_type: Some(mime::APPLICATION_JSON),
+				some_redirect_location: None,
+				data_kind: DataKind::Wl_3_0(Wl_3_0 {
+					sub: None,
+					wl_1_0: 42,
+					rx_2_1: "p_1".to_string(),
+					wl_3_0: true,
+				}),
+			},
+			Case {
+				name: "st_2_0",
+				method: "GET",
+				host: "http://example.com",
+				path: "/st_0_0/p_0-abc/st_2_0",
+				some_content_type: Some(mime::APPLICATION_JSON),
+				some_redirect_location: None,
+				data_kind: DataKind::Rx_1_1(Rx_1_1 {
+					sub: None,
+					rx_1_1: "p_0".to_string(),
+				}),
+			},
+			Case {
+				name: "rx_1_1",
+				method: "GET",
+				host: "http://example.com",
+				path: "/st_0_0/p_0-abc",
+				some_content_type: None,
+				some_redirect_location: Some("/st_0_0/p_0-abc/"),
+				data_kind: DataKind::None,
+			},
+			Case {
+				name: "rx_1_1",
+				method: "PUT",
+				host: "http://example.com",
+				path: "/st_0_0/p_0-abc/",
+				some_content_type: Some(mime::APPLICATION_JSON),
+				some_redirect_location: None,
+				data_kind: DataKind::Rx_1_1(Rx_1_1 {
+					sub: None,
+					rx_1_1: "p_0".to_string(),
+				}),
+			},
+			Case {
+				name: "st_2_1",
+				method: "GET",
+				host: "http://example.com",
+				path: "/st_0_0/p_0-abc/st_2_1",
+				some_content_type: Some(mime::TEXT_PLAIN_UTF_8),
+				some_redirect_location: None,
+				data_kind: DataKind::String("Hello, World!".to_string()),
+			},
+			//
+			// -------------------------
+			//	http://{sub}.example.com
+			//
+			//	http://{sub}.example.com/	->	/st_0_0	->	/{wl_1_0}	->	/{rx_2_0:p_0}/
+			//													|						|	->	/{rx_2_1:p_1}-abc	->	/{wl_3_0}
+			//													|
+			//													|	->	/{rx_1_1:p_0}-abc/	->	/st_2_0
+			//																									|	->	/st_2_1
+			//
+			Case {
+				name: "root",
+				method: "GET",
+				host: "http://www.example.com",
+				path: "",
+				some_content_type: Some(mime::APPLICATION_JSON),
+				some_redirect_location: None,
+				data_kind: DataKind::String("www".to_string()),
+			},
+			Case {
+				name: "st_0_0",
+				method: "GET",
+				host: "http://www.example.com",
+				path: "/st_0_0",
+				some_content_type: None,
+				some_redirect_location: None,
+				data_kind: DataKind::None,
+			},
+			Case {
+				name: "rx_2_0",
+				method: "GET",
+				host: "http://www.example.com",
+				path: "/st_0_0/42/p_0",
+				some_content_type: None,
+				some_redirect_location: Some("/st_0_0/42/p_0/"),
+				data_kind: DataKind::None,
+			},
+			Case {
+				name: "rx_2_0",
+				method: "GET",
+				host: "http://www.example.com",
+				path: "/st_0_0/42/p_0/",
+				some_content_type: Some(mime::APPLICATION_JSON),
+				some_redirect_location: None,
+				data_kind: DataKind::Rx_2_0(Rx_2_0 {
+					sub: Some("www".to_string()),
+					wl_1_0: 42,
+					rx_2_0: "p_0".to_string(),
+				}),
+			},
+			Case {
+				name: "wl_3_0",
+				method: "POST",
+				host: "http://www.example.com",
+				path: "/st_0_0/42/p_1-abc/true/",
+				some_content_type: None,
+				some_redirect_location: Some("/st_0_0/42/p_1-abc/true"),
+				data_kind: DataKind::None,
+			},
+			Case {
+				name: "wl_3_0",
+				method: "POST",
+				host: "http://www.example.com",
+				path: "/st_0_0/42/p_1-abc/true",
+				some_content_type: Some(mime::APPLICATION_JSON),
+				some_redirect_location: None,
+				data_kind: DataKind::Wl_3_0(Wl_3_0 {
+					sub: Some("www".to_string()),
+					wl_1_0: 42,
+					rx_2_1: "p_1".to_string(),
+					wl_3_0: true,
+				}),
+			},
+			Case {
+				name: "st_2_0",
+				method: "GET",
+				host: "http://www.example.com",
+				path: "/st_0_0/p_0-abc/st_2_0",
+				some_content_type: Some(mime::APPLICATION_JSON),
+				some_redirect_location: None,
+				data_kind: DataKind::Rx_1_1(Rx_1_1 {
+					sub: Some("www".to_string()),
+					rx_1_1: "p_0".to_string(),
+				}),
+			},
+			Case {
+				name: "rx_1_1",
+				method: "GET",
+				host: "http://www.example.com",
+				path: "/st_0_0/p_0-abc",
+				some_content_type: None,
+				some_redirect_location: Some("/st_0_0/p_0-abc/"),
+				data_kind: DataKind::None,
+			},
+			Case {
+				name: "rx_1_1",
+				method: "PUT",
+				host: "http://www.example.com",
+				path: "/st_0_0/p_0-abc/",
+				some_content_type: Some(mime::APPLICATION_JSON),
+				some_redirect_location: None,
+				data_kind: DataKind::Rx_1_1(Rx_1_1 {
+					sub: Some("www".to_string()),
+					rx_1_1: "p_0".to_string(),
+				}),
+			},
+			Case {
+				name: "st_2_1",
+				method: "GET",
+				host: "http://www.example.com",
+				path: "/st_0_0/p_0-abc/st_2_1",
+				some_content_type: Some(mime::TEXT_PLAIN_UTF_8),
+				some_redirect_location: None,
+				data_kind: DataKind::String("Hello, World!".to_string()),
+			},
+			//
+			// -------------------------
+			//	root
+			//
+			//	/	->	/st_0_0	->	/{wl_1_0}	->	/{rx_2_0:p_0}/
+			//							|							|	->	/{rx_2_1:p_1}-abc	->	/{wl_3_0}
+			//							|
+			//							|	->	/{rx_1_1:p_0}-abc/	->	/st_2_0
+			//																			|	->	/st_2_1
+			//
+			Case {
+				name: "root",
+				method: "GET",
+				host: "",
+				path: "/",
+				some_content_type: Some(mime::TEXT_PLAIN_UTF_8),
+				some_redirect_location: None,
+				data_kind: DataKind::String("Hello, World!".to_string()),
+			},
+			Case {
+				name: "st_0_0",
+				method: "GET",
+				host: "",
+				path: "/st_0_0",
+				some_content_type: None,
+				some_redirect_location: None,
+				data_kind: DataKind::None,
+			},
+			Case {
+				name: "rx_2_0",
+				method: "GET",
+				host: "",
+				path: "/st_0_0/42/p_0",
+				some_content_type: None,
+				some_redirect_location: Some("/st_0_0/42/p_0/"),
+				data_kind: DataKind::None,
+			},
+			Case {
+				name: "rx_2_0",
+				method: "GET",
+				host: "",
+				path: "/st_0_0/42/p_0/",
+				some_content_type: Some(mime::APPLICATION_JSON),
+				some_redirect_location: None,
+				data_kind: DataKind::Rx_2_0(Rx_2_0 {
+					sub: None,
+					wl_1_0: 42,
+					rx_2_0: "p_0".to_string(),
+				}),
+			},
+			Case {
+				name: "wl_3_0",
+				method: "POST",
+				host: "",
+				path: "/st_0_0/42/p_1-abc/true/",
+				some_content_type: None,
+				some_redirect_location: Some("/st_0_0/42/p_1-abc/true"),
+				data_kind: DataKind::None,
+			},
+			Case {
+				name: "wl_3_0",
+				method: "POST",
+				host: "",
+				path: "/st_0_0/42/p_1-abc/true",
+				some_content_type: Some(mime::APPLICATION_JSON),
+				some_redirect_location: None,
+				data_kind: DataKind::Wl_3_0(Wl_3_0 {
+					sub: None,
+					wl_1_0: 42,
+					rx_2_1: "p_1".to_string(),
+					wl_3_0: true,
+				}),
+			},
+			Case {
+				name: "st_2_0",
+				method: "GET",
+				host: "",
+				path: "/st_0_0/p_0-abc/st_2_0",
+				some_content_type: Some(mime::APPLICATION_JSON),
+				some_redirect_location: None,
+				data_kind: DataKind::Rx_1_1(Rx_1_1 {
+					sub: None,
+					rx_1_1: "p_0".to_string(),
+				}),
+			},
+			Case {
+				name: "rx_1_1",
+				method: "GET",
+				host: "",
+				path: "/st_0_0/p_0-abc",
+				some_content_type: None,
+				some_redirect_location: Some("/st_0_0/p_0-abc/"),
+				data_kind: DataKind::None,
+			},
+			Case {
+				name: "rx_1_1",
+				method: "PUT",
+				host: "",
+				path: "/st_0_0/p_0-abc/",
+				some_content_type: Some(mime::APPLICATION_JSON),
+				some_redirect_location: None,
+				data_kind: DataKind::Rx_1_1(Rx_1_1 {
+					sub: None,
+					rx_1_1: "p_0".to_string(),
+				}),
+			},
+			Case {
+				name: "st_2_1",
+				method: "GET",
+				host: "",
+				path: "/st_0_0/p_0-abc/st_2_1",
+				some_content_type: Some(mime::TEXT_PLAIN_UTF_8),
+				some_redirect_location: None,
+				data_kind: DataKind::String("Hello, World!".to_string()),
+			},
+		];
+
+		let mut router = Router::new();
+		router.add_resource_under("http://example.com", new_root());
+		router.add_resource_under("http://{sub}.example.com", new_root());
+		router.add_resource(new_root());
+
+		let service = router.into_service();
+
+		test_service(service, &cases).await;
+	}
+}
