@@ -1,5 +1,6 @@
 use std::{
 	any::Any,
+	borrow::Cow,
 	fmt::Display,
 	future::Future,
 	io::ErrorKind,
@@ -160,3 +161,93 @@ impl<Func: FnMut()> Drop for Deferred<Func> {
 }
 
 // --------------------------------------------------------------------------------
+
+// Eliminates each 'empty' and '.' segment.
+// Eliminates each '..' segment with its 'non-..' parent.
+// If there is no segment left, returns an empty string.
+pub(crate) fn normalize_path(path: &str) -> String {
+	let mut new_path = String::with_capacity(path.len() + 1);
+	let mut segment_indices = vec![0];
+
+	for segment in path.split('/') {
+		if segment.is_empty() || segment == "." {
+			continue;
+		}
+
+		if segment == ".." {
+			let last_index = segment_indices.pop().unwrap_or(0);
+			new_path.truncate(last_index);
+
+			continue;
+		}
+
+		segment_indices.push(new_path.len());
+
+		if !new_path.is_empty() || path.starts_with(['/', '.']) {
+			new_path.push('/');
+		}
+
+		new_path.push_str(segment);
+	}
+
+	new_path
+}
+
+// --------------------------------------------------------------------------------
+// --------------------------------------------------------------------------------
+
+#[cfg(test)]
+mod test {
+	use super::*;
+
+	// --------------------------------------------------------------------------------
+	// --------------------------------------------------------------------------------
+
+	#[test]
+	fn normalize_path() {
+		let cases = [
+			("a/b/c", "a/b/c"),
+			("../a/b/c", "/a/b/c"),
+			("/../a/b/c", "/a/b/c"),
+			("/a/../b/c", "/b/c"),
+			("/a/b/../c", "/a/c"),
+			("/a/b/c/..", "/a/b"),
+			("../../a/b/c", "/a/b/c"),
+			("/../../a/b/c", "/a/b/c"),
+			("/a/../../b/c", "/b/c"),
+			("/a/b/../../c", "/c"),
+			("/a/b/c/../..", "/a"),
+			("../../../a/b/c", "/a/b/c"),
+			("/../../../a/b/c", "/a/b/c"),
+			("/a/../../../b/c", "/b/c"),
+			("/a/b/../../../c", "/c"),
+			("/a/b/c/../../..", ""),
+			("../a/../b/c", "/b/c"),
+			("/../a/../b/c", "/b/c"),
+			("/a/../b/../c", "/c"),
+			("/a/b/../c/..", "/a"),
+			("/a/b/c/../..", "/a"),
+			("///a/b/c/", "/a/b/c"),
+			("/a///b/c/", "/a/b/c"),
+			("/a/b///c/", "/a/b/c"),
+			("/a/b/c///", "/a/b/c"),
+			("./a/b/c/", "/a/b/c"),
+			("/./a/b/c/", "/a/b/c"),
+			("/a/./b/c/", "/a/b/c"),
+			("/a/b/./c/", "/a/b/c"),
+			("/a/b/c/./", "/a/b/c"),
+			("././a/b/c", "/a/b/c"),
+			("/././a/b/c", "/a/b/c"),
+			("/a/././b/c", "/a/b/c"),
+			("/a/b/././c", "/a/b/c"),
+			("/a/b/c/./.", "/a/b/c"),
+			("/a/b/./c///..//.././//d/../../e/", "/e"),
+		];
+
+		for case in cases {
+			dbg!(case.0);
+
+			assert_eq!(super::normalize_path(case.0), case.1);
+		}
+	}
+}
