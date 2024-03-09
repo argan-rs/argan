@@ -69,7 +69,7 @@ pub trait IntoResponseResult {
 impl<R, E> IntoResponseResult for Result<R, E>
 where
 	R: IntoResponse,
-	E: ErrorResponse,
+	E: Into<BoxedErrorResponse>,
 {
 	fn into_response_result(self) -> Result<Response, BoxedErrorResponse> {
 		self.map(IntoResponse::into_response).map_err(Into::into)
