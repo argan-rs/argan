@@ -19,7 +19,8 @@ use httpdate::HttpDate;
 
 use crate::{
 	common::{
-		patterns_to_route, strip_double_quotes, BoxedError, BoxedFuture, Uncloneable, SCOPE_VALIDITY,
+		normalize_path, patterns_to_route, strip_double_quotes, BoxedError, BoxedFuture, Uncloneable,
+		SCOPE_VALIDITY,
 	},
 	handler::{get, request_handlers::handle_mistargeted_request, Handler, IntoHandler},
 	header::{split_header_value, SplitHeaderValueError},
@@ -220,7 +221,7 @@ async fn get_handler(
 		return Err(StaticFileError::FileNotFound);
 	};
 
-	// TODO: Canonicalize remaining path and get the relative path.
+	let remaining_path = normalize_path(remaining_path.as_ref());
 
 	let (coding, path_buf, should_encode) = evaluate_optimal_coding(
 		request.headers(),
@@ -237,7 +238,7 @@ async fn get_handler(
 	};
 
 	let mime =
-		mime_guess::from_path(remaining_path.as_ref()).first_or_else(|| mime::APPLICATION_OCTET_STREAM);
+		mime_guess::from_path(&remaining_path).first_or_else(|| mime::APPLICATION_OCTET_STREAM);
 
 	let content_type_value =
 		HeaderValue::from_str(mime.as_ref()).expect("guessed mime type must be a valid header value");
