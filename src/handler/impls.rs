@@ -107,19 +107,47 @@ where
 	}
 }
 
+// -------------------------
+
+impl<'r, Func, Ext> IntoHandler<(Request, Args<'r>, Ext)> for Func
+where
+	Func: Fn(Request, &mut Args<'_, Ext>) -> BoxedFuture<Result<Response, BoxedError>>,
+	HandlerFn<Func, (Request, Args<'r>, Ext)>: Handler,
+{
+	type Handler = HandlerFn<Func, (Request, Args<'r>, Ext)>;
+
+	fn into_handler(self) -> Self::Handler {
+		HandlerFn::from(self)
+	}
+}
+
+impl<'r, Func, Ext> Handler<Body, Ext> for HandlerFn<Func, (Request, Args<'r>, Ext)>
+where
+	Func: Fn(Request, &mut Args<'_, Ext>) -> BoxedFuture<Result<Response, BoxedErrorResponse>>,
+{
+	type Response = Response;
+	type Error = BoxedErrorResponse;
+	type Future = BoxedFuture<Result<Self::Response, Self::Error>>;
+
+	#[inline(always)]
+	fn handle(&self, request: Request, args: &mut Args<'_, Ext>) -> Self::Future {
+		(self.func)(request, args)
+	}
+}
+
 // --------------------------------------------------
 
 #[rustfmt::skip]
 macro_rules! impl_handler_fn {
 	($(($($ps:ident),*),)? $($lp:ident)?) => {
 		#[allow(non_snake_case)]
-		impl<Func, $($($ps,)*)? $($lp,)? Fut, O, B> IntoHandler<(Private, $($($ps,)*)? $($lp)?), B>
+		impl<Func, $($($ps,)*)? $($lp,)? Fut, O, B, E> IntoHandler<(Private, $($($ps,)*)? $($lp)?), B, E>
 			for Func
 		where
 			Func: Fn($($($ps,)*)? $($lp)?) -> Fut,
 			Fut: Future<Output = O>,
 			O: IntoResponseResult,
-			HandlerFn<Func, (Private, $($($ps,)*)? $($lp)?)>: Handler<B>,
+			HandlerFn<Func, (Private, $($($ps,)*)? $($lp)?)>: Handler<B, E>,
 		{
 			type Handler = HandlerFn<Func, (Private, $($($ps,)*)? $($lp)?)>;
 
