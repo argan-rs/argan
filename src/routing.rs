@@ -77,11 +77,11 @@ impl RouteTraversal {
 				let next_segment = &remaining_segments[..next_segment_end_index];
 
 				return Some((next_segment, next_segment_start_index));
-			} else {
-				self.0 = route.len();
-
-				return Some((remaining_segments, next_segment_start_index));
 			}
+
+			self.0 = route.len();
+
+			return Some((remaining_segments, next_segment_start_index));
 		}
 
 		None
@@ -184,7 +184,7 @@ mod test {
 
 	#[test]
 	fn route_traversal() {
-		let route = ["/abc", "/$regex_name:@capture_name(pattern)", "/*wildcard"];
+		let route = ["/abc", "/{capture_name:pattern}", "/{wildcard}"];
 		let route_segments = [
 			(&route[0][1..], 1),
 			(&route[1][1..], route[0].len() + 1),
