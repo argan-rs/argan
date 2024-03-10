@@ -32,6 +32,12 @@ mod private {
 			std::mem::take(self)
 		}
 	}
+
+	impl IntoArray<ResourceLayerTarget, 1> for ResourceLayerTarget {
+		fn into_array(self) -> [ResourceLayerTarget; 1] {
+			[self]
+		}
+	}
 }
 
 pub(crate) use private::ResourceLayerTarget;
