@@ -8,7 +8,7 @@ use crate::{
 	data::extensions::NodeExtensions,
 	middleware::Layer,
 	request::{FromRequest, FromRequestHead, Request, RequestHead},
-	response::{BoxedErrorResponse, Response},
+	response::{BoxedErrorResponse, IntoResponse, Response},
 	routing::RoutingState,
 };
 
@@ -67,20 +67,6 @@ pub trait IntoHandler<Mark, B = Body, Ext = ()>: Sized {
 	type Handler: Handler<B, Ext>;
 
 	fn into_handler(self) -> Self::Handler;
-
-	// --------------------------------------------------
-	// Provided Methods
-
-	fn with_extension(self, handler_extension: Ext) -> ExtendedHandler<Self::Handler, Ext> {
-		ExtendedHandler::new(self.into_handler(), handler_extension)
-	}
-
-	fn wrap_with<L>(self, layer: L) -> L::Handler
-	where
-		L: Layer<Self::Handler>,
-	{
-		layer.wrap(self.into_handler())
-	}
 }
 
 impl<H, B, Ext> IntoHandler<(), B, Ext> for H
@@ -91,6 +77,42 @@ where
 
 	fn into_handler(self) -> Self::Handler {
 		self
+	}
+}
+
+// --------------------------------------------------
+
+pub trait IntoWrappedHandler<Mark>: IntoHandler<Mark> + Sized {
+	fn wrapped_in<L: Layer<Self::Handler>>(self, layer: L) -> L::Handler;
+}
+
+impl<H, Mark> IntoWrappedHandler<Mark> for H
+where
+	H: IntoHandler<Mark>,
+	H::Handler: Handler + Clone + Send + Sync + 'static,
+	<H::Handler as Handler>::Response: IntoResponse,
+	<H::Handler as Handler>::Error: Into<BoxedErrorResponse>,
+{
+	fn wrapped_in<L: Layer<H::Handler>>(self, layer: L) -> L::Handler {
+		layer.wrap(self.into_handler())
+	}
+}
+
+// --------------------------------------------------
+
+pub trait IntoExtendedHandler<Mark, Ext>: IntoHandler<Mark, Body, Ext> + Sized {
+	fn with_extension(self, handler_extension: Ext) -> ExtendedHandler<Self::Handler, Ext>;
+}
+
+impl<H, Mark, Ext> IntoExtendedHandler<Mark, Ext> for H
+where
+	H: IntoHandler<Mark, Body, Ext>,
+	H::Handler: Handler + Clone + Send + Sync + 'static,
+	<H::Handler as Handler>::Response: IntoResponse,
+	<H::Handler as Handler>::Error: Into<BoxedErrorResponse>,
+{
+	fn with_extension(self, handler_extension: Ext) -> ExtendedHandler<Self::Handler, Ext> {
+		ExtendedHandler::new(self.into_handler(), handler_extension)
 	}
 }
 
@@ -146,6 +168,7 @@ where
 // --------------------------------------------------
 // ExtendedHandler
 
+#[derive(Clone)]
 pub struct ExtendedHandler<H, Ext> {
 	inner: H,
 	extension: Ext,
