@@ -163,9 +163,12 @@ where
 
 #[cfg(test)]
 mod test {
+	use http_body_util::{BodyExt, Empty};
+
 	use crate::{
 		common::test_helpers::{new_root, test_service, Case, DataKind, Rx_1_1, Rx_2_0, Wl_3_0},
-		router::Router,
+		handler::get,
+		router::{config::modify_request_extensions, Router},
 	};
 
 	use super::*;
@@ -530,5 +533,34 @@ mod test {
 		let service = router.into_service();
 
 		test_service(service, &cases).await;
+	}
+
+	#[tokio::test]
+	async fn router_request_extensions() {
+		let mut router = Router::new();
+		router.set_config(modify_request_extensions(|extensions| {
+			extensions.insert("Hello from Handler!".to_string());
+		}));
+
+		router
+			.resource_mut("/st_0_0/st_1_0")
+			.set_handler(get(|request: Request| async move {
+				request.extensions().get::<String>().unwrap().clone()
+			}));
+
+		// ----------
+
+		let service = router.into_service();
+
+		let request = Request::builder()
+			.uri("/st_0_0/st_1_0")
+			.body(Empty::default())
+			.unwrap();
+
+		let response = service.call(request).await.unwrap();
+		assert_eq!(response.status(), StatusCode::OK);
+
+		let body = response.collect().await.unwrap().to_bytes();
+		assert_eq!(body, "Hello from Handler!");
 	}
 }
