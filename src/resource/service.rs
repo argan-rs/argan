@@ -670,8 +670,20 @@ impl Handler for RequestHandler {
 		} else {
 			if let Some(wildcard_method_handler) = self.some_wildcard_method_handler.as_ref() {
 				wildcard_method_handler.handle(request, args)
-			} else {
+			} else if !&self.allowed_methods.is_empty() {
 				handle_unimplemented_method(request, &self.allowed_methods)
+			} else {
+				let routing_state = std::mem::take(&mut args.routing_state);
+				let node_extensions = args.node_extensions.take();
+
+				handle_mistargeted_request(
+					request,
+					routing_state,
+					self
+						.some_mistargeted_request_handler
+						.as_ref()
+						.map(|handler| (handler, node_extensions)),
+				)
 			}
 		}
 	}
