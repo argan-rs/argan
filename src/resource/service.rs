@@ -11,7 +11,7 @@ use std::{
 
 use bytes::Bytes;
 use http::{Extensions, Method, StatusCode, Uri};
-use http_body_util::BodyExt;
+use http_body_util::{BodyExt, Empty};
 use percent_encoding::percent_decode_str;
 
 use crate::{
@@ -662,29 +662,45 @@ impl Handler for RequestHandler {
 	type Future = BoxedFuture<Result<Self::Response, Self::Error>>;
 
 	fn handle(&self, request: Request, args: &mut Args) -> Self::Future {
-		let method = &request.method();
+		let method = request.method();
 		let some_method_handler = self.method_handlers.iter().find(|(m, _)| m == method);
 
 		if let Some((_, ref handler)) = some_method_handler {
-			handler.handle(request, args).into()
-		} else {
-			if let Some(wildcard_method_handler) = self.some_wildcard_method_handler.as_ref() {
-				wildcard_method_handler.handle(request, args)
-			} else if !&self.allowed_methods.is_empty() {
-				handle_unimplemented_method(request, &self.allowed_methods)
-			} else {
-				let routing_state = std::mem::take(&mut args.routing_state);
-				let node_extensions = args.node_extensions.take();
+			return handler.handle(request, args);
+		}
 
-				handle_mistargeted_request(
-					request,
-					routing_state,
-					self
-						.some_mistargeted_request_handler
-						.as_ref()
-						.map(|handler| (handler, node_extensions)),
-				)
+		if method == Method::HEAD {
+			let some_method_handler = self.method_handlers.iter().find(|(m, _)| m == Method::GET);
+
+			if let Some((_, ref handler)) = some_method_handler {
+				let response_future = handler.handle(request, args);
+
+				return Box::pin(async {
+					response_future.await.map(|mut response| {
+						let _ = std::mem::replace(response.body_mut(), Body::default());
+
+						response
+					})
+				});
 			}
+		}
+
+		if let Some(wildcard_method_handler) = self.some_wildcard_method_handler.as_ref() {
+			wildcard_method_handler.handle(request, args)
+		} else if !&self.allowed_methods.is_empty() {
+			handle_unimplemented_method(request, &self.allowed_methods)
+		} else {
+			let routing_state = std::mem::take(&mut args.routing_state);
+			let node_extensions = args.node_extensions.take();
+
+			handle_mistargeted_request(
+				request,
+				routing_state,
+				self
+					.some_mistargeted_request_handler
+					.as_ref()
+					.map(|handler| (handler, node_extensions)),
+			)
 		}
 	}
 }

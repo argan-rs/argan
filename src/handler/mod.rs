@@ -40,6 +40,8 @@ pub trait Handler<B = Body, Ext = ()> {
 	fn handle(&self, request: Request<B>, args: &mut Args<'_, Ext>) -> Self::Future;
 }
 
+// -------------------------
+
 // impl<S, B> Handler<B> for S
 // where
 // 	S: Service<Request<B>>,
@@ -296,7 +298,9 @@ impl ArcHandler {
 impl Default for ArcHandler {
 	#[inline(always)]
 	fn default() -> Self {
-		Self(Arc::new(DummyHandler::<BoxedFuture<Result<Response, BoxedErrorResponse>>>::new()))
+		Self(Arc::new(DummyHandler::<
+			BoxedFuture<Result<Response, BoxedErrorResponse>>,
+		>::new()))
 	}
 }
 

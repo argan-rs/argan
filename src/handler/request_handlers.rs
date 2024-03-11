@@ -143,8 +143,7 @@ pub(crate) fn handle_unimplemented_method(
 	mut request: Request,
 	allowed_methods: &str,
 ) -> BoxedFuture<Result<Response, BoxedErrorResponse>> {
-	let mut response = Response::default();
-	*response.status_mut() = StatusCode::METHOD_NOT_ALLOWED;
+	let mut response = StatusCode::METHOD_NOT_ALLOWED.into_response();
 
 	if allowed_methods.is_empty() {
 		return Box::pin(ready(Ok(response)));
@@ -238,8 +237,7 @@ pub(crate) fn handle_mistargeted_request(
 		return mistargeted_request_handler.handle(request, &mut args);
 	}
 
-	let mut response = Response::default();
-	*response.status_mut() = StatusCode::NOT_FOUND;
+	let mut response = StatusCode::NOT_FOUND.into_response();
 
 	if routing_state.subtree_handler_exists {
 		response
