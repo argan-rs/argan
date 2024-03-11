@@ -15,7 +15,7 @@ use crate::{
 	routing::{RoutingState, UnusedRequest},
 };
 
-use super::{AdaptiveHandler, Args, BoxedHandler, FinalHandler, Handler, IntoHandler};
+use super::{AdaptiveHandler, ArcHandler, Args, BoxedHandler, FinalHandler, Handler, IntoHandler};
 
 // --------------------------------------------------------------------------------
 // --------------------------------------------------------------------------------
@@ -95,7 +95,7 @@ impl Debug for MethodHandlers {
 	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
 		write!(
 			f,
-			"MethodHandlers {{ method_handlers count: {}, all_methods_handler exists: {} }}",
+			"MethodHandlers {{ method_handlers count: {}, wildcard_method_handler exists: {} }}",
 			self.method_handlers.len(),
 			self.some_wildcard_method_handler.is_some(),
 		)
@@ -223,7 +223,7 @@ pub(crate) fn wrap_mistargeted_request_handler(
 pub(crate) fn handle_mistargeted_request(
 	mut request: Request,
 	routing_state: RoutingState,
-	mut some_custom_handler_with_extensions: Option<(&BoxedHandler, NodeExtensions)>,
+	mut some_custom_handler_with_extensions: Option<(&ArcHandler, NodeExtensions)>,
 ) -> BoxedFuture<Result<Response, BoxedErrorResponse>> {
 	if let Some((mistargeted_request_handler, node_extensions)) =
 		some_custom_handler_with_extensions.take()

@@ -1112,12 +1112,23 @@ impl Resource {
 			wildcard_resource.map(|resource| Arc::new(resource.into_service()));
 
 		// -------------------------
+		// MistargetedRequestHandller
+
+		let some_mistargeted_request_handler =
+			wrap_mistargeted_request_handler(some_mistargeted_request_handler, &mut middleware)
+				.map(Into::into);
+
+		// -------------------------
 		// RequestHandler
 
 		let some_request_handler = if method_handlers.is_empty() {
 			None
 		} else {
-			match RequestHandler::new(method_handlers, &mut middleware) {
+			match RequestHandler::new(
+				method_handlers,
+				&mut middleware,
+				some_mistargeted_request_handler.clone(),
+			) {
 				Ok(request_handler) => Some(Arc::new(request_handler)),
 				Err(method) => panic!(
 					"{} resource has no {} method handler to wrap",
@@ -1125,12 +1136,6 @@ impl Resource {
 				),
 			}
 		};
-
-		// -------------------------
-		// MistargetedRequestHandller
-
-		some_mistargeted_request_handler =
-			wrap_mistargeted_request_handler(some_mistargeted_request_handler, &mut middleware);
 
 		// -------------------------
 		// RequestPasser

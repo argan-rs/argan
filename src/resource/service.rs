@@ -24,7 +24,7 @@ use crate::{
 			self, handle_mistargeted_request, handle_unimplemented_method, MethodHandlers,
 			MistargetedRequestHandler, UnimplementedMethodHandler,
 		},
-		AdaptiveHandler, Args, BoxedHandler, Handler, IntoHandler, Service,
+		AdaptiveHandler, ArcHandler, Args, BoxedHandler, Handler, IntoHandler, Service,
 	},
 	middleware::{BoxedLayer, Layer, ResponseResultFutureBoxer},
 	pattern::{ParamsList, Pattern},
@@ -44,7 +44,7 @@ pub struct ResourceService {
 	extensions: Extensions,
 
 	request_receiver: MaybeBoxed<RequestReceiver>,
-	some_mistargeted_request_handler: Option<BoxedHandler>,
+	some_mistargeted_request_handler: Option<ArcHandler>,
 }
 
 impl ResourceService {
@@ -53,7 +53,7 @@ impl ResourceService {
 		pattern: Pattern,
 		extensions: Extensions,
 		request_receiver: MaybeBoxed<RequestReceiver>,
-		some_mistargeted_request_handler: Option<BoxedHandler>,
+		some_mistargeted_request_handler: Option<ArcHandler>,
 	) -> Self {
 		Self {
 			pattern,
@@ -186,7 +186,7 @@ where
 pub(crate) struct RequestReceiver {
 	some_request_passer: Option<MaybeBoxed<RequestPasser>>,
 	some_request_handler: Option<Arc<MaybeBoxed<RequestHandler>>>,
-	some_mistargeted_request_handler: Option<BoxedHandler>,
+	some_mistargeted_request_handler: Option<ArcHandler>,
 
 	config_flags: ConfigFlags,
 }
@@ -195,7 +195,7 @@ impl RequestReceiver {
 	pub(crate) fn new(
 		some_request_passer: Option<MaybeBoxed<RequestPasser>>,
 		some_request_handler: Option<Arc<MaybeBoxed<RequestHandler>>>,
-		some_mistargeted_request_handler: Option<BoxedHandler>,
+		some_mistargeted_request_handler: Option<ArcHandler>,
 		config_flags: ConfigFlags,
 		middleware: Vec<ResourceLayerTarget>,
 	) -> MaybeBoxed<Self> {
@@ -407,7 +407,7 @@ pub(crate) struct RequestPasser {
 	some_regex_resources: Option<Arc<[ResourceService]>>,
 	some_wildcard_resource: Option<Arc<ResourceService>>,
 
-	some_mistargeted_request_handler: Option<BoxedHandler>,
+	some_mistargeted_request_handler: Option<ArcHandler>,
 }
 
 impl RequestPasser {
@@ -415,7 +415,7 @@ impl RequestPasser {
 		some_static_resources: Option<Arc<[ResourceService]>>,
 		some_regex_resources: Option<Arc<[ResourceService]>>,
 		some_wildcard_resource: Option<Arc<ResourceService>>,
-		some_mistargeted_request_handler: Option<BoxedHandler>,
+		some_mistargeted_request_handler: Option<ArcHandler>,
 		middleware: &mut Vec<ResourceLayerTarget>,
 	) -> MaybeBoxed<Self> {
 		let request_passer = Self {
@@ -547,12 +547,14 @@ pub(crate) struct RequestHandler {
 
 	method_handlers: Vec<(Method, BoxedHandler)>,
 	some_wildcard_method_handler: Option<BoxedHandler>,
+	some_mistargeted_request_handler: Option<ArcHandler>,
 }
 
 impl RequestHandler {
 	pub(crate) fn new(
 		method_handlers: MethodHandlers,
 		middleware: &mut Vec<ResourceLayerTarget>,
+		some_mistargeted_request_handler: Option<ArcHandler>,
 	) -> Result<MaybeBoxed<Self>, Method> {
 		let MethodHandlers {
 			method_handlers,
@@ -569,6 +571,7 @@ impl RequestHandler {
 			allowed_methods,
 			method_handlers,
 			some_wildcard_method_handler,
+			some_mistargeted_request_handler,
 		};
 
 		let mut request_handler_middleware_exists = false;
@@ -659,7 +662,7 @@ impl Handler for RequestHandler {
 	type Future = BoxedFuture<Result<Self::Response, Self::Error>>;
 
 	fn handle(&self, request: Request, args: &mut Args) -> Self::Future {
-		let method = request.method().clone();
+		let method = &request.method();
 		let some_method_handler = self.method_handlers.iter().find(|(m, _)| m == method);
 
 		if let Some((_, ref handler)) = some_method_handler {
