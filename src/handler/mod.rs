@@ -248,14 +248,14 @@ impl BoxedHandler {
 	#[allow(private_bounds)]
 	#[inline(always)]
 	pub(crate) fn new<H: FinalHandler + Send + Sync + 'static>(handler: H) -> Self {
-		BoxedHandler(Box::new(handler))
+		Self(Box::new(handler))
 	}
 }
 
 impl Default for BoxedHandler {
 	#[inline(always)]
 	fn default() -> Self {
-		BoxedHandler(Box::new(DummyHandler::<
+		Self(Box::new(DummyHandler::<
 			BoxedFuture<Result<Response, BoxedErrorResponse>>,
 		>::new()))
 	}
@@ -269,6 +269,44 @@ impl Clone for BoxedHandler {
 }
 
 impl Handler for BoxedHandler {
+	type Response = Response;
+	type Error = BoxedErrorResponse;
+	type Future = BoxedFuture<Result<Self::Response, Self::Error>>;
+
+	#[inline(always)]
+	fn handle(&self, request: Request, args: &mut Args) -> Self::Future {
+		self.0.handle(request, args)
+	}
+}
+
+// --------------------------------------------------
+// ArcHandler
+
+#[derive(Clone)]
+pub(crate) struct ArcHandler(Arc<dyn FinalHandler + Send + Sync>);
+
+impl ArcHandler {
+	#[allow(private_bounds)]
+	#[inline(always)]
+	pub(crate) fn new<H: FinalHandler + Send + Sync + 'static>(handler: H) -> Self {
+		Self(Arc::new(handler))
+	}
+}
+
+impl Default for ArcHandler {
+	#[inline(always)]
+	fn default() -> Self {
+		Self(Arc::new(DummyHandler::<BoxedFuture<Result<Response, BoxedErrorResponse>>>::new()))
+	}
+}
+
+impl From<BoxedHandler> for ArcHandler {
+	fn from(boxed_handler: BoxedHandler) -> Self {
+		Self(boxed_handler.0.into())
+	}
+}
+
+impl Handler for ArcHandler {
 	type Response = Response;
 	type Error = BoxedErrorResponse;
 	type Future = BoxedFuture<Result<Self::Response, Self::Error>>;
