@@ -135,9 +135,9 @@ pub(crate) fn new_root() -> Resource {
 
 	root
 		.subresource_mut("/st_0_0/{rx_1_1:p_0}-abc/")
-		.set_handler(wildcard_method(
+		.set_handler(wildcard_method(Some(
 			|PathParams(data): PathParams<Rx_1_1>| async { Json(data) },
-		));
+		)));
 
 	root
 		.subresource_mut("/st_0_0/{rx_1_1:p_0}-abc/st_2_1")

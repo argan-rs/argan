@@ -3,12 +3,12 @@ use std::{
 	future::{ready, Ready},
 };
 
-use http::{Extensions, HeaderName, HeaderValue, Method, StatusCode};
+use http::{header::InvalidHeaderValue, Extensions, HeaderName, HeaderValue, Method, StatusCode};
 
 use crate::{
 	common::{mark::Private, BoxedError, BoxedFuture, Uncloneable},
 	data::extensions::NodeExtensions,
-	middleware::{Layer, ResponseResultFutureBoxer},
+	middleware::{BoxedLayer, Layer, ResponseResultFutureBoxer},
 	request::Request,
 	resource::layer_targets::ResourceLayerTarget,
 	response::{BoxedErrorResponse, IntoResponse, Response, ResponseError},
@@ -22,21 +22,19 @@ use super::{AdaptiveHandler, ArcHandler, Args, BoxedHandler, FinalHandler, Handl
 
 #[derive(Clone)]
 pub(crate) struct MethodHandlers {
-	pub(crate) method_handlers: Vec<(Method, BoxedHandler)>,
-	pub(crate) some_wildcard_method_handler: Option<BoxedHandler>,
+	pub(crate) method_handlers_list: Vec<(Method, BoxedHandler)>,
+	pub(crate) wildcard_method_handler: WildcardMethodHandler,
 
-	pub(crate) send_allowed_methods: bool,
-	pub(crate) allowed_methods: String,
+	pub(crate) implemented_methods: String,
 }
 
 impl MethodHandlers {
 	pub(crate) fn new() -> Self {
 		MethodHandlers {
-			method_handlers: Vec::new(),
-			some_wildcard_method_handler: None,
+			method_handlers_list: Vec::new(),
+			wildcard_method_handler: WildcardMethodHandler::Default,
 
-			send_allowed_methods: true,
-			allowed_methods: String::new(),
+			implemented_methods: String::new(),
 		}
 	}
 
@@ -44,50 +42,48 @@ impl MethodHandlers {
 
 	#[inline(always)]
 	pub(crate) fn count(&self) -> usize {
-		self.method_handlers.len()
-	}
-
-	#[inline(always)]
-	pub(crate) fn is_empty(&self) -> bool {
-		self.method_handlers.is_empty() && self.some_wildcard_method_handler.is_none()
+		self.method_handlers_list.len()
 	}
 
 	#[inline(always)]
 	pub(crate) fn has_some_effect(&self) -> bool {
-		!self.method_handlers.is_empty() || self.some_wildcard_method_handler.is_some()
+		!self.method_handlers_list.is_empty() || self.has_custom_wildcard_method_handler()
 	}
 
 	#[inline(always)]
-	pub(crate) fn has_wildcard_method_handler(&self) -> bool {
-		self.some_wildcard_method_handler.is_some()
-	}
-
-	#[inline(always)]
-	pub(crate) fn no_allowed_methods(&mut self) {
-		self.send_allowed_methods = false;
-		self.allowed_methods = String::new();
+	pub(crate) fn has_custom_wildcard_method_handler(&self) -> bool {
+		self.wildcard_method_handler.is_custom()
 	}
 
 	#[inline]
 	pub(crate) fn set_handler(&mut self, method: Method, handler: BoxedHandler) {
-		if self.method_handlers.iter().any(|(m, _)| m == method) {
+		if self.method_handlers_list.iter().any(|(m, _)| m == method) {
 			panic!("{} handler already exists", method)
 		}
 
-		if self.send_allowed_methods && !self.allowed_methods.is_empty() {
-			self.allowed_methods.push_str(", ");
+		if !self.implemented_methods.is_empty() {
+			self.implemented_methods.push_str(", ");
 		}
 
-		if self.send_allowed_methods {
-			self.allowed_methods.push_str(method.as_str());
-		}
-
-		self.method_handlers.push((method, handler));
+		self.method_handlers_list.push((method, handler));
 	}
 
 	#[inline(always)]
-	pub(crate) fn set_wildcard_method_handler(&mut self, handler: BoxedHandler) {
-		self.some_wildcard_method_handler = Some(handler);
+	pub(crate) fn set_wildcard_method_handler(&mut self, some_boxed_handler: Option<BoxedHandler>) {
+		if self.has_custom_wildcard_method_handler() {
+			panic!("wildcard method handler already exists")
+		}
+
+		if self.wildcard_method_handler.is_none() {
+			panic!("wildcard method handler has been forbidden")
+		}
+
+		if let Some(boxed_handler) = some_boxed_handler {
+			self.wildcard_method_handler = WildcardMethodHandler::Custom(boxed_handler);
+		} else {
+			self.wildcard_method_handler = WildcardMethodHandler::None(None);
+			// The mistargeted request handler must be set when into_service() is called.
+		}
 	}
 }
 
@@ -96,8 +92,8 @@ impl Debug for MethodHandlers {
 		write!(
 			f,
 			"MethodHandlers {{ method_handlers count: {}, wildcard_method_handler exists: {} }}",
-			self.method_handlers.len(),
-			self.some_wildcard_method_handler.is_some(),
+			self.method_handlers_list.len(),
+			self.wildcard_method_handler.is_custom(),
 		)
 	}
 }
@@ -105,62 +101,158 @@ impl Debug for MethodHandlers {
 // --------------------------------------------------
 
 #[derive(Default, Clone)]
-pub(crate) struct UnimplementedMethodHandler(String);
+pub(crate) enum WildcardMethodHandler {
+	#[default]
+	Default,
+	Custom(BoxedHandler),
+	None(Option<ArcHandler>), // Mistargeted request handler.
+}
 
-impl UnimplementedMethodHandler {
-	#[inline(always)]
-	pub(crate) fn new(allowed_methods: String) -> Self {
-		Self(allowed_methods)
+impl WildcardMethodHandler {
+	pub(crate) fn is_default(&self) -> bool {
+		if let Self::Default = self {
+			true
+		} else {
+			false
+		}
+	}
+
+	pub(crate) fn is_custom(&self) -> bool {
+		if let Self::Custom(_) = self {
+			true
+		} else {
+			false
+		}
+	}
+
+	pub(crate) fn is_none(&self) -> bool {
+		if let Self::None(_) = self {
+			true
+		} else {
+			false
+		}
+	}
+
+	pub(crate) fn wrap(&mut self, boxed_layer: BoxedLayer) {
+		let boxed_handler = match self {
+			Self::Default => {
+				BoxedHandler::new(ResponseResultFutureBoxer::wrap(UnimplementedMethodHandler))
+			}
+			Self::Custom(boxed_handler) => std::mem::take(boxed_handler),
+			Self::None(_) => panic!("middleware was provided for a forbidden wildcard method handler"),
+		};
+
+		let boxed_handler = boxed_layer.wrap(boxed_handler.into());
+
+		*self = Self::Custom(boxed_handler);
 	}
 }
+
+impl From<BoxedHandler> for WildcardMethodHandler {
+	fn from(boxed_handler: BoxedHandler) -> Self {
+		Self::Custom(boxed_handler)
+	}
+}
+
+impl From<ArcHandler> for WildcardMethodHandler {
+	fn from(arc_handler: ArcHandler) -> Self {
+		Self::None(Some(arc_handler))
+	}
+}
+
+impl Handler for WildcardMethodHandler {
+	type Response = Response;
+	type Error = BoxedErrorResponse;
+	type Future = BoxedFuture<Result<Self::Response, Self::Error>>;
+
+	fn handle(&self, request: Request, args: &mut Args) -> Self::Future {
+		match self {
+			Self::Default => handle_unimplemented_method(args),
+			Self::Custom(boxed_handler) => boxed_handler.handle(request, args),
+			Self::None(some_mistargeted_request_handler) => {
+				let routing_state = std::mem::take(&mut args.routing_state);
+				let node_extensions = args.node_extensions.take();
+
+				handle_mistargeted_request(
+					request,
+					routing_state,
+					some_mistargeted_request_handler
+						.as_ref()
+						.map(|handler| (handler, node_extensions)),
+				)
+			}
+		}
+	}
+}
+
+// --------------------------------------------------
+
+#[derive(Debug, Clone)]
+pub(crate) struct ImplementedMethods(String);
+
+impl ImplementedMethods {
+	#[inline(always)]
+	pub(crate) fn new(implemented_methods: String) -> Self {
+		Self(implemented_methods)
+	}
+}
+
+impl AsRef<str> for ImplementedMethods {
+	#[inline(always)]
+	fn as_ref(&self) -> &str {
+		&self.0
+	}
+}
+
+// --------------------------------------------------
+
+#[derive(Default, Clone)]
+pub(crate) struct UnimplementedMethodHandler;
 
 impl Handler for UnimplementedMethodHandler {
 	type Response = Response;
 	type Error = BoxedErrorResponse;
-	type Future = Ready<Result<Self::Response, Self::Error>>;
+	type Future = BoxedFuture<Result<Self::Response, Self::Error>>;
 
-	fn handle(&self, request: Request, _args: &mut Args) -> Self::Future {
-		match HeaderValue::from_str(&self.0) {
-			Ok(header_value) => {
-				let mut response = Response::default();
-				*response.status_mut() = StatusCode::METHOD_NOT_ALLOWED;
-				response
-					.headers_mut()
-					.append(HeaderName::from_static("Allow"), header_value);
-
-				ready(Ok(response))
-			}
-			Err(_) => ready(Err(
-				Into::<ResponseError>::into(StatusCode::INTERNAL_SERVER_ERROR).into(),
-			)),
-		}
+	fn handle(&self, request: Request, args: &mut Args) -> Self::Future {
+		handle_unimplemented_method(args)
 	}
 }
 
 // -------------------------
 
 pub(crate) fn handle_unimplemented_method(
-	mut request: Request,
-	allowed_methods: &str,
+	args: &mut Args,
 ) -> BoxedFuture<Result<Response, BoxedErrorResponse>> {
 	let mut response = StatusCode::METHOD_NOT_ALLOWED.into_response();
 
-	if allowed_methods.is_empty() {
+	let Some(implemented_methods) = args.node_extensions.get_ref::<ImplementedMethods>() else {
 		return Box::pin(ready(Ok(response)));
-	}
+	};
 
-	match HeaderValue::from_str(allowed_methods) {
+	match HeaderValue::from_str(implemented_methods.as_ref()) {
 		Ok(header_value) => {
 			response
 				.headers_mut()
 				.append(HeaderName::from_static("Allow"), header_value);
 		}
-		Err(_) => {
-			*response.status_mut() = StatusCode::INTERNAL_SERVER_ERROR;
-		}
+		Err(error) => return Box::pin(ready(Err(AllowHeaderError::from(error).into()))),
 	}
 
 	Box::pin(ready(Ok(response)))
+}
+
+// -------------------------
+// AllowHeaderError
+
+#[derive(Debug, crate::ImplError)]
+#[error("invalid allow header '{0}'")]
+pub struct AllowHeaderError(#[from] InvalidHeaderValue);
+
+impl IntoResponse for AllowHeaderError {
+	fn into_response(self) -> Response {
+		StatusCode::INTERNAL_SERVER_ERROR.into_response()
+	}
 }
 
 // --------------------------------------------------------------------------------

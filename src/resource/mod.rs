@@ -13,7 +13,8 @@ use crate::{
 	common::{mark::Private, patterns_to_route, BoxedFuture, IntoArray, Uncloneable},
 	handler::{
 		request_handlers::{
-			handle_mistargeted_request, wrap_mistargeted_request_handler, MethodHandlers,
+			handle_mistargeted_request, wrap_mistargeted_request_handler, ImplementedMethods,
+			MethodHandlers,
 		},
 		AdaptiveHandler, BoxedHandler, HandlerKind, IntoHandler,
 	},
@@ -220,7 +221,7 @@ impl Resource {
 
 	#[inline(always)]
 	pub(crate) fn can_handle_request(&self) -> bool {
-		!self.method_handlers.is_empty()
+		self.method_handlers.count() > 0
 	}
 
 	#[inline(always)]
@@ -989,7 +990,9 @@ impl Resource {
 
 			match handler_kind {
 				Method(method, handler) => self.method_handlers.set_handler(method, handler),
-				WildcardMethod(handler) => self.method_handlers.set_wildcard_method_handler(handler),
+				WildcardMethod(some_handler) => self
+					.method_handlers
+					.set_wildcard_method_handler(some_handler),
 				MistargetedRequest(handler) => self.some_mistargeted_request_handler = Some(handler),
 			}
 		}
@@ -1079,7 +1082,7 @@ impl Resource {
 			mut middleware,
 			method_handlers,
 			mut some_mistargeted_request_handler,
-			extensions,
+			mut extensions,
 			config_flags,
 			..
 		} = self;
@@ -1111,6 +1114,18 @@ impl Resource {
 		let some_wildcard_resource =
 			wildcard_resource.map(|resource| Arc::new(resource.into_service()));
 
+		// ----------
+
+		let MethodHandlers {
+			method_handlers_list,
+			wildcard_method_handler,
+			implemented_methods,
+		} = method_handlers;
+
+		if !implemented_methods.is_empty() {
+			extensions.insert(ImplementedMethods::new(implemented_methods));
+		}
+
 		// -------------------------
 		// MistargetedRequestHandller
 
@@ -1121,21 +1136,23 @@ impl Resource {
 		// -------------------------
 		// RequestHandler
 
-		let some_request_handler = if method_handlers.is_empty() {
-			None
-		} else {
-			match RequestHandler::new(
-				method_handlers,
-				&mut middleware,
-				some_mistargeted_request_handler.clone(),
-			) {
-				Ok(request_handler) => Some(Arc::new(request_handler)),
-				Err(method) => panic!(
-					"{} resource has no {} method handler to wrap",
-					pattern, method
-				),
-			}
-		};
+		let some_request_handler =
+			if method_handlers_list.is_empty() && !wildcard_method_handler.is_custom() {
+				None
+			} else {
+				match RequestHandler::new(
+					method_handlers_list,
+					wildcard_method_handler,
+					&mut middleware,
+					some_mistargeted_request_handler.clone(),
+				) {
+					Ok(request_handler) => Some(Arc::new(request_handler)),
+					Err(method) => panic!(
+						"{} resource has no {} method handler to wrap",
+						pattern, method
+					),
+				}
+			};
 
 		// -------------------------
 		// RequestPasser
@@ -1214,7 +1231,7 @@ impl Debug for Resource {
 			self.some_wildcard_resource.is_some(),
 			self.middleware.len(),
 			self.method_handlers.count(),
-			self.method_handlers.has_wildcard_method_handler(),
+			self.method_handlers.has_custom_wildcard_method_handler(),
 			self.some_mistargeted_request_handler.is_some(),
 			self.extensions.len(),
 			self.config_flags,

@@ -20,7 +20,7 @@ mod private {
 	#[allow(private_interfaces)]
 	pub enum HandlerKind {
 		Method(Method, BoxedHandler),
-		WildcardMethod(BoxedHandler),
+		WildcardMethod(Option<BoxedHandler>),
 		MistargetedRequest(BoxedHandler),
 	}
 
@@ -79,17 +79,20 @@ where
 	HandlerKind::Method(method, final_handler.into_boxed_handler())
 }
 
-pub fn wildcard_method<H, Mark>(handler: H) -> HandlerKind
+pub fn wildcard_method<H, Mark>(some_handler: Option<H>) -> HandlerKind
 where
 	H: IntoHandler<Mark, Body>,
 	H::Handler: Handler + Clone + Send + Sync + 'static,
 	<H::Handler as Handler>::Response: IntoResponse,
 	<H::Handler as Handler>::Error: Into<BoxedErrorResponse>,
 {
-	let final_handler =
-		ResponseResultFutureBoxer::wrap(IntoResponseResultAdapter::wrap(handler.into_handler()));
+	let some_final_handler = some_handler.map(|handler| {
+		let handler = handler.into_handler();
 
-	HandlerKind::WildcardMethod(final_handler.into_boxed_handler())
+		ResponseResultFutureBoxer::wrap(IntoResponseResultAdapter::wrap(handler)).into_boxed_handler()
+	});
+
+	HandlerKind::WildcardMethod(some_final_handler)
 }
 
 pub fn mistargeted_request<H, Mark>(handler: H) -> HandlerKind
