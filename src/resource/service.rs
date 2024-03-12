@@ -22,7 +22,7 @@ use crate::{
 		futures::ResponseToResultFuture,
 		request_handlers::{
 			self, handle_mistargeted_request, handle_unimplemented_method, MethodHandlers,
-			MistargetedRequestHandler, UnimplementedMethodHandler,
+			MistargetedRequestHandler, UnimplementedMethodHandler, WildcardMethodHandler,
 		},
 		AdaptiveHandler, ArcHandler, Args, BoxedHandler, Handler, IntoHandler, Service,
 	},
@@ -543,35 +543,24 @@ impl Handler for RequestPasser {
 
 #[derive(Clone)]
 pub(crate) struct RequestHandler {
-	allowed_methods: String,
-
 	method_handlers: Vec<(Method, BoxedHandler)>,
-	some_wildcard_method_handler: Option<BoxedHandler>,
-	some_mistargeted_request_handler: Option<ArcHandler>,
+	wildcard_method_handler: WildcardMethodHandler,
 }
 
 impl RequestHandler {
 	pub(crate) fn new(
-		method_handlers: MethodHandlers,
+		method_handlers: Vec<(Method, BoxedHandler)>,
+		wildcard_method_handler: WildcardMethodHandler,
 		middleware: &mut Vec<ResourceLayerTarget>,
 		some_mistargeted_request_handler: Option<ArcHandler>,
 	) -> Result<MaybeBoxed<Self>, Method> {
-		let MethodHandlers {
-			method_handlers,
-			some_wildcard_method_handler,
-			send_allowed_methods,
-			mut allowed_methods,
-		} = method_handlers;
-
-		if !send_allowed_methods {
-			allowed_methods = String::new();
-		}
-
 		let mut request_handler = Self {
-			allowed_methods,
 			method_handlers,
-			some_wildcard_method_handler,
-			some_mistargeted_request_handler,
+			wildcard_method_handler: if wildcard_method_handler.is_none() {
+				WildcardMethodHandler::None(some_mistargeted_request_handler)
+			} else {
+				wildcard_method_handler
+			},
 		};
 
 		let mut request_handler_middleware_exists = false;
@@ -594,7 +583,7 @@ impl RequestHandler {
 						unreachable!()
 					};
 
-					request_handler.wrap_wildcard_method_handler(boxed_layer);
+					request_handler.wildcard_method_handler.wrap(boxed_layer);
 				}
 				ResourceLayerTarget::RequestHandler(_) => request_handler_middleware_exists = true,
 				_ => {}
@@ -636,24 +625,6 @@ impl RequestHandler {
 
 		Ok(())
 	}
-
-	pub(crate) fn wrap_wildcard_method_handler(&mut self, boxed_layer: BoxedLayer) {
-		let boxed_handler = match self.some_wildcard_method_handler.take() {
-			Some(wildcard_method_handler) => wildcard_method_handler,
-			None => {
-				let allowed_methods = std::mem::take(&mut self.allowed_methods);
-				let unimplemented_method_handler = UnimplementedMethodHandler::new(allowed_methods);
-
-				BoxedHandler::new(ResponseResultFutureBoxer::wrap(
-					unimplemented_method_handler,
-				))
-			}
-		};
-
-		let boxed_handler = boxed_layer.wrap(boxed_handler.into());
-
-		self.some_wildcard_method_handler.replace(boxed_handler);
-	}
 }
 
 impl Handler for RequestHandler {
@@ -685,23 +656,7 @@ impl Handler for RequestHandler {
 			}
 		}
 
-		if let Some(wildcard_method_handler) = self.some_wildcard_method_handler.as_ref() {
-			wildcard_method_handler.handle(request, args)
-		} else if !&self.allowed_methods.is_empty() {
-			handle_unimplemented_method(request, &self.allowed_methods)
-		} else {
-			let routing_state = std::mem::take(&mut args.routing_state);
-			let node_extensions = args.node_extensions.take();
-
-			handle_mistargeted_request(
-				request,
-				routing_state,
-				self
-					.some_mistargeted_request_handler
-					.as_ref()
-					.map(|handler| (handler, node_extensions)),
-			)
-		}
+		self.wildcard_method_handler.handle(request, args)
 	}
 }
 
