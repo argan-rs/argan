@@ -21,7 +21,6 @@ use crate::{
 	middleware::{IntoResponseResultAdapter, ResponseResultFutureBoxer},
 	pattern::{split_uri_host_and_path, Pattern, Similarity},
 	request::{FromRequest, FromRequestHead, Request, RequestHead},
-	resource::layer_targets::request_receiver,
 	response::Response,
 	routing::{RouteSegments, RoutingState},
 };
@@ -37,6 +36,16 @@ use self::{
 	config::{ConfigFlags, ResourceConfigOption},
 	layer_targets::ResourceLayerTarget,
 	service::{RequestHandler, RequestPasser, RequestReceiver},
+};
+
+pub use config::{
+	_as_subtree_handler, _to_drop_on_unmatching_slash, _to_handle_on_unmatching_slash,
+	_to_modify_request_extensions,
+};
+
+pub use layer_targets::{
+	_method_handler, _mistargeted_request_handler, _request_handler, _request_passer,
+	_request_receiver, _wildcard_method_handler,
 };
 
 pub use service::ResourceService;
@@ -980,7 +989,8 @@ impl Resource {
 	// 	))
 	// }
 
-	pub fn set_handler<H, const N: usize>(&mut self, handler_kinds: H)
+	// ~set_handler_for $property to $value
+	pub fn set_handler_for<H, const N: usize>(&mut self, handler_kinds: H)
 	where
 		H: IntoArray<HandlerKind, N>,
 	{
@@ -998,14 +1008,17 @@ impl Resource {
 		}
 	}
 
-	pub fn add_layer<L, const N: usize>(&mut self, layer_targets: L)
+	pub fn add_layer_to<L, const N: usize>(&mut self, layer_targets: L)
 	where
 		L: IntoArray<ResourceLayerTarget, N>,
 	{
 		self.middleware.extend(layer_targets.into_array());
+		// self.set_handler_for(_get(|| async {}));
+		// self.set_handler_for(_get_to(|| async {}));
+		// self.set_handler_for(_method(GET, || async {}));
 	}
 
-	pub fn set_config<C, const N: usize>(&mut self, config_options: C)
+	pub fn configure<C, const N: usize>(&mut self, config_options: C)
 	where
 		C: IntoArray<ResourceConfigOption, N>,
 	{
@@ -1033,7 +1046,7 @@ impl Resource {
 					self.config_flags.add(ConfigFlags::SUBTREE_HANDLER);
 				}
 				ModifyRequestExtensions(request_extensions_modifier_layer) => {
-					let request_receiver_layer_target = request_receiver(request_extensions_modifier_layer);
+					let request_receiver_layer_target = _request_receiver(request_extensions_modifier_layer);
 
 					self.middleware.insert(0, request_receiver_layer_target);
 				}
@@ -1261,12 +1274,12 @@ pub enum Iteration {
 mod test {
 	use crate::{
 		common::route_to_patterns,
-		handler::{futures::DefaultResponseFuture, get, post, put, DummyHandler},
+		handler::{_get, _post, _put, futures::DefaultResponseFuture, DummyHandler},
 	};
 
 	use super::*;
 
-	use test::config::drop_on_unmatching_slash;
+	use test::config::_to_drop_on_unmatching_slash;
 
 	// --------------------------------------------------------------------------------
 
@@ -1342,10 +1355,10 @@ mod test {
 			// Existing resources in the tree.
 
 			let (rx_2_0, _) = parent.leaf_resource_mut(RouteSegments::new("/{rx_2_0:p0}"));
-			rx_2_0.set_handler(post(DummyHandler::<DefaultResponseFuture>::new()));
+			rx_2_0.set_handler_for(_post(DummyHandler::<DefaultResponseFuture>::new()));
 			rx_2_0
 				.subresource_mut("/{rx_3_1:p0}/{wl_4_0}")
-				.set_handler(get(DummyHandler::<DefaultResponseFuture>::new()));
+				.set_handler_for(_get(DummyHandler::<DefaultResponseFuture>::new()));
 
 			let (st_4_2, _) = rx_2_0.leaf_resource_mut(RouteSegments::new("/{rx_3_1:p0}/st_4_2"));
 
@@ -1360,15 +1373,15 @@ mod test {
 
 			let mut new_rx_3_1 = Resource::new("/{rx_3_1:p0}");
 			// Must replace the existing resource.
-			new_rx_3_1.set_handler([
-				get(DummyHandler::<DefaultResponseFuture>::new()),
-				post(DummyHandler::<DefaultResponseFuture>::new()),
+			new_rx_3_1.set_handler_for([
+				_get(DummyHandler::<DefaultResponseFuture>::new()),
+				_post(DummyHandler::<DefaultResponseFuture>::new()),
 			]);
 
 			new_rx_3_1
 				.subresource_mut("/st_4_1")
 				// Must replace the existing resource.
-				.set_handler(post(DummyHandler::<DefaultResponseFuture>::new()));
+				.set_handler_for(_post(DummyHandler::<DefaultResponseFuture>::new()));
 
 			new_rx_3_1.new_subresource_mut(RouteSegments::new("/{rx_4_3:p0}"));
 			new_rx_3_1.new_subresource_mut(RouteSegments::new("/st_4_4"));
@@ -1413,7 +1426,7 @@ mod test {
 
 			let mut new_wl_3_0 = Resource::new(wl_3_0_path);
 			new_wl_3_0.by_patterns_new_subresource_mut(std::iter::once(Pattern::parse("st_4_1")));
-			new_wl_3_0.set_handler(get(DummyHandler::<DefaultResponseFuture>::new()));
+			new_wl_3_0.set_handler_for(_get(DummyHandler::<DefaultResponseFuture>::new()));
 
 			parent.add_subresource(new_wl_3_0);
 			let (wl_3_0, _) = parent.leaf_resource_mut(RouteSegments::new(wl_3_0_route));
@@ -1630,7 +1643,7 @@ mod test {
 			);
 
 			if case.resource_has_handler {
-				resource.set_handler(get(DummyHandler::<DefaultResponseFuture>::new()));
+				resource.set_handler_for(_get(DummyHandler::<DefaultResponseFuture>::new()));
 			}
 
 			resource
@@ -1645,7 +1658,7 @@ mod test {
 			new_rx_3_1
 				.subresource_mut("/{wl_4_0}")
 				// Existing wl_4_0 doesn't have a handler. It should be replaced with the new one.
-				.set_handler(post(DummyHandler::<DefaultResponseFuture>::new()));
+				.set_handler_for(_post(DummyHandler::<DefaultResponseFuture>::new()));
 
 			// Existing st_4_1 has a handler. The new_st_4_1 should not replace it.
 			let new_st_4_1 = Resource::new("/st_4_1");
@@ -1673,17 +1686,17 @@ mod test {
 
 			// Existing st_2_1 doesn't have a handler. It should be replaced with the new one.
 			let mut new_st_2_1 = Resource::new("/st_0_0/{wl_1_0}/st_2_1");
-			new_st_2_1.set_handler(get(DummyHandler::<DefaultResponseFuture>::new()));
+			new_st_2_1.set_handler_for(_get(DummyHandler::<DefaultResponseFuture>::new()));
 
 			let mut new_rx_4_1 = Resource::new("/{rx_4_1:p1}");
 			new_rx_4_1
 				// New subresource.
 				.subresource_mut("/{wl_5_1}")
-				.set_handler(get(DummyHandler::<DefaultResponseFuture>::new()));
+				.set_handler_for(_get(DummyHandler::<DefaultResponseFuture>::new()));
 			new_st_2_1.add_subresource_under("/{wl_3_0}", new_rx_4_1);
 
 			let mut new_rx_4_1 = Resource::new("/{rx_4_1:p1}/");
-			new_rx_4_1.set_handler(put(DummyHandler::<DefaultResponseFuture>::new()));
+			new_rx_4_1.set_handler_for(_put(DummyHandler::<DefaultResponseFuture>::new()));
 			// Existing rx_4_1 shouldn't have a handler. It should be replaced with the new one.
 			new_st_2_1.add_subresource_under("/{wl_3_0}", new_rx_4_1);
 
@@ -1720,15 +1733,15 @@ mod test {
 		let mut parent = Resource::new("https://example.com/");
 		parent
 			.subresource_mut("/st_0_0")
-			.set_handler(get(DummyHandler::<DefaultResponseFuture>::new()));
+			.set_handler_for(_get(DummyHandler::<DefaultResponseFuture>::new()));
 
 		parent
 			.subresource_mut("/st_0_0/{wl_1_0}/{rx_2_0:p0}/st_3_0")
-			.set_handler(get(DummyHandler::<DefaultResponseFuture>::new()));
+			.set_handler_for(_get(DummyHandler::<DefaultResponseFuture>::new()));
 
 		parent
 			.subresource_mut("/st_0_0/{wl_1_0}/{rx_2_0:p0}/{rx_3_1:p0}/{wl_4_0}/")
-			.set_handler(get(DummyHandler::<DefaultResponseFuture>::new()));
+			.set_handler_for(_get(DummyHandler::<DefaultResponseFuture>::new()));
 
 		let wl_1_0 = parent.subresource_mut("/st_0_0/{wl_1_0}");
 		assert_eq!(wl_1_0.method_handlers.count(), 0);
@@ -1760,11 +1773,11 @@ mod test {
 		let mut parent = Resource::new("https://example.com/");
 		parent
 			.subresource_mut("/st_0_0")
-			.set_handler(get(DummyHandler::<DefaultResponseFuture>::new()));
+			.set_handler_for(_get(DummyHandler::<DefaultResponseFuture>::new()));
 
 		parent
 			.subresource_mut("/st_0_0/{wl_1_0}/{rx_2_0:p}/st_3_0")
-			.set_handler(get(DummyHandler::<DefaultResponseFuture>::new()));
+			.set_handler_for(_get(DummyHandler::<DefaultResponseFuture>::new()));
 
 		let st_3_0 = parent.subresource_mut("/st_0_0/{wl_1_0}/{rx_2_0:p}/st_3_0/");
 	}
@@ -1777,11 +1790,11 @@ mod test {
 		let mut parent = Resource::new("https://example.com/");
 		parent
 			.subresource_mut("/st_0_0")
-			.set_handler(get(DummyHandler::<DefaultResponseFuture>::new()));
+			.set_handler_for(_get(DummyHandler::<DefaultResponseFuture>::new()));
 
 		parent
 			.subresource_mut("/st_0_0/{wl_1_0}/{rx_2_0:p}/st_3_0/")
-			.set_handler(get(DummyHandler::<DefaultResponseFuture>::new()));
+			.set_handler_for(_get(DummyHandler::<DefaultResponseFuture>::new()));
 
 		let st_3_0 = parent.subresource_mut("/st_0_0/{wl_1_0}/{rx_2_0:p}/st_3_0");
 	}
@@ -1794,7 +1807,7 @@ mod test {
 		parent.subresource_mut("/{wl_0_0}/st_1_0");
 
 		parent.for_each_subresource((), |_, resource| {
-			resource.set_config(drop_on_unmatching_slash());
+			resource.configure(_to_drop_on_unmatching_slash());
 			if resource.is("{rx_0_0:p}") {
 				Iteration::Skip
 			} else {

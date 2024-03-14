@@ -11,7 +11,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
 	data::json::Json,
-	handler::{get, post, wildcard_method},
+	handler::{_get, _method, _post, _wildcard_method},
 	pattern::DeserializerError,
 	request::{PathParams, PathParamsError, Request},
 	resource::Resource,
@@ -90,7 +90,7 @@ pub(crate) fn new_root() -> Resource {
 	//																			|	->	/st_2_1
 
 	let mut root = Resource::new("/");
-	root.set_handler(get(
+	root.set_handler_for(_get(
 		|result: Result<PathParams<String>, PathParamsError>| async {
 			dbg!(&result);
 
@@ -113,35 +113,35 @@ pub(crate) fn new_root() -> Resource {
 
 	root
 		.subresource_mut("/st_0_0")
-		.set_handler(get(dummy_handler));
+		.set_handler_for(_get(dummy_handler));
 
 	root
 		.subresource_mut("/st_0_0/{wl_1_0}/{rx_2_0:p_0}/")
-		.set_handler(get(|PathParams(data): PathParams<Rx_2_0>| async {
+		.set_handler_for(_get(|PathParams(data): PathParams<Rx_2_0>| async {
 			Json(data)
 		}));
 
 	root
 		.subresource_mut("/st_0_0/{wl_1_0}/{rx_2_1:p_1}-abc/{wl_3_0}")
-		.set_handler(post(|PathParams(data): PathParams<Wl_3_0>| async {
+		.set_handler_for(_post(|PathParams(data): PathParams<Wl_3_0>| async {
 			Json(data)
 		}));
 
 	root
 		.subresource_mut("/st_0_0/{rx_1_1:p_0}-abc/st_2_0")
-		.set_handler(get(|PathParams(data): PathParams<Rx_1_1>| async {
+		.set_handler_for(_get(|PathParams(data): PathParams<Rx_1_1>| async {
 			Json(data)
 		}));
 
 	root
 		.subresource_mut("/st_0_0/{rx_1_1:p_0}-abc/")
-		.set_handler(wildcard_method(Some(
+		.set_handler_for(_wildcard_method(Some(
 			|PathParams(data): PathParams<Rx_1_1>| async { Json(data) },
 		)));
 
 	root
 		.subresource_mut("/st_0_0/{rx_1_1:p_0}-abc/st_2_1")
-		.set_handler(get(|| async { "Hello, World!" }));
+		.set_handler_for(_get(|| async { "Hello, World!" }));
 
 	root
 }

@@ -22,7 +22,7 @@ use crate::{
 		normalize_path, patterns_to_route, strip_double_quotes, BoxedError, BoxedFuture, Uncloneable,
 		SCOPE_VALIDITY,
 	},
-	handler::{get, request_handlers::handle_mistargeted_request, Handler, IntoHandler},
+	handler::{_get, request_handlers::handle_mistargeted_request, Handler, IntoHandler},
 	header::{split_header_value, SplitHeaderValueError},
 	request::{FromRequest, RemainingPath, Request},
 	response::{
@@ -32,7 +32,7 @@ use crate::{
 	routing::RoutingState,
 };
 
-use super::{config::subtree_handler, Resource};
+use super::{config::_as_subtree_handler, Resource};
 
 // --------------------------------------------------------------------------------
 // --------------------------------------------------------------------------------
@@ -127,7 +127,7 @@ impl StaticFiles {
 			.take()
 			.expect("resource should be created in the constructor");
 
-		resource.set_config(subtree_handler());
+		resource.configure(_as_subtree_handler());
 
 		let files_dir = self
 			.some_files_dir
@@ -157,7 +157,7 @@ impl StaticFiles {
 		};
 
 		if self.flags.has(Flags::GET) {
-			resource.set_handler(get(get_handler));
+			resource.set_handler_for(_get(get_handler));
 		}
 
 		resource
