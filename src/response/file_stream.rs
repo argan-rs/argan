@@ -1,4 +1,3 @@
-use core::panic;
 use std::{
 	fmt::Display,
 	fs::File,
@@ -213,56 +212,60 @@ impl FileStream {
 		})
 	}
 
-	pub fn as_attachment(&mut self) {
+	pub fn as_attachment(&mut self) -> &mut Self {
 		self.config_flags.add(ConfigFlags::ATTACHMENT);
+
+		self
 	}
 
-	pub fn support_partial_content(&mut self) -> Result<(), FileStreamError> {
+	pub fn support_partial_content(&mut self) -> &mut Self {
 		if let MaybeEncoded::Gzip(_) = self.maybe_encoded_file {
-			return Err(FileStreamError::CannotSupportPartialContent);
+			panic!("cannot support partial content with dynamic encoding");
 		}
 
 		self.config_flags.add(ConfigFlags::PARTIAL_CONTENT_SUPPORT);
 
-		Ok(())
+		self
 	}
 
-	pub fn set_content_encoding(&mut self, header_value: HeaderValue) -> Result<(), FileStreamError> {
+	pub fn set_content_encoding(&mut self, header_value: HeaderValue) -> &mut Self {
 		if let MaybeEncoded::Gzip(_) = self.maybe_encoded_file {
 			if header_value.to_str().map_or(true, |value| value != "gzip") {
-				return Err(FileStreamError::UnmatchingContentEncoding(header_value));
+				panic!("applied dynamic encoding and Content-Encoding are different");
 			}
 		}
 
 		self.some_content_encoding = Some(header_value);
 
-		Ok(())
+		self
 	}
 
-	pub fn set_content_type(&mut self, header_value: HeaderValue) {
+	pub fn set_content_type(&mut self, header_value: HeaderValue) -> &mut Self {
 		self.some_content_type = Some(header_value);
+
+		self
 	}
 
-	pub fn set_boundary(&mut self, boundary: Box<str>) -> Result<(), FileStreamError> {
+	pub fn set_boundary(&mut self, boundary: Box<str>) -> &mut Self {
 		if let MaybeEncoded::Gzip(_) = self.maybe_encoded_file {
-			return Err(FileStreamError::CannotSupportPartialContent);
+			panic!("boundary cannot be set with dynamic encoding");
 		}
 
 		if boundary.len() > 70 {
-			return Err(FileStreamError::BoundaryToLarge(boundary));
+			panic!("boundary exceeds 70 characters");
 		}
 
 		if boundary.chars().any(|ch| !ch.is_ascii_graphic()) {
-			return Err(FileStreamError::InvalidBoundary(boundary));
+			panic!("boundary contains non-graphic character");
 		}
 
 		self.some_boundary = Some(boundary);
 		self.config_flags.add(ConfigFlags::PARTIAL_CONTENT_SUPPORT);
 
-		Ok(())
+		self
 	}
 
-	pub fn set_file_name<F: AsRef<str>>(&mut self, file_name: F) {
+	pub fn set_file_name<F: AsRef<str>>(&mut self, file_name: F) -> &mut Self {
 		let file_name = file_name.as_ref();
 
 		let mut file_name_string = String::new();
@@ -278,11 +281,13 @@ impl FileStream {
 				.push_str(&percent_encode(file_name.as_bytes(), NON_ALPHANUMERIC).to_string());
 		} else {
 			file_name_string.push_str("=\"");
-			file_name_string.push_str(&file_name);
+			file_name_string.push_str(file_name.as_ref());
 			file_name_string.push('"');
 		}
 
 		self.some_file_name = Some(file_name_string.into());
+
+		self
 	}
 }
 
@@ -712,7 +717,7 @@ fn stream_multipart_ranges(
 
 pub fn generate_boundary(length: u8) -> Result<Box<str>, FileStreamError> {
 	if length == 0 || length > 70 {
-		return Err(FileStreamError::InvalidArgument);
+		panic!("length is not in the range of 1..=70");
 	}
 
 	let now = SystemTime::now();
@@ -1264,36 +1269,18 @@ bit_flags! {
 #[non_exhaustive]
 #[derive(Debug, crate::ImplError)]
 pub enum FileStreamError {
-	#[error("cannot support partial content with dynamic encoding")]
-	CannotSupportPartialContent,
-	#[error("cannot dynamically encode partial content")]
-	CannotEncodePartialContent,
-	#[error("applied dynamic encoding and Content-Encoding are different")]
-	UnmatchingContentEncoding(HeaderValue),
+	#[error(transparent)]
+	IoError(#[from] IoError),
 	#[error("invalid range value")]
 	InvalidRangeValue,
 	#[error("unsatisfiable range")]
 	UnsatisfiableRange,
-	#[error("boundary exceeds 70 characters")]
-	BoundaryToLarge(Box<str>),
-	#[error("invalid boundary")]
-	InvalidBoundary(Box<str>),
-	#[error("invalid argument")]
-	InvalidArgument,
-	#[error(transparent)]
-	IoError(#[from] IoError),
 }
 
 impl IntoResponse for FileStreamError {
 	fn into_response(self) -> Response {
 		match self {
-			Self::CannotSupportPartialContent
-			| Self::CannotEncodePartialContent
-			| Self::UnmatchingContentEncoding(_)
-			| Self::BoundaryToLarge(_)
-			| Self::InvalidBoundary(_)
-			| Self::InvalidArgument
-			| Self::IoError(_) => StatusCode::INTERNAL_SERVER_ERROR.into_response(),
+			Self::IoError(_) => StatusCode::INTERNAL_SERVER_ERROR.into_response(),
 			Self::InvalidRangeValue => StatusCode::BAD_REQUEST.into_response(),
 			Self::UnsatisfiableRange => StatusCode::RANGE_NOT_SATISFIABLE.into_response(),
 		}
@@ -1723,8 +1710,12 @@ mod test {
 		// -------------------------
 
 		let mut file_stream = FileStream::open(FILE).unwrap();
-		file_stream.as_attachment();
-		file_stream.set_content_type(content_type_value.clone());
+		file_stream
+			.as_attachment()
+			.set_content_type(content_type_value.clone());
+
+		// file_stream.configure(_as_attachment());
+		// file_stream.configure(_content_type(content_type_value.clone()));
 
 		let response = file_stream.into_response();
 
@@ -1763,13 +1754,11 @@ mod test {
 		// -------------------------
 
 		let mut file_stream = FileStream::open(FILE).unwrap();
-		assert!(file_stream
+		file_stream
+			.as_attachment()
 			.set_content_encoding(content_encoding_value.clone())
-			.is_ok());
-
-		file_stream.set_content_type(content_type_value.clone());
-		file_stream.as_attachment();
-		file_stream.set_file_name("test");
+			.set_content_type(content_type_value.clone())
+			.set_file_name("test");
 
 		let response = file_stream.into_response();
 
@@ -1846,12 +1835,10 @@ mod test {
 		// -------------------------
 
 		let mut file_stream = FileStream::open(FILE).unwrap();
-		file_stream.set_content_type(content_type_value.clone());
-
-		assert!(file_stream.support_partial_content().is_ok());
-		assert!(file_stream
-			.set_content_encoding(content_encoding_value.clone())
-			.is_ok());
+		file_stream
+			.set_content_type(content_type_value.clone())
+			.support_partial_content()
+			.set_content_encoding(content_encoding_value.clone());
 
 		let response = file_stream.into_response();
 
@@ -1899,11 +1886,9 @@ mod test {
 		// -------------------------
 
 		let mut file_stream = FileStream::open_ranges(FILE, "bytes=1024-16383", false).unwrap();
-		file_stream.set_content_type(content_type_value.clone());
-
-		assert!(file_stream
-			.set_content_encoding(content_encoding_value.clone())
-			.is_ok());
+		file_stream
+			.set_content_type(content_type_value.clone())
+			.set_content_encoding(content_encoding_value.clone());
 
 		let response = file_stream.into_response();
 
@@ -1956,18 +1941,9 @@ mod test {
 		// -------------------------
 
 		let mut file_stream = FileStream::open_with_encoding(FILE, ContentCoding::Gzip(6)).unwrap();
-		file_stream.set_content_type(content_type_value.clone());
-
-		assert!(file_stream
-			.set_content_encoding(HeaderValue::from_static("br"))
-			.is_err());
-
-		assert!(file_stream
-			.set_content_encoding(content_encoding_value.clone())
-			.is_ok());
-
-		assert!(file_stream.set_boundary("boundary".into()).is_err());
-		assert!(file_stream.support_partial_content().is_err());
+		file_stream
+			.set_content_type(content_type_value.clone())
+			.set_content_encoding(content_encoding_value.clone());
 
 		let response = file_stream.into_response();
 
@@ -2110,11 +2086,9 @@ mod test {
 		// -------------------------
 
 		let mut file_stream = FileStream::open(FILE).unwrap();
-		assert!(file_stream.set_boundary("boundary\r".into()).is_err());
-		assert!(file_stream.set_boundary("boundary".into()).is_ok());
-		assert!(file_stream
-			.set_content_encoding(content_encoding_value.clone())
-			.is_ok());
+		file_stream
+			.set_boundary("boundary".into())
+			.set_content_encoding(content_encoding_value.clone());
 
 		let response = file_stream.into_response();
 		assert_eq!(StatusCode::PARTIAL_CONTENT, response.status());
@@ -2158,9 +2132,9 @@ mod test {
 		// -------------------------
 
 		let mut file_stream = FileStream::open(FILE).unwrap();
-		file_stream.set_content_type(content_type_value.clone());
-
-		assert!(file_stream.set_boundary(boundary_value.into()).is_ok());
+		file_stream
+			.set_content_type(content_type_value.clone())
+			.set_boundary(boundary_value.into());
 
 		let response = file_stream.into_response();
 		assert_eq!(StatusCode::PARTIAL_CONTENT, response.status());
@@ -2199,12 +2173,10 @@ mod test {
 		// -------------------------
 
 		let mut file_stream = FileStream::open_ranges(FILE, "bytes=12-24", false).unwrap();
-		file_stream.set_content_type(content_type_value.clone());
-
-		assert!(file_stream
+		file_stream
+			.set_content_type(content_type_value.clone())
 			.set_content_encoding(content_encoding_value.clone())
-			.is_ok());
-		assert!(file_stream.set_boundary(boundary_value.into()).is_ok());
+			.set_boundary(boundary_value.into());
 
 		let response = file_stream.into_response();
 		assert_eq!(StatusCode::PARTIAL_CONTENT, response.status());
@@ -2255,12 +2227,10 @@ mod test {
 		// -------------------------
 
 		let mut file_stream = FileStream::open_ranges(FILE, "bytes=12-24, 1024-4095", false).unwrap();
-		file_stream.set_content_type(content_type_value.clone());
-
-		assert!(file_stream
+		file_stream
+			.set_content_type(content_type_value.clone())
 			.set_content_encoding(content_encoding_value.clone())
-			.is_ok());
-		assert!(file_stream.set_boundary(boundary_value.into()).is_ok());
+			.set_boundary(boundary_value.into());
 
 		let response = file_stream.into_response();
 		assert_eq!(StatusCode::PARTIAL_CONTENT, response.status());
@@ -2332,12 +2302,10 @@ mod test {
 		// -------------------------
 
 		let mut file_stream = FileStream::open_ranges(FILE, "bytes=1024-4095, 12-24", true).unwrap();
-		file_stream.set_content_type(content_type_value.clone());
-
-		assert!(file_stream
+		file_stream
+			.set_content_type(content_type_value.clone())
 			.set_content_encoding(content_encoding_value.clone())
-			.is_ok());
-		assert!(file_stream.set_boundary(boundary_value.into()).is_ok());
+			.set_boundary(boundary_value.into());
 
 		let response = file_stream.into_response();
 		assert_eq!(StatusCode::PARTIAL_CONTENT, response.status());
@@ -2411,9 +2379,9 @@ mod test {
 		let mut file_stream =
 			FileStream::open_ranges(FILE, "bytes=12-2048, 1024-4095, -512", false).unwrap();
 
-		file_stream.set_content_type(content_type_value.clone());
-
-		assert!(file_stream.set_boundary(boundary_value.into()).is_ok());
+		file_stream
+			.set_content_type(content_type_value.clone())
+			.set_boundary(boundary_value.into());
 
 		let response = file_stream.into_response();
 		assert_eq!(StatusCode::PARTIAL_CONTENT, response.status());
@@ -2480,9 +2448,9 @@ mod test {
 		let mut file_stream =
 			FileStream::open_ranges(FILE, "bytes=1024-4095, 12-2048, -512", true).unwrap();
 
-		file_stream.set_content_type(content_type_value.clone());
-
-		assert!(file_stream.set_boundary(boundary_value.into()).is_ok());
+		file_stream
+			.set_content_type(content_type_value.clone())
+			.set_boundary(boundary_value.into());
 
 		let response = file_stream.into_response();
 		assert_eq!(StatusCode::PARTIAL_CONTENT, response.status());
@@ -2553,9 +2521,9 @@ mod test {
 		)
 		.unwrap();
 
-		file_stream.set_content_type(content_type_value.clone());
-
-		assert!(file_stream.set_boundary(boundary_value.into()).is_ok());
+		file_stream
+			.set_content_type(content_type_value.clone())
+			.set_boundary(boundary_value.into());
 
 		let response = file_stream.into_response();
 		assert_eq!(StatusCode::PARTIAL_CONTENT, response.status());
@@ -2655,9 +2623,9 @@ mod test {
 		)
 		.unwrap();
 
-		file_stream.set_content_type(content_type_value.clone());
-
-		assert!(file_stream.set_boundary(boundary_value.into()).is_ok());
+		file_stream
+			.set_content_type(content_type_value.clone())
+			.set_boundary(boundary_value.into());
 
 		let response = file_stream.into_response();
 		assert_eq!(StatusCode::PARTIAL_CONTENT, response.status());
@@ -2757,7 +2725,7 @@ mod test {
 		)
 		.unwrap();
 
-		assert!(file_stream.set_boundary(boundary_value.into()).is_ok());
+		file_stream.set_boundary(boundary_value.into());
 
 		let response = file_stream.into_response();
 		assert_eq!(StatusCode::PARTIAL_CONTENT, response.status());
@@ -2803,7 +2771,7 @@ mod test {
 			FileStream::open_ranges(FILE, "bytes=8000-40000, -40000, 1000-7000, -0, 10-11", true)
 				.unwrap();
 
-		assert!(file_stream.set_boundary(boundary_value.into()).is_ok());
+		file_stream.set_boundary(boundary_value.into());
 
 		let response = file_stream.into_response();
 		assert_eq!(StatusCode::PARTIAL_CONTENT, response.status());
@@ -2842,5 +2810,69 @@ mod test {
 			&contents[range.start() as usize..=range.end() as usize],
 			body
 		);
+	}
+
+	// --------------------------------------------------
+
+	#[test]
+	#[should_panic = "applied dynamic encoding and Content-Encoding are different"]
+	fn unmatching_encoding() {
+		const FILE: &str = "panic-1";
+
+		let _ = std::fs::File::create(FILE).unwrap();
+		let _deferred = Deferred::call(|| std::fs::remove_file(FILE).unwrap());
+
+		let mut file_stream = FileStream::open_with_encoding(FILE, ContentCoding::Gzip(6)).unwrap();
+		file_stream.set_content_encoding(HeaderValue::from_static("br"));
+	}
+
+	#[test]
+	#[should_panic = "cannot support partial content with dynamic encoding"]
+	fn support_partial_content_with_dynamic_encoding() {
+		const FILE: &str = "panic-2";
+
+		let _ = std::fs::File::create(FILE).unwrap();
+		let _deferred = Deferred::call(|| std::fs::remove_file(FILE).unwrap());
+
+		let mut file_stream = FileStream::open_with_encoding(FILE, ContentCoding::Gzip(6)).unwrap();
+		file_stream.support_partial_content();
+	}
+
+	#[test]
+	#[should_panic = "boundary cannot be set with dynamic encoding"]
+	fn boundary_with_dynamic_encoding() {
+		const FILE: &str = "panic-3";
+
+		let _ = std::fs::File::create(FILE).unwrap();
+		let _deferred = Deferred::call(|| std::fs::remove_file(FILE).unwrap());
+
+		let mut file_stream = FileStream::open_with_encoding(FILE, ContentCoding::Gzip(6)).unwrap();
+		file_stream.set_boundary("boundary".into());
+	}
+
+	#[test]
+	#[should_panic = "boundary exceeds 70 characters"]
+	fn boundary_exceeds_character_limit() {
+		const FILE: &str = "panic-4";
+
+		let _ = std::fs::File::create(FILE).unwrap();
+		let _deferred = Deferred::call(|| std::fs::remove_file(FILE).unwrap());
+
+		let mut file_stream = FileStream::open(FILE).unwrap();
+		file_stream.set_boundary(
+			"boundary-boundary-boundary-boundary-boundary-boundary-boundary-boundary".into(),
+		);
+	}
+
+	#[test]
+	#[should_panic = "boundary contains non-graphic character"]
+	fn invalid_boundary() {
+		const FILE: &str = "panic-5";
+
+		let _ = std::fs::File::create(FILE).unwrap();
+		let _deferred = Deferred::call(|| std::fs::remove_file(FILE).unwrap());
+
+		let mut file_stream = FileStream::open(FILE).unwrap();
+		file_stream.set_boundary("boundary\r".into());
 	}
 }

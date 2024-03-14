@@ -27,7 +27,8 @@ pub use http::StatusCode;
 // --------------------------------------------------
 
 mod error;
-pub mod stream;
+pub mod event_stream;
+pub mod file_stream;
 
 pub use error::{ErrorResponse, ResponseError};
 

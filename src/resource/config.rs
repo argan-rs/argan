@@ -64,7 +64,7 @@ impl Default for ConfigFlags {
 	}
 }
 
-// ----------
+// --------------------------------------------------
 
 mod private {
 	use super::*;
@@ -108,3 +108,6 @@ where
 
 	ResourceConfigOption::ModifyRequestExtensions(request_extensions_modifier_layer)
 }
+
+// --------------------------------------------------------------------------------
+
