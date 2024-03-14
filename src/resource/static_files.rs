@@ -26,7 +26,7 @@ use crate::{
 	header::{split_header_value, SplitHeaderValueError},
 	request::{FromRequest, RemainingPath, Request},
 	response::{
-		stream::{ContentCoding, FileStream, FileStreamError},
+		file_stream::{ContentCoding, FileStream, FileStreamError},
 		IntoResponse, IntoResponseResult, Response,
 	},
 	routing::RoutingState,
@@ -277,13 +277,11 @@ async fn get_handler(
 		file_stream.as_attachment();
 	}
 
-	file_stream.set_content_type(content_type_value);
-
 	if coding == "gzip" {
-		let _ = file_stream
-			.set_content_encoding(HeaderValue::from_static("gzip"))
-			.map_err(Into::<StaticFileError>::into)?;
+		file_stream.set_content_encoding(HeaderValue::from_static("gzip"));
 	}
+
+	file_stream.set_content_type(content_type_value);
 
 	Ok(file_stream.into_response())
 }

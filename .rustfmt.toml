@@ -1,3 +1,5 @@
+# imports_granularity = "Crate"
 tab_spaces = 2
 hard_tabs = true
+# match_block_trailing_comma = true
 
