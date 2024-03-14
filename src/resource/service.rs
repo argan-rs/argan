@@ -671,11 +671,11 @@ mod test {
 
 	use crate::{
 		common::test_helpers::{new_root, test_service, Case, DataKind, Rx_1_1, Rx_2_0, Wl_3_0},
-		handler::{get, DummyHandler, IntoExtendedHandler, IntoWrappedHandler},
+		handler::{DummyHandler, IntoExtendedHandler, IntoWrappedHandler, _get},
 		middleware::IntoResponseResultAdapter,
 		resource::{
-			config::modify_request_extensions,
-			layer_targets::{request_handler, request_passer, request_receiver},
+			config::_to_modify_request_extensions,
+			layer_targets::{_request_handler, _request_passer, _request_receiver},
 			Resource,
 		},
 	};
@@ -808,10 +808,10 @@ mod test {
 		// non-root resource
 
 		let mut resource = Resource::new("/st_0_0");
-		resource.set_handler(get(|| async {}));
+		resource.set_handler_for(_get(|| async {}));
 		resource
 			.subresource_mut("/{wl_1_0}")
-			.set_handler(get(|| async {}));
+			.set_handler_for(_get(|| async {}));
 
 		let service = resource.into_service();
 
@@ -878,7 +878,7 @@ mod test {
 	#[tokio::test]
 	async fn resource_handler_layer() {
 		let mut root = Resource::new("/");
-		root.subresource_mut("/st_0_0/st_1_0").set_handler(get(
+		root.subresource_mut("/st_0_0/st_1_0").set_handler_for(_get(
 			(|| async { "Hello from Handler!" })
 				.with_extension(42)
 				.wrapped_in(Middleware),
@@ -904,8 +904,8 @@ mod test {
 	async fn resource_request_handler_layer() {
 		let mut root = Resource::new("/");
 		let mut st_1_0 = root.subresource_mut("/st_0_0/st_1_0");
-		st_1_0.set_handler(get(|| async { "Hello from Handler!" }));
-		st_1_0.add_layer(request_handler(Middleware));
+		st_1_0.set_handler_for(_get(|| async { "Hello from Handler!" }));
+		st_1_0.add_layer_to(_request_handler(Middleware));
 
 		// ----------
 
@@ -929,11 +929,11 @@ mod test {
 
 		root
 			.subresource_mut("/st_0_0/st_1_0")
-			.set_handler(get(|| async { "Hello from Handler!" }));
+			.set_handler_for(_get(|| async { "Hello from Handler!" }));
 
 		root
 			.subresource_mut("/st_0_0/")
-			.add_layer(request_passer(Middleware));
+			.add_layer_to(_request_passer(Middleware));
 
 		// ----------
 
@@ -957,11 +957,11 @@ mod test {
 
 		root
 			.subresource_mut("/st_0_0/st_1_0")
-			.set_handler(get(|| async { "Hello from Handler!" }));
+			.set_handler_for(_get(|| async { "Hello from Handler!" }));
 
 		root
 			.subresource_mut("/st_0_0/")
-			.add_layer(request_receiver(Middleware));
+			.add_layer_to(_request_receiver(Middleware));
 
 		// ----------
 
@@ -985,13 +985,13 @@ mod test {
 	#[tokio::test]
 	async fn resource_request_extensions() {
 		let mut root = Resource::new("/");
-		root.set_config(modify_request_extensions(|extensions| {
+		root.configure(_to_modify_request_extensions(|extensions| {
 			extensions.insert("Hello from Handler!".to_string());
 		}));
 
 		root
 			.subresource_mut("/st_0_0/st_1_0")
-			.set_handler(get(|request: Request| async move {
+			.set_handler_for(_get(|request: Request| async move {
 				request.extensions().get::<String>().unwrap().clone()
 			}));
 

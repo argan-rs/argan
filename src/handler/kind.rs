@@ -52,17 +52,17 @@ macro_rules! handler_kind_by_method {
 	};
 }
 
-handler_kind_by_method!(get, Method::GET);
-handler_kind_by_method!(head, Method::HEAD);
-handler_kind_by_method!(post, Method::POST);
-handler_kind_by_method!(put, Method::PUT);
-handler_kind_by_method!(patch, Method::PATCH);
-handler_kind_by_method!(delete, Method::DELETE);
-handler_kind_by_method!(options, Method::OPTIONS);
-handler_kind_by_method!(connect, Method::CONNECT);
-handler_kind_by_method!(trace, Method::TRACE);
+handler_kind_by_method!(_get, Method::GET);
+handler_kind_by_method!(_head, Method::HEAD);
+handler_kind_by_method!(_post, Method::POST);
+handler_kind_by_method!(_put, Method::PUT);
+handler_kind_by_method!(_patch, Method::PATCH);
+handler_kind_by_method!(_delete, Method::DELETE);
+handler_kind_by_method!(_options, Method::OPTIONS);
+handler_kind_by_method!(_connect, Method::CONNECT);
+handler_kind_by_method!(_trace, Method::TRACE);
 
-pub fn method<M, H, Mark>(method: M, handler: H) -> HandlerKind
+pub fn _method<M, H, Mark>(method: M, handler: H) -> HandlerKind
 where
 	M: AsRef<str>,
 	H: IntoHandler<Mark, Body>,
@@ -79,7 +79,7 @@ where
 	HandlerKind::Method(method, final_handler.into_boxed_handler())
 }
 
-pub fn wildcard_method<H, Mark>(some_handler: Option<H>) -> HandlerKind
+pub fn _wildcard_method<H, Mark>(some_handler: Option<H>) -> HandlerKind
 where
 	H: IntoHandler<Mark, Body>,
 	H::Handler: Handler + Clone + Send + Sync + 'static,
@@ -95,7 +95,7 @@ where
 	HandlerKind::WildcardMethod(some_final_handler)
 }
 
-pub fn mistargeted_request<H, Mark>(handler: H) -> HandlerKind
+pub fn _mistargeted_request<H, Mark>(handler: H) -> HandlerKind
 where
 	H: IntoHandler<Mark, Body>,
 	H::Handler: Handler + Clone + Send + Sync + 'static,

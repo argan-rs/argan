@@ -329,14 +329,14 @@ impl Router {
 		}
 	}
 
-	pub fn add_layer<L, const N: usize>(&mut self, layer_targets: L)
+	pub fn add_layer_to<L, const N: usize>(&mut self, layer_targets: L)
 	where
 		L: IntoArray<RouterLayerTarget, N>,
 	{
 		self.middleware.extend(layer_targets.into_array());
 	}
 
-	pub fn set_config<C, const N: usize>(&mut self, config_options: C)
+	pub fn configure<C, const N: usize>(&mut self, config_options: C)
 	where
 		C: IntoArray<RouterConfigOption, N>,
 	{
@@ -344,7 +344,7 @@ impl Router {
 
 		for config_option in config_options {
 			let RouterConfigOption(request_extensions_modifier_layer) = config_option;
-			let request_passer_layer_target = request_passer(request_extensions_modifier_layer);
+			let request_passer_layer_target = _request_passer(request_extensions_modifier_layer);
 
 			self.middleware.insert(0, request_passer_layer_target);
 		}
@@ -431,6 +431,39 @@ impl Router {
 }
 
 // --------------------------------------------------
+// RouterConfigOption
+
+pub mod config {
+	use super::*;
+
+	mod private {
+		use super::*;
+
+		pub struct RouterConfigOption(pub(crate) RequestExtensionsModifierLayer);
+
+		impl IntoArray<RouterConfigOption, 1> for RouterConfigOption {
+			fn into_array(self) -> [RouterConfigOption; 1] {
+				[self]
+			}
+		}
+	}
+
+	pub(super) use private::RouterConfigOption;
+
+	pub fn _to_modify_request_extensions<Func>(modifier: Func) -> RouterConfigOption
+	where
+		Func: Fn(&mut Extensions) + Clone + Send + Sync + 'static,
+	{
+		let request_extensions_modifier_layer = RequestExtensionsModifierLayer::new(modifier);
+
+		RouterConfigOption(request_extensions_modifier_layer)
+	}
+}
+
+use config::RouterConfigOption;
+pub use config::_to_modify_request_extensions;
+
+// --------------------------------------------------
 // RouterLayerTarget
 
 pub mod layer_targets {
@@ -459,7 +492,7 @@ pub mod layer_targets {
 
 	// ----------
 
-	pub fn request_passer<L, M>(layer: L) -> RouterLayerTarget
+	pub fn _request_passer<L, M>(layer: L) -> RouterLayerTarget
 	where
 		L: IntoLayer<M, AdaptiveHandler>,
 		L::Layer: Layer<AdaptiveHandler> + Clone + 'static,
@@ -476,41 +509,8 @@ pub mod layer_targets {
 	}
 }
 
-use layer_targets::{request_passer, RouterLayerTarget};
-
-// --------------------------------------------------
-// RouterConfigOption
-
-pub mod config {
-	use super::*;
-
-	mod private {
-		use super::*;
-
-		pub struct RouterConfigOption(pub(crate) RequestExtensionsModifierLayer);
-
-		impl IntoArray<RouterConfigOption, 1> for RouterConfigOption {
-			fn into_array(self) -> [RouterConfigOption; 1] {
-				[self]
-			}
-		}
-	}
-
-	pub(super) use private::RouterConfigOption;
-
-	// ----------
-
-	pub fn modify_request_extensions<Func>(modifier: Func) -> RouterConfigOption
-	where
-		Func: Fn(&mut Extensions) + Clone + Send + Sync + 'static,
-	{
-		let request_extensions_modifier_layer = RequestExtensionsModifierLayer::new(modifier);
-
-		RouterConfigOption(request_extensions_modifier_layer)
-	}
-}
-
-use config::RouterConfigOption;
+use layer_targets::RouterLayerTarget;
+pub use layer_targets::_request_passer;
 
 // --------------------------------------------------------------------------------
 // --------------------------------------------------------------------------------
@@ -518,8 +518,8 @@ use config::RouterConfigOption;
 #[cfg(test)]
 mod test {
 	use crate::{
-		handler::get,
-		resource::config::{drop_on_unmatching_slash, subtree_handler},
+		handler::_get,
+		resource::config::{_as_subtree_handler, _to_drop_on_unmatching_slash},
 	};
 
 	use super::*;
@@ -669,7 +669,7 @@ mod test {
 
 		{
 			let mut new_root = Resource::new("http://example_0.com/");
-			new_root.set_handler(get(|| async {}));
+			new_root.set_handler_for(_get(|| async {}));
 			router.add_resource(new_root);
 
 			let example_0_com = router
@@ -685,7 +685,7 @@ mod test {
 
 		{
 			let mut new_root = Resource::new("/");
-			new_root.set_handler(get(|| async {}));
+			new_root.set_handler_for(_get(|| async {}));
 			router.add_resource(new_root);
 
 			let root = router.some_root_resource.as_ref().unwrap();
@@ -909,7 +909,7 @@ mod test {
 
 		{
 			let mut new_root = Resource::new("http://example_0.com/");
-			new_root.set_handler(get(|| async {}));
+			new_root.set_handler_for(_get(|| async {}));
 			router.add_resource(new_root);
 
 			let example_0_com = router
@@ -925,7 +925,7 @@ mod test {
 
 		{
 			let mut new_root = Resource::new("/");
-			new_root.set_handler(get(|| async {}));
+			new_root.set_handler_for(_get(|| async {}));
 			router.add_resource(new_root);
 
 			let root = router.some_root_resource.as_ref().unwrap();
@@ -986,7 +986,7 @@ mod test {
 		for case in cases {
 			dbg!(case);
 
-			router.resource_mut(case).set_handler(get(handler));
+			router.resource_mut(case).set_handler_for(_get(handler));
 		}
 
 		let cases = [
@@ -1060,10 +1060,10 @@ mod test {
 				return Iteration::Continue;
 			}
 
-			root.set_config(drop_on_unmatching_slash());
+			root.configure(_to_drop_on_unmatching_slash());
 			root.for_each_subresource((), |_, resource| {
 				dbg!(resource.pattern_string());
-				resource.set_config(drop_on_unmatching_slash());
+				resource.configure(_to_drop_on_unmatching_slash());
 
 				if resource.is("{rx_0_1:p0}") {
 					Iteration::Skip

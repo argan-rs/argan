@@ -88,19 +88,19 @@ pub(super) use private::ResourceConfigOption;
 
 // ----------
 
-pub fn drop_on_unmatching_slash() -> ResourceConfigOption {
+pub fn _to_drop_on_unmatching_slash() -> ResourceConfigOption {
 	ResourceConfigOption::DropOnUnmatchingSlash
 }
 
-pub fn handle_on_unmatching_slash() -> ResourceConfigOption {
+pub fn _to_handle_on_unmatching_slash() -> ResourceConfigOption {
 	ResourceConfigOption::HandleOnUnmatchingSlash
 }
 
-pub fn subtree_handler() -> ResourceConfigOption {
+pub fn _as_subtree_handler() -> ResourceConfigOption {
 	ResourceConfigOption::SubtreeHandler
 }
 
-pub fn modify_request_extensions<Func>(modifier: Func) -> ResourceConfigOption
+pub fn _to_modify_request_extensions<Func>(modifier: Func) -> ResourceConfigOption
 where
 	Func: Fn(&mut Extensions) + Clone + Send + Sync + 'static,
 {
