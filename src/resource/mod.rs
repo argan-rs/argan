@@ -39,8 +39,8 @@ use self::{
 };
 
 pub use config::{
-	_as_subtree_handler, _to_drop_on_unmatching_slash, _to_handle_on_unmatching_slash,
-	_to_modify_request_extensions,
+	_to_drop_on_unmatching_slash, _to_handle_on_unmatching_slash, _to_handle_subtree_requests,
+	_with_request_extensions_modifier,
 };
 
 pub use layer_targets::{
@@ -1042,10 +1042,10 @@ impl Resource {
 						ConfigFlags::REDIRECTS_ON_UNMATCHING_SLASH | ConfigFlags::DROPS_ON_UNMATCHING_SLASH,
 					);
 				}
-				SubtreeHandler => {
+				HandleSubtreeRequests => {
 					self.config_flags.add(ConfigFlags::SUBTREE_HANDLER);
 				}
-				ModifyRequestExtensions(request_extensions_modifier_layer) => {
+				RequestExtensionsModifier(request_extensions_modifier_layer) => {
 					let request_receiver_layer_target = _request_receiver(request_extensions_modifier_layer);
 
 					self.middleware.insert(0, request_receiver_layer_target);

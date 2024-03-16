@@ -168,7 +168,7 @@ mod test {
 	use crate::{
 		common::test_helpers::{new_root, test_service, Case, DataKind, Rx_1_1, Rx_2_0, Wl_3_0},
 		handler::_get,
-		router::{config::_to_modify_request_extensions, Router},
+		router::{config::_with_request_extensions_modifier, Router},
 	};
 
 	use super::*;
@@ -538,7 +538,7 @@ mod test {
 	#[tokio::test]
 	async fn router_request_extensions() {
 		let mut router = Router::new();
-		router.configure(_to_modify_request_extensions(|extensions| {
+		router.configure(_with_request_extensions_modifier(|extensions| {
 			extensions.insert("Hello from Handler!".to_string());
 		}));
 

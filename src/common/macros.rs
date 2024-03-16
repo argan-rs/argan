@@ -1,6 +1,39 @@
 // --------------------------------------------------------------------------------
 // --------------------------------------------------------------------------------
 
+// --------------------------------------------------------------------------------
+// Config Options
+
+macro_rules! config_option {
+	(
+		$(#[$metas:meta])*
+		$config_name:ident {
+			$($option_name:ident $(($($tokens:ty),+))?,)+
+		}
+	) => {
+		mod config_private {
+			use super::*;
+
+			#[allow(private_interfaces)]
+			$(#[$metas])*
+			pub enum $config_name {
+				$($option_name $(($($tokens),+))?,)+
+			}
+
+			impl IntoArray<$config_name, 1> for $config_name {
+				fn into_array(self) -> [$config_name; 1] {
+					[self]
+				}
+			}
+		}
+
+		pub(super) use config_private::$config_name;
+	};
+}
+
+// --------------------------------------------------------------------------------
+// Bit Flags
+
 macro_rules! bit_flags {
 	(
 		$(#[$flags_meta:meta])*
@@ -105,6 +138,7 @@ macro_rules! call_for_tuples {
 }
 
 // --------------------------------------------------------------------------------
+// Data Extractor Error
 
 macro_rules! data_extractor_error {
 	(
