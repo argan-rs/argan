@@ -22,8 +22,8 @@ use crate::{
 		normalize_path, patterns_to_route, strip_double_quotes, BoxedError, BoxedFuture, Uncloneable,
 		SCOPE_VALIDITY,
 	},
+	data::header::{split_header_value, SplitHeaderValueError},
 	handler::{_get, request_handlers::handle_mistargeted_request, Handler, IntoHandler},
-	header::{split_header_value, SplitHeaderValueError},
 	request::{FromRequest, RemainingPath, Request},
 	response::{
 		file_stream::{

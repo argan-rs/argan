@@ -15,7 +15,6 @@ pub mod common;
 pub mod body;
 pub mod data;
 pub mod handler;
-pub mod header;
 pub mod host;
 pub mod middleware;
 mod pattern;

@@ -9,10 +9,11 @@ use crate::{
 	body::HttpBody,
 	common::BoxedError,
 	handler::Args,
-	header::{content_type, ToStrError},
 	request::{FromRequest, Request},
 	response::{BoxedErrorResponse, IntoResponse, IntoResponseResult, Response},
 };
+
+use super::*;
 
 // --------------------------------------------------------------------------------
 // --------------------------------------------------------------------------------
