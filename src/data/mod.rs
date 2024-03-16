@@ -23,7 +23,6 @@ use crate::{
 	body::{Body, Bytes, HttpBody},
 	common::BoxedError,
 	handler::Args,
-	header::{content_type, ContentTypeError},
 	request::{FromRequest, FromRequestHead, Request, RequestHead},
 	response::{IntoResponse, IntoResponseHead, Response, ResponseError, ResponseHead},
 	ImplError,
@@ -34,7 +33,10 @@ use crate::{
 pub mod cookie;
 pub mod extensions;
 pub mod form;
+pub mod header;
 pub mod json;
+
+use header::content_type;
 
 // --------------------------------------------------------------------------------
 // --------------------------------------------------------------------------------

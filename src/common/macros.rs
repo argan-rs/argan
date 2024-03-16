@@ -158,7 +158,7 @@ macro_rules! data_extractor_error {
 			#[error("missing Content-Type")]
 			MissingContentType,
 			#[error("invalid Content-Type: {0}")]
-			InvalidContentType(ToStrError),
+			InvalidContentType(http::header::ToStrError),
 			#[error("unsupported media type")]
 			UnsupportedMediaType,
 			#[error("content too large")]
@@ -171,11 +171,11 @@ macro_rules! data_extractor_error {
 			),*
 		}
 
-		impl From<crate::header::ContentTypeError> for $error_name {
-			fn from(header_error: crate::header::ContentTypeError) -> Self {
+		impl From<crate::data::header::ContentTypeError> for $error_name {
+			fn from(header_error: crate::data::header::ContentTypeError) -> Self {
 				match header_error {
-					crate::header::ContentTypeError::Missing => $error_name::MissingContentType,
-					crate::header::ContentTypeError::InvalidValue(error) => {
+					crate::data::header::ContentTypeError::Missing => $error_name::MissingContentType,
+					crate::data::header::ContentTypeError::InvalidValue(error) => {
 						$error_name::InvalidContentType(error)
 					}
 				}

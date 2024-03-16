@@ -18,8 +18,8 @@ use serde::{
 use crate::{
 	body::Body,
 	common::{BoxedError, IntoArray, Uncloneable},
+	data::header::ContentTypeError,
 	handler::Args,
-	header::ContentTypeError,
 	pattern,
 	response::{BoxedErrorResponse, IntoResponse, IntoResponseHead, Response},
 	routing::RoutingState,
