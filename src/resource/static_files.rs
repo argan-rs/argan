@@ -26,13 +26,16 @@ use crate::{
 	header::{split_header_value, SplitHeaderValueError},
 	request::{FromRequest, RemainingPath, Request},
 	response::{
-		file_stream::{ContentCoding, FileStream, FileStreamError},
+		file_stream::{
+			ContentCoding, FileStream, FileStreamError, _as_attachment, _content_encoding, _content_type,
+			_to_support_partial_content,
+		},
 		IntoResponse, IntoResponseResult, Response,
 	},
 	routing::RoutingState,
 };
 
-use super::{config::_as_subtree_handler, Resource};
+use super::{config::_to_handle_subtree_requests, Resource};
 
 // --------------------------------------------------------------------------------
 // --------------------------------------------------------------------------------
@@ -127,7 +130,7 @@ impl StaticFiles {
 			.take()
 			.expect("resource should be created in the constructor");
 
-		resource.configure(_as_subtree_handler());
+		resource.configure(_to_handle_subtree_requests());
 
 		let files_dir = self
 			.some_files_dir
@@ -267,21 +270,21 @@ async fn get_handler(
 				PreconditionsResult::IoError(error) => return Err(StaticFileError::IoError(error)),
 			};
 
-			file_stream.support_partial_content();
+			file_stream.configure(_to_support_partial_content());
 
 			file_stream
 		}
 	};
 
 	if attachments {
-		file_stream.as_attachment();
+		file_stream.configure(_as_attachment());
 	}
 
 	if coding == "gzip" {
-		file_stream.set_content_encoding(HeaderValue::from_static("gzip"));
+		file_stream.configure(_content_encoding(HeaderValue::from_static("gzip")));
 	}
 
-	file_stream.set_content_type(content_type_value);
+	file_stream.configure(_content_type(content_type_value));
 
 	Ok(file_stream.into_response())
 }

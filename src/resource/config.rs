@@ -65,26 +65,16 @@ impl Default for ConfigFlags {
 }
 
 // --------------------------------------------------
+// ResourceConfigOption
 
-mod private {
-	use super::*;
-
-	#[allow(private_interfaces)]
-	pub enum ResourceConfigOption {
+config_option! {
+	ResourceConfigOption {
 		DropOnUnmatchingSlash,
 		HandleOnUnmatchingSlash,
-		SubtreeHandler,
-		ModifyRequestExtensions(RequestExtensionsModifierLayer),
-	}
-
-	impl IntoArray<ResourceConfigOption, 1> for ResourceConfigOption {
-		fn into_array(self) -> [ResourceConfigOption; 1] {
-			[self]
-		}
+		HandleSubtreeRequests,
+		RequestExtensionsModifier(RequestExtensionsModifierLayer),
 	}
 }
-
-pub(super) use private::ResourceConfigOption;
 
 // ----------
 
@@ -96,17 +86,17 @@ pub fn _to_handle_on_unmatching_slash() -> ResourceConfigOption {
 	ResourceConfigOption::HandleOnUnmatchingSlash
 }
 
-pub fn _as_subtree_handler() -> ResourceConfigOption {
-	ResourceConfigOption::SubtreeHandler
+pub fn _to_handle_subtree_requests() -> ResourceConfigOption {
+	ResourceConfigOption::HandleSubtreeRequests
 }
 
-pub fn _to_modify_request_extensions<Func>(modifier: Func) -> ResourceConfigOption
+pub fn _with_request_extensions_modifier<Func>(modifier: Func) -> ResourceConfigOption
 where
 	Func: Fn(&mut Extensions) + Clone + Send + Sync + 'static,
 {
 	let request_extensions_modifier_layer = RequestExtensionsModifierLayer::new(modifier);
 
-	ResourceConfigOption::ModifyRequestExtensions(request_extensions_modifier_layer)
+	ResourceConfigOption::RequestExtensionsModifier(request_extensions_modifier_layer)
 }
 
 // --------------------------------------------------------------------------------

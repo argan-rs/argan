@@ -674,7 +674,7 @@ mod test {
 		handler::{DummyHandler, IntoExtendedHandler, IntoWrappedHandler, _get},
 		middleware::IntoResponseResultAdapter,
 		resource::{
-			config::_to_modify_request_extensions,
+			config::_with_request_extensions_modifier,
 			layer_targets::{_request_handler, _request_passer, _request_receiver},
 			Resource,
 		},
@@ -985,7 +985,7 @@ mod test {
 	#[tokio::test]
 	async fn resource_request_extensions() {
 		let mut root = Resource::new("/");
-		root.configure(_to_modify_request_extensions(|extensions| {
+		root.configure(_with_request_extensions_modifier(|extensions| {
 			extensions.insert("Hello from Handler!".to_string());
 		}));
 

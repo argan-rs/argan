@@ -343,7 +343,9 @@ impl Router {
 		let config_options = config_options.into_array();
 
 		for config_option in config_options {
-			let RouterConfigOption(request_extensions_modifier_layer) = config_option;
+			let RouterConfigOption::RequestExtensionsModifier(request_extensions_modifier_layer) =
+				config_option;
+
 			let request_passer_layer_target = _request_passer(request_extensions_modifier_layer);
 
 			self.middleware.insert(0, request_passer_layer_target);
@@ -436,32 +438,24 @@ impl Router {
 pub mod config {
 	use super::*;
 
-	mod private {
-		use super::*;
-
-		pub struct RouterConfigOption(pub(crate) RequestExtensionsModifierLayer);
-
-		impl IntoArray<RouterConfigOption, 1> for RouterConfigOption {
-			fn into_array(self) -> [RouterConfigOption; 1] {
-				[self]
-			}
+	config_option! {
+		RouterConfigOption {
+			RequestExtensionsModifier(RequestExtensionsModifierLayer),
 		}
 	}
 
-	pub(super) use private::RouterConfigOption;
-
-	pub fn _to_modify_request_extensions<Func>(modifier: Func) -> RouterConfigOption
+	pub fn _with_request_extensions_modifier<Func>(modifier: Func) -> RouterConfigOption
 	where
 		Func: Fn(&mut Extensions) + Clone + Send + Sync + 'static,
 	{
 		let request_extensions_modifier_layer = RequestExtensionsModifierLayer::new(modifier);
 
-		RouterConfigOption(request_extensions_modifier_layer)
+		RouterConfigOption::RequestExtensionsModifier(request_extensions_modifier_layer)
 	}
 }
 
 use config::RouterConfigOption;
-pub use config::_to_modify_request_extensions;
+pub use config::_with_request_extensions_modifier;
 
 // --------------------------------------------------
 // RouterLayerTarget
@@ -519,7 +513,7 @@ pub use layer_targets::_request_passer;
 mod test {
 	use crate::{
 		handler::_get,
-		resource::config::{_as_subtree_handler, _to_drop_on_unmatching_slash},
+		resource::config::{_to_drop_on_unmatching_slash, _to_handle_subtree_requests},
 	};
 
 	use super::*;
