@@ -22,7 +22,7 @@ use crate::{
 		normalize_path, patterns_to_route, strip_double_quotes, BoxedError, BoxedFuture, Uncloneable,
 		SCOPE_VALIDITY,
 	},
-	data::header::{split_header_value, SplitHeaderValueError},
+	data::header::{split_header_value_with_weights, SplitHeaderValueError},
 	handler::{_get, request_handlers::handle_mistargeted_request, Handler, IntoHandler},
 	request::{FromRequest, RemainingPath, Request},
 	response::{
@@ -303,7 +303,7 @@ fn evaluate_optimal_coding<'h, P1: AsRef<Path>, P2: AsRef<str>>(
 	let relative_path_to_file = relative_path_to_file.as_ref();
 
 	if let Some(header_value) = request_headers.get(ACCEPT_ENCODING) {
-		let elements = split_header_value(header_value)?;
+		let elements = split_header_value_with_weights(header_value)?;
 
 		let some_path_buf = if let Some(position) = elements.iter().position(
 			|(value, _)| /* value.eq_ignore_ascii_case("br") || */ value.eq_ignore_ascii_case("gzip"),

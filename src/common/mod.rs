@@ -129,7 +129,6 @@ pub(crate) enum MaybeBoxed<H> {
 
 // --------------------------------------------------------------------------------
 
-#[inline]
 pub(crate) fn strip_double_quotes(slice: &[u8]) -> &[u8] {
 	let slice = if let Some(stripped_slice) = slice.strip_prefix(b"\"") {
 		stripped_slice
@@ -142,6 +141,17 @@ pub(crate) fn strip_double_quotes(slice: &[u8]) -> &[u8] {
 	} else {
 		slice
 	}
+}
+
+pub(crate) fn trim(mut slice: &[u8]) -> &[u8] {
+	if let Some(position) = slice.iter().position(|ch| !ch.is_ascii_whitespace()) {
+		slice = &slice[position..];
+		if let Some(position) = slice.iter().rev().position(|ch| !ch.is_ascii_whitespace()) {
+			return &slice[..slice.len() - position];
+		}
+	};
+
+	b""
 }
 
 // --------------------------------------------------------------------------------
@@ -249,5 +259,12 @@ mod test {
 
 			assert_eq!(super::normalize_path(case.0), case.1);
 		}
+	}
+
+	#[test]
+	fn trim() {
+		assert_eq!(super::trim(b"  Hello, World!"), b"Hello, World!");
+		assert_eq!(super::trim(b"Hello, World!  "), b"Hello, World!");
+		assert_eq!(super::trim(b"  Hello, World!  "), b"Hello, World!");
 	}
 }
