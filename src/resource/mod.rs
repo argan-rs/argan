@@ -1013,9 +1013,6 @@ impl Resource {
 		L: IntoArray<ResourceLayerTarget, N>,
 	{
 		self.middleware.extend(layer_targets.into_array());
-		// self.set_handler_for(_get(|| async {}));
-		// self.set_handler_for(_get_to(|| async {}));
-		// self.set_handler_for(_method(GET, || async {}));
 	}
 
 	pub fn configure<C, const N: usize>(&mut self, config_options: C)
