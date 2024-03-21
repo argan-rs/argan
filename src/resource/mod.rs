@@ -1,4 +1,3 @@
-use core::panic;
 use std::{
 	any::{self, Any, TypeId},
 	convert::Infallible,
@@ -33,15 +32,12 @@ mod service;
 mod static_files;
 
 use self::{
-	config::{ConfigFlags, ResourceConfigOption},
+	config::{resource_config_from, ConfigFlags, ResourceConfigOption},
 	layer_targets::ResourceLayerTarget,
 	service::{RequestHandler, RequestPasser, RequestReceiver},
 };
 
-pub use config::{
-	_to_drop_on_unmatching_slash, _to_handle_on_unmatching_slash, _to_handle_subtree_requests,
-	_with_request_extensions_modifier,
-};
+pub use config::_with_request_extensions_modifier;
 
 pub use layer_targets::{
 	_method_handler, _mistargeted_request_handler, _request_handler, _request_passer,
@@ -95,10 +91,17 @@ impl Resource {
 			panic!("empty path pattern")
 		};
 
+		let (config_flags, path_pattern_str) = resource_config_from(path_pattern_str);
+
 		if path_pattern_str == "/" {
 			let pattern = Pattern::parse(path_pattern_str);
 
-			return Self::with_uri_pattern(some_host_pattern, Vec::new(), pattern, false);
+			return Self::with_uri_pattern_and_config_flags(
+				some_host_pattern,
+				Vec::new(),
+				pattern,
+				config_flags,
+			);
 		}
 
 		if !path_pattern_str.starts_with('/') {
@@ -125,25 +128,20 @@ impl Resource {
 			break pattern;
 		};
 
-		Self::with_uri_pattern(
+		Self::with_uri_pattern_and_config_flags(
 			some_host_pattern,
 			prefix_path_pattern,
 			resource_pattern,
-			route_segments.ends_with_slash(),
+			config_flags,
 		)
 	}
 
-	pub(crate) fn with_uri_pattern(
+	fn with_uri_pattern_and_config_flags(
 		some_host_pattern: Option<Pattern>,
 		prefix_path_pattern: Vec<Pattern>,
 		resource_pattern: Pattern,
-		ends_with_slash: bool,
+		config_flags: ConfigFlags,
 	) -> Resource {
-		let mut config_flags = ConfigFlags::new();
-		if ends_with_slash {
-			config_flags.add(ConfigFlags::ENDS_WITH_SLASH);
-		}
-
 		Resource {
 			pattern: resource_pattern,
 			prefix_segment_patterns: prefix_path_pattern,
@@ -161,7 +159,7 @@ impl Resource {
 
 	#[inline(always)]
 	pub(crate) fn with_pattern(pattern: Pattern) -> Resource {
-		Self::with_uri_pattern(None, Vec::new(), pattern, false)
+		Self::with_uri_pattern_and_config_flags(None, Vec::new(), pattern, ConfigFlags::default())
 	}
 
 	// -------------------------
@@ -743,18 +741,18 @@ impl Resource {
 			panic!("'{}' relative path must start with '/'", relative_path)
 		}
 
+		let (config_flags, relative_path) = resource_config_from(relative_path);
+
 		let segments = RouteSegments::new(relative_path);
 		let (leaf_resource_in_the_path, segments) = self.leaf_resource_mut(segments);
 
-		let route_ends_with_slash = segments.ends_with_slash();
-
 		let subresource = leaf_resource_in_the_path.new_subresource_mut(segments);
 
-		if !subresource.has_some_effect() && route_ends_with_slash {
-			subresource.config_flags.add(ConfigFlags::ENDS_WITH_SLASH);
-		} else if route_ends_with_slash != subresource.config_flags.has(ConfigFlags::ENDS_WITH_SLASH) {
+		if !subresource.has_some_effect() {
+			subresource.config_flags = config_flags;
+		} else if subresource.config_flags != config_flags {
 			panic!(
-				"mismatching trailing slash with the existing resource at '{}'",
+				"mismatching config symbols with the existing resource at '{}'",
 				relative_path
 			);
 		}
@@ -1025,23 +1023,6 @@ impl Resource {
 			use ResourceConfigOption::*;
 
 			match config_option {
-				DropOnUnmatchingSlash => {
-					self
-						.config_flags
-						.remove(ConfigFlags::REDIRECTS_ON_UNMATCHING_SLASH);
-
-					self
-						.config_flags
-						.add(ConfigFlags::DROPS_ON_UNMATCHING_SLASH);
-				}
-				HandleOnUnmatchingSlash => {
-					self.config_flags.remove(
-						ConfigFlags::REDIRECTS_ON_UNMATCHING_SLASH | ConfigFlags::DROPS_ON_UNMATCHING_SLASH,
-					);
-				}
-				HandleSubtreeRequests => {
-					self.config_flags.add(ConfigFlags::SUBTREE_HANDLER);
-				}
 				RequestExtensionsModifier(request_extensions_modifier_layer) => {
 					let request_receiver_layer_target = _request_receiver(request_extensions_modifier_layer);
 
@@ -1276,26 +1257,93 @@ mod test {
 
 	use super::*;
 
-	use test::config::_to_drop_on_unmatching_slash;
-
 	// --------------------------------------------------------------------------------
 
 	#[test]
 	fn resource_new() {
-		let uri_patterns = [
-			"http:///news",
-			"https:///news/{area:local|worldwide}",
-			"http://{sub}.example.com/products/",
-			"https://example.com/products/{category}",
-			"http://www.example.com/",
-			"/products/{category}/{page:\\d+}/",
-			"/{forecast_days:5|10}-days-forecast",
-			"/{random}",
+		enum PatternType {
+			Static,
+			Regex,
+			Wildcard,
+		}
+
+		let cases = [
+			(
+				"http:///st_0_0",
+				ConfigFlags::REDIRECTS_ON_UNMATCHING_SLASH,
+				PatternType::Static,
+			),
+			(
+				"https:///st_0_0/{rx_1_0:p} ?",
+				ConfigFlags::NONE,
+				PatternType::Regex,
+			),
+			(
+				"http:///st_0_0 !",
+				ConfigFlags::DROPS_ON_UNMATCHING_SLASH,
+				PatternType::Static,
+			),
+			(
+				"/{wl_0_0)}/ ?",
+				ConfigFlags::ENDS_WITH_SLASH,
+				PatternType::Wildcard,
+			),
+			(
+				"http://{sub}.example.com/st_0_0/ !",
+				ConfigFlags::ENDS_WITH_SLASH | ConfigFlags::DROPS_ON_UNMATCHING_SLASH,
+				PatternType::Static,
+			),
+			(
+				"https://example.com/st_0_0/{wl_1_0} ?*",
+				ConfigFlags::SUBTREE_HANDLER,
+				PatternType::Wildcard,
+			),
+			(
+				"/{rx_0_0:p}-abc !*",
+				ConfigFlags::DROPS_ON_UNMATCHING_SLASH | ConfigFlags::SUBTREE_HANDLER,
+				PatternType::Regex,
+			),
+			(
+				"/{wl_0_0)}/{rx_1_0:p}/ ?*",
+				ConfigFlags::ENDS_WITH_SLASH | ConfigFlags::SUBTREE_HANDLER,
+				PatternType::Regex,
+			),
+			(
+				"/st_0_0/st_1_0/ !*",
+				ConfigFlags::ENDS_WITH_SLASH
+					| ConfigFlags::DROPS_ON_UNMATCHING_SLASH
+					| ConfigFlags::SUBTREE_HANDLER,
+				PatternType::Static,
+			),
+			(
+				"http://example.com/{wl_0_0} *",
+				ConfigFlags::REDIRECTS_ON_UNMATCHING_SLASH | ConfigFlags::SUBTREE_HANDLER,
+				PatternType::Wildcard,
+			),
+			(
+				"http:///{wl_0_0}/st_1_0/ *",
+				ConfigFlags::ENDS_WITH_SLASH
+					| ConfigFlags::REDIRECTS_ON_UNMATCHING_SLASH
+					| ConfigFlags::SUBTREE_HANDLER,
+				PatternType::Static,
+			),
+			(
+				"http://www.example.com/ *",
+				ConfigFlags::SUBTREE_HANDLER,
+				PatternType::Static,
+			),
 		];
 
-		for uri_pattern in uri_patterns {
+		for (uri_pattern, config_flags, pattern_type) in cases {
 			let resource = Resource::new(uri_pattern);
-			println!("uri pattern: {}\n\t resource: {}", uri_pattern, resource);
+
+			match pattern_type {
+				PatternType::Static => assert!(resource.pattern.is_static()),
+				PatternType::Regex => assert!(resource.pattern.is_regex()),
+				PatternType::Wildcard => assert!(resource.pattern.is_wildcard()),
+			}
+
+			assert_eq!(resource.config_flags, config_flags);
 		}
 	}
 
@@ -1763,7 +1811,7 @@ mod test {
 	}
 
 	#[test]
-	#[should_panic(expected = "mismatching trailing slash")]
+	#[should_panic(expected = "mismatching config symbols")]
 	fn resource_subresource_mut_panic1() {
 		//	/st_0_0	->	/{wl_1_0}	->	/{rx_2_0:p}	->	/st_3_0
 
@@ -1780,7 +1828,7 @@ mod test {
 	}
 
 	#[test]
-	#[should_panic(expected = "mismatching trailing slash")]
+	#[should_panic(expected = "mismatching config symbols")]
 	fn resource_subresource_mut_panic2() {
 		//	/st_0_0	->	/{wl_1_0}	->	/{rx_2_0:p}	->	/st_3_0
 
@@ -1804,7 +1852,7 @@ mod test {
 		parent.subresource_mut("/{wl_0_0}/st_1_0");
 
 		parent.for_each_subresource((), |_, resource| {
-			resource.configure(_to_drop_on_unmatching_slash());
+			resource.configure(_with_request_extensions_modifier(|_: &mut Extensions| {}));
 			if resource.is("{rx_0_0:p}") {
 				Iteration::Skip
 			} else {
@@ -1812,29 +1860,17 @@ mod test {
 			}
 		});
 
+		assert_eq!(parent.subresource_mut("/st_0_0").middleware.len(), 1);
+		assert_eq!(parent.subresource_mut("/{rx_0_0:p}").middleware.len(), 1);
 		assert!(parent
-			.subresource_mut("/st_0_0")
-			.config_flags
-			.has(ConfigFlags::DROPS_ON_UNMATCHING_SLASH));
-
-		assert!(parent
-			.subresource_mut("/{rx_0_0:p}")
-			.config_flags
-			.has(ConfigFlags::DROPS_ON_UNMATCHING_SLASH));
-
-		assert!(!parent
 			.subresource_mut("/{rx_0_0:p}/{wl_1_0}/")
-			.config_flags
-			.has(ConfigFlags::DROPS_ON_UNMATCHING_SLASH));
+			.middleware
+			.is_empty(),);
 
-		assert!(parent
-			.subresource_mut("/{wl_0_0}")
-			.config_flags
-			.has(ConfigFlags::DROPS_ON_UNMATCHING_SLASH));
-
-		assert!(parent
-			.subresource_mut("/{wl_0_0}/st_1_0")
-			.config_flags
-			.has(ConfigFlags::DROPS_ON_UNMATCHING_SLASH));
+		assert_eq!(parent.subresource_mut("/{wl_0_0}").middleware.len(), 1);
+		assert_eq!(
+			parent.subresource_mut("/{wl_0_0}/st_1_0").middleware.len(),
+			1
+		);
 	}
 }
