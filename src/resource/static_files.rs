@@ -35,7 +35,7 @@ use crate::{
 	routing::RoutingState,
 };
 
-use super::{config::_to_handle_subtree_requests, Resource};
+use super::{config::ConfigFlags, Resource};
 
 // --------------------------------------------------------------------------------
 // --------------------------------------------------------------------------------
@@ -130,7 +130,7 @@ impl StaticFiles {
 			.take()
 			.expect("resource should be created in the constructor");
 
-		resource.configure(_to_handle_subtree_requests());
+		resource.config_flags.add(ConfigFlags::SUBTREE_HANDLER);
 
 		let files_dir = self
 			.some_files_dir

@@ -74,12 +74,8 @@ impl Router {
 			let root = if new_resource.is("/") {
 				new_resource
 			} else {
-				let mut root = Resource::with_uri_pattern(
-					Some(host_pattern.clone()),
-					Vec::new(),
-					Pattern::parse("/"),
-					false,
-				);
+				let mut root = Resource::new("/");
+				root.set_host_pattern(host_pattern.clone());
 
 				root.add_subresource(new_resource);
 
@@ -196,12 +192,8 @@ impl Router {
 			let root = if new_resource_is_root {
 				new_resource
 			} else {
-				let mut root = Resource::with_uri_pattern(
-					Some(host_pattern.clone()),
-					Vec::new(),
-					Pattern::parse("/"),
-					false,
-				);
+				let mut root = Resource::new("/");
+				root.set_host_pattern(host_pattern.clone());
 
 				if relative_path_pattern_str == "/" {
 					root.add_subresource(new_resource);
@@ -511,10 +503,7 @@ pub use layer_targets::_request_passer;
 
 #[cfg(test)]
 mod test {
-	use crate::{
-		handler::_get,
-		resource::config::{_to_drop_on_unmatching_slash, _to_handle_subtree_requests},
-	};
+	use crate::{handler::_get, resource::_with_request_extensions_modifier};
 
 	use super::*;
 
@@ -1054,10 +1043,10 @@ mod test {
 				return Iteration::Continue;
 			}
 
-			root.configure(_to_drop_on_unmatching_slash());
+			root.configure(_with_request_extensions_modifier(|_| {}));
 			root.for_each_subresource((), |_, resource| {
 				dbg!(resource.pattern_string());
-				resource.configure(_to_drop_on_unmatching_slash());
+				resource.configure(_with_request_extensions_modifier(|_| {}));
 
 				if resource.is("{rx_0_1:p0}") {
 					Iteration::Skip
@@ -1080,46 +1069,48 @@ mod test {
 			if case == "http://{sub}.example_1.com" {
 				assert!(!router
 					.resource_mut(case.clone() + "/st_0_0")
-					.drops_on_unmatching_slash());
+					.has_some_effect());
 
 				assert!(!router
 					.resource_mut(case.clone() + "/{rx_0_1:p0}")
-					.drops_on_unmatching_slash());
+					.has_some_effect());
 
 				assert!(!router
 					.resource_mut(case.clone() + "/{rx_0_1:p0}/{wl_1_0}/")
-					.drops_on_unmatching_slash());
+					.has_some_effect());
 
 				assert!(!router
 					.resource_mut(case.clone() + "/{wl_0_2}")
-					.drops_on_unmatching_slash());
+					.has_some_effect());
 
 				assert!(!router
 					.resource_mut(case + "/{wl_0_2}/st_1_0")
-					.drops_on_unmatching_slash());
+					.has_some_effect());
 
 				continue;
 			}
 
 			assert!(router
 				.resource_mut(case.clone() + "/st_0_0")
-				.drops_on_unmatching_slash());
+				.has_some_effect());
 
 			assert!(router
 				.resource_mut(case.clone() + "/{rx_0_1:p0}")
-				.drops_on_unmatching_slash());
+				.has_some_effect());
 
 			assert!(!router
 				.resource_mut(case.clone() + "/{rx_0_1:p0}/{wl_1_0}/")
-				.drops_on_unmatching_slash());
+				.has_some_effect());
 
 			assert!(router
 				.resource_mut(case.clone() + "/{wl_0_2}")
-				.drops_on_unmatching_slash());
+				.has_some_effect());
 
 			assert!(router
 				.resource_mut(case + "/{wl_0_2}/st_1_0")
-				.drops_on_unmatching_slash());
+				.has_some_effect());
 		}
 	}
 }
+
+// --------------------------------------------------------------------------------
