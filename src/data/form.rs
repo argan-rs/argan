@@ -439,7 +439,7 @@ mod test {
 
 		dbg!(&form_data_string);
 
-		let mut args = Args::default();
+		let mut args = Args::new();
 
 		// ----------
 

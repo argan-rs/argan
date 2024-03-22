@@ -231,8 +231,8 @@ fn sec_websocket_accept_value_from(key: &[u8]) -> HeaderValue {
 	sha1.update(key);
 	sha1.update(b"258EAFA5-E914-47DA-95CA-C5AB0DC85B11");
 
-	let b64 = Bytes::from(BASE64_STANDARD.encode(sha1.finalize()));
-	HeaderValue::from_maybe_shared(b64).expect("base64 encoded value must be a valid header value")
+	let b64 = BASE64_STANDARD.encode(sha1.finalize());
+	HeaderValue::try_from(b64).expect("base64 encoded value must be a valid header value")
 }
 
 // --------------------------------------------------

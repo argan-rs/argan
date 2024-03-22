@@ -139,7 +139,7 @@ mod test {
 
 		dbg!(&json_data_string);
 
-		let mut args = Args::default();
+		let mut args = Args::new();
 
 		// ----------
 

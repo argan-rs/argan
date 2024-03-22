@@ -1,5 +1,11 @@
 use std::{
-	convert::Infallible, fmt::Debug, future::Future, marker::PhantomData, process::Output, sync::Arc,
+	convert::Infallible,
+	fmt::Debug,
+	future::Future,
+	marker::PhantomData,
+	process::Output,
+	sync::Arc,
+	task::{Context, Poll},
 };
 
 use crate::{
@@ -16,7 +22,7 @@ use crate::{
 
 use bytes::Bytes;
 use http::{Extensions, StatusCode};
-pub use hyper::service::Service;
+use tower_service::Service;
 
 // --------------------------------------------------
 
@@ -42,26 +48,28 @@ pub trait Handler<B = Body, Ext = ()> {
 
 // -------------------------
 
-// impl<S, B> Handler<B> for S
-// where
-// 	S: Service<Request<B>>,
-// 	S::Error: Into<BoxedError>
-// {
-// 	type Response = S::Response;
-// 	type Error = BoxedError;
-// 	type Future = BoxedFuture<Result<Self::Response, Self::Error>>;
-//
-// 	fn handle(&self, mut request: Request<B>, args: &mut Args) -> Self::Future {
-// 		request
-// 			.extensions_mut()
-// 			.insert(args.node_extensions.clone().into_owned()); // ???
-//
-// 		self.call(request).map(Into::into)
-// 		// let result_future = self.call(request);
-// 		//
-// 		// ResultToResponseFuture::from(result_future)
-// 	}
-// }
+impl<S, B> Handler<B> for S
+where
+	S: Service<Request<B>> + Clone,
+	S::Response: IntoResponse,
+	S::Error: Into<BoxedErrorResponse>,
+{
+	type Response = S::Response;
+	type Error = S::Error;
+	type Future = S::Future;
+
+	fn handle(&self, mut request: Request<B>, args: &mut Args) -> Self::Future {
+		let mut args = Args {
+			routing_state: std::mem::take(&mut args.routing_state),
+			node_extensions: args.node_extensions.take().into_owned(),
+			handler_extension: &(),
+		};
+
+		request.extensions_mut().insert(Uncloneable::from(args));
+
+		self.clone().call(request)
+	}
+}
 
 // -------------------------
 
@@ -140,30 +148,20 @@ where
 	type Error = H::Error;
 	type Future = H::Future;
 
+	fn poll_ready(&mut self, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
+		Poll::Ready(Ok(()))
+	}
+
 	#[inline]
-	fn call(&self, mut request: Request<B>) -> Self::Future {
-		let routing_state = request
+	fn call(&mut self, mut request: Request<B>) -> Self::Future {
+		let mut args = request
 			.extensions_mut()
-			.remove::<Uncloneable<RoutingState>>()
-			.expect("Uncloneable<RoutingState> should be inserted before routing started")
+			.remove::<Uncloneable<Args>>()
+			.expect("Uncloneable<Args> should be inserted in the Handler implementation for the Service")
 			.into_inner()
-			.expect("RoutingState should always exist in Uncloneable");
-
-		let node_extensions = request
-			.extensions_mut()
-			.remove::<NodeExtensions>()
-			.expect("when layered, resource extensions must be inserted into the request");
-
-		let mut args = Args {
-			routing_state,
-			node_extensions,
-			handler_extension: &(),
-		};
+			.expect("Uncloneable must always have a valid value");
 
 		self.handler.handle(request, &mut args)
-		// let response_future = self.handler.handle(request, &mut args);
-		//
-		// ResponseToResultFuture::from(response_future)
 	}
 }
 
@@ -393,7 +391,7 @@ pub struct Args<'r, Ext = ()> {
 }
 
 impl Args<'_, ()> {
-	pub(crate) fn default() -> Args<'static> {
+	pub(crate) fn new() -> Args<'static> {
 		Args {
 			routing_state: RoutingState::default(),
 			node_extensions: NodeExtensions::new_owned(Extensions::new()),

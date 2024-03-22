@@ -1,5 +1,7 @@
 use std::{convert::Infallible, io::BufRead, num::ParseFloatError};
 
+use tokio::io::AsyncBufReadExt;
+
 use crate::{
 	common::{mark::Sealed, trim, SCOPE_VALIDITY},
 	handler::Args,
@@ -11,7 +13,6 @@ use crate::{
 // ----------
 
 pub use http::header::*;
-use tokio::io::AsyncBufReadExt;
 
 // --------------------------------------------------------------------------------
 // --------------------------------------------------------------------------------

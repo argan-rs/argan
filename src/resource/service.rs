@@ -12,6 +12,7 @@ use std::{
 use bytes::Bytes;
 use http::{Extensions, Method, StatusCode, Uri};
 use http_body_util::{BodyExt, Empty};
+use hyper::service::Service;
 use percent_encoding::percent_decode_str;
 
 use crate::{
@@ -24,7 +25,7 @@ use crate::{
 			self, handle_mistargeted_request, handle_unimplemented_method, MethodHandlers,
 			MistargetedRequestHandler, UnimplementedMethodHandler, WildcardMethodHandler,
 		},
-		AdaptiveHandler, ArcHandler, Args, BoxedHandler, Handler, IntoHandler, Service,
+		AdaptiveHandler, ArcHandler, Args, BoxedHandler, Handler, IntoHandler,
 	},
 	middleware::{layer_targets::LayerTarget, BoxedLayer, Layer, ResponseResultFutureBoxer},
 	pattern::{ParamsList, Pattern},

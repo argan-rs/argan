@@ -8,6 +8,7 @@ authors = ["Shohruh Adham <shohruh.adham@gmail.com>"]
 
 [dependencies]
 base64 = "0.22.0"
+biscotti = "0.2.1"
 bytes = "1.5.0"
 cookie = { version = "0.18.0", features = ["percent-encode", "secure"] }
 fastwebsockets = { version = "0.7.1", features = ["upgrade"] }
@@ -33,6 +34,7 @@ sha1 = "0.10.6"
 thiserror = "1.0.56"
 tokio = { version = "1.28.1", features = ["rt-multi-thread"] }
 tower-layer = "0.3.2"
+tower-service = "0.3.2"
 
 [dev-dependencies]
 tokio = { version = "1.28.1", features = ["rt-multi-thread", "macros", "test-util", "parking_lot"] }
