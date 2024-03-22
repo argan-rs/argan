@@ -8,9 +8,9 @@ use http::{header::InvalidHeaderValue, Extensions, HeaderName, HeaderValue, Meth
 use crate::{
 	common::{mark::Private, BoxedError, BoxedFuture, Uncloneable},
 	data::extensions::NodeExtensions,
-	middleware::{BoxedLayer, Layer, ResponseResultFutureBoxer},
+	middleware::{layer_targets::LayerTarget, BoxedLayer, Layer, ResponseResultFutureBoxer},
 	request::Request,
-	resource::layer_targets::ResourceLayerTarget,
+	resource::Resource,
 	response::{BoxedErrorResponse, IntoResponse, Response, ResponseError},
 	routing::{RoutingState, UnusedRequest},
 };
@@ -285,11 +285,11 @@ impl Handler for MistargetedRequestHandler {
 
 pub(crate) fn wrap_mistargeted_request_handler(
 	mut some_mistargeted_request_handler: Option<BoxedHandler>,
-	middleware: &mut Vec<ResourceLayerTarget>,
+	middleware: &mut Vec<LayerTarget<Resource>>,
 ) -> Option<BoxedHandler> {
 	for layer in middleware.iter_mut().rev() {
-		if let ResourceLayerTarget::MistargetedRequestHandler(_) = layer {
-			let ResourceLayerTarget::MistargetedRequestHandler(boxed_layer) = layer.take() else {
+		if let LayerTarget::MistargetedRequestHandler(_) = layer {
+			let LayerTarget::MistargetedRequestHandler(boxed_layer) = layer.take() else {
 				unreachable!()
 			};
 

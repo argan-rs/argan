@@ -14,6 +14,13 @@ use crate::{
 mod impls;
 mod internal;
 
+pub mod layer_targets;
+
+pub use layer_targets::{
+	_method_handler, _mistargeted_request_handler, _request_handler, _request_passer,
+	_request_receiver, _wildcard_method_handler,
+};
+
 pub use impls::*;
 pub(crate) use internal::*;
 
