@@ -320,7 +320,7 @@ mod test {
 			.body(body.clone())
 			.unwrap();
 
-		let mut args = Args::default();
+		let mut args = Args::new();
 
 		let Text(data) = Text::<1024>::from_request(request, &mut args)
 			.await
@@ -392,7 +392,7 @@ mod test {
 			.body(full_body.clone())
 			.unwrap();
 
-		let mut args = Args::default();
+		let mut args = Args::new();
 
 		let Octets(data) = Octets::<1024>::from_request(request, &mut args)
 			.await
@@ -467,7 +467,7 @@ mod test {
 			.body(full_body.clone())
 			.unwrap();
 
-		let mut args = Args::default();
+		let mut args = Args::new();
 
 		let RawBody(data) = RawBody::<1024>::from_request(request, &mut args)
 			.await
@@ -485,7 +485,7 @@ mod test {
 			.body(full_body.clone())
 			.unwrap();
 
-		let mut args = Args::default();
+		let mut args = Args::new();
 
 		let RawBody(data) = RawBody::<1024>::from_request(request, &mut args)
 			.await
