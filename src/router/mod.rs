@@ -4,7 +4,7 @@ use std::{any, future::ready, num::NonZeroIsize, str::FromStr, sync::Arc};
 use http::{Extensions, StatusCode, Uri};
 
 use crate::{
-	common::{BoxedError, BoxedFuture, IntoArray, SCOPE_VALIDITY},
+	common::{config::ConfigOption, BoxedError, BoxedFuture, IntoArray, SCOPE_VALIDITY},
 	handler::{AdaptiveHandler, BoxedHandler, Handler},
 	host::Host,
 	middleware::{BoxedLayer, IntoLayer, Layer, RequestExtensionsModifierLayer},
@@ -330,13 +330,19 @@ impl Router {
 
 	pub fn configure<C, const N: usize>(&mut self, config_options: C)
 	where
-		C: IntoArray<RouterConfigOption, N>,
+		C: IntoArray<ConfigOption<Router>, N>,
 	{
 		let config_options = config_options.into_array();
 
 		for config_option in config_options {
-			let RouterConfigOption::RequestExtensionsModifier(request_extensions_modifier_layer) =
-				config_option;
+			use ConfigOption::*;
+
+			let request_extensions_modifier_layer = match config_option {
+				RequestExtensionsModifier(request_extensions_modifier_layer) => {
+					request_extensions_modifier_layer
+				}
+				_ => unreachable!("ConfigOption::None should never be used"),
+			};
 
 			let request_passer_layer_target = _request_passer(request_extensions_modifier_layer);
 
@@ -425,31 +431,6 @@ impl Router {
 }
 
 // --------------------------------------------------
-// RouterConfigOption
-
-pub mod config {
-	use super::*;
-
-	config_option! {
-		RouterConfigOption {
-			RequestExtensionsModifier(RequestExtensionsModifierLayer),
-		}
-	}
-
-	pub fn _with_request_extensions_modifier<Func>(modifier: Func) -> RouterConfigOption
-	where
-		Func: Fn(&mut Extensions) + Clone + Send + Sync + 'static,
-	{
-		let request_extensions_modifier_layer = RequestExtensionsModifierLayer::new(modifier);
-
-		RouterConfigOption::RequestExtensionsModifier(request_extensions_modifier_layer)
-	}
-}
-
-use config::RouterConfigOption;
-pub use config::_with_request_extensions_modifier;
-
-// --------------------------------------------------
 // RouterLayerTarget
 
 pub mod layer_targets {
@@ -503,7 +484,7 @@ pub use layer_targets::_request_passer;
 
 #[cfg(test)]
 mod test {
-	use crate::{handler::_get, resource::_with_request_extensions_modifier};
+	use crate::{common::config::_with_request_extensions_modifier, handler::_get};
 
 	use super::*;
 

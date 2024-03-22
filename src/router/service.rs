@@ -166,9 +166,12 @@ mod test {
 	use http_body_util::{BodyExt, Empty};
 
 	use crate::{
-		common::test_helpers::{new_root, test_service, Case, DataKind, Rx_1_1, Rx_2_0, Wl_3_0},
+		common::{
+			config::_with_request_extensions_modifier,
+			test_helpers::{new_root, test_service, Case, DataKind, Rx_1_1, Rx_2_0, Wl_3_0},
+		},
 		handler::_get,
-		router::{config::_with_request_extensions_modifier, Router},
+		router::Router,
 	};
 
 	use super::*;

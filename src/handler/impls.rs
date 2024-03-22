@@ -295,16 +295,16 @@ impl_handler_fn!((P1, P2, P3, P4, P5, P6, P7, P8, P9, P10, P11, P12, P13, P14, P
 // --------------------------------------------------
 
 #[pin_project]
-pub struct HandlerFnFuture<Func, M, B, E> {
+pub struct HandlerFnFuture<Func, Mark, B, E> {
 	func: Func,
 	some_request: Option<Request<B>>,
 	some_routing_state: Option<RoutingState>,
 	some_node_extensions: Option<NodeExtensions<'static>>,
 	some_handler_extension: Option<E>,
-	_mark: PhantomData<fn() -> M>,
+	_mark: PhantomData<fn() -> Mark>,
 }
 
-impl<Func, M, B, E> HandlerFnFuture<Func, M, B, E> {
+impl<Func, Mark, B, E> HandlerFnFuture<Func, Mark, B, E> {
 	fn new(
 		func: Func,
 		request: Request<B>,

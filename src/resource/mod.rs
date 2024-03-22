@@ -9,7 +9,9 @@ use std::{
 use http::{Extensions, Uri};
 
 use crate::{
-	common::{mark::Private, patterns_to_route, BoxedFuture, IntoArray, Uncloneable},
+	common::{
+		config::ConfigOption, mark::Private, patterns_to_route, BoxedFuture, IntoArray, Uncloneable,
+	},
 	handler::{
 		request_handlers::{
 			handle_mistargeted_request, wrap_mistargeted_request_handler, ImplementedMethods,
@@ -26,18 +28,16 @@ use crate::{
 
 // --------------------------------------------------
 
-pub mod config;
+mod config;
 pub mod layer_targets;
 mod service;
 mod static_files;
 
 use self::{
-	config::{resource_config_from, ConfigFlags, ResourceConfigOption},
+	config::{resource_config_from, ConfigFlags},
 	layer_targets::ResourceLayerTarget,
 	service::{RequestHandler, RequestPasser, RequestReceiver},
 };
-
-pub use config::_with_request_extensions_modifier;
 
 pub use layer_targets::{
 	_method_handler, _mistargeted_request_handler, _request_handler, _request_passer,
@@ -1015,12 +1015,12 @@ impl Resource {
 
 	pub fn configure<C, const N: usize>(&mut self, config_options: C)
 	where
-		C: IntoArray<ResourceConfigOption, N>,
+		C: IntoArray<ConfigOption<Resource>, N>,
 	{
 		let config_options = config_options.into_array();
 
 		for config_option in config_options {
-			use ResourceConfigOption::*;
+			use ConfigOption::*;
 
 			match config_option {
 				RequestExtensionsModifier(request_extensions_modifier_layer) => {
@@ -1028,6 +1028,7 @@ impl Resource {
 
 					self.middleware.insert(0, request_receiver_layer_target);
 				}
+				_ => {}
 			}
 		}
 	}
@@ -1251,7 +1252,7 @@ pub enum Iteration {
 #[cfg(test)]
 mod test {
 	use crate::{
-		common::route_to_patterns,
+		common::{config::_with_request_extensions_modifier, route_to_patterns},
 		handler::{_get, _post, _put, futures::DefaultResponseFuture, DummyHandler},
 	};
 

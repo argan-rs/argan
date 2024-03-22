@@ -7,7 +7,7 @@
 macro_rules! config_option {
 	(
 		$(#[$metas:meta])*
-		$config_name:ident {
+		$config_name:ident$(<$($lt:lifetime),* $($tp:ident),*>)? {
 			$($option_name:ident $(($($tokens:ty),+))?,)+
 		}
 	) => {
@@ -16,18 +16,18 @@ macro_rules! config_option {
 
 			#[allow(private_interfaces)]
 			$(#[$metas])*
-			pub enum $config_name {
+			pub enum $config_name$(<$($lt),* $($tp),*>)? {
+				$(None(std::marker::PhantomData<fn() -> ($($lt),* $($tp),*)>),)?
 				$($option_name $(($($tokens),+))?,)+
 			}
 
-			impl IntoArray<$config_name, 1> for $config_name {
-				fn into_array(self) -> [$config_name; 1] {
+			impl$(<$($lt),* $($tp),*>)? IntoArray<$config_name$(<$($lt),* $($tp),*>)?, 1>
+			for $config_name$(<$($lt),* $($tp),*>)? {
+				fn into_array(self) -> [$config_name$(<$($lt),* $($tp),*>)?; 1] {
 					[self]
 				}
 			}
 		}
-
-		pub(super) use config_private::$config_name;
 	};
 }
 

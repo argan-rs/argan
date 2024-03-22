@@ -670,11 +670,13 @@ mod test {
 	use http_body_util::Empty;
 
 	use crate::{
-		common::test_helpers::{new_root, test_service, Case, DataKind, Rx_1_1, Rx_2_0, Wl_3_0},
+		common::{
+			config::_with_request_extensions_modifier,
+			test_helpers::{new_root, test_service, Case, DataKind, Rx_1_1, Rx_2_0, Wl_3_0},
+		},
 		handler::{DummyHandler, IntoExtendedHandler, IntoWrappedHandler, _get},
 		middleware::IntoResponseResultAdapter,
 		resource::{
-			config::_with_request_extensions_modifier,
 			layer_targets::{_request_handler, _request_passer, _request_receiver},
 			Resource,
 		},
