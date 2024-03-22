@@ -23,6 +23,9 @@ use crate::{
 #[macro_use]
 pub(crate) mod macros;
 
+pub mod config;
+pub use config::_with_request_extensions_modifier;
+
 pub(crate) mod timer;
 
 #[cfg(test)]

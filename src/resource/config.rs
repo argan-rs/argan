@@ -1,3 +1,5 @@
+use std::marker::PhantomData;
+
 use crate::{common::SCOPE_VALIDITY, middleware::RequestExtensionsModifierLayer};
 
 use super::*;
@@ -163,26 +165,7 @@ pub(super) fn resource_config_from(path: &str) -> (ConfigFlags, &str) {
 	(config_flags, path)
 }
 
-// --------------------------------------------------
-// ResourceConfigOption
-
-config_option! {
-	ResourceConfigOption {
-		RequestExtensionsModifier(RequestExtensionsModifierLayer),
-	}
-}
-
-// ----------
-
-pub fn _with_request_extensions_modifier<Func>(modifier: Func) -> ResourceConfigOption
-where
-	Func: Fn(&mut Extensions) + Clone + Send + Sync + 'static,
-{
-	let request_extensions_modifier_layer = RequestExtensionsModifierLayer::new(modifier);
-
-	ResourceConfigOption::RequestExtensionsModifier(request_extensions_modifier_layer)
-}
-
+// --------------------------------------------------------------------------------
 // --------------------------------------------------------------------------------
 
 #[cfg(test)]

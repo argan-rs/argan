@@ -29,6 +29,8 @@ config_option! {
 	}
 }
 
+pub(super) use config_private::FileStreamConfigOption;
+
 // ----------
 
 pub fn _as_attachment() -> FileStreamConfigOption {
