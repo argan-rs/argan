@@ -4,6 +4,7 @@ use crate::{
 	common::{BoxedError, BoxedFuture, IntoArray},
 	handler::{AdaptiveHandler, Handler},
 	middleware::{BoxedLayer, IntoLayer, Layer},
+	resource::Resource,
 	response::{BoxedErrorResponse, Response},
 };
 
@@ -11,13 +12,13 @@ use crate::{
 // --------------------------------------------------------------------------------
 
 mod private {
+	use std::marker::PhantomData;
+
 	use super::*;
 
 	#[allow(private_interfaces)]
-	#[derive(Default)]
-	pub enum ResourceLayerTarget {
-		#[default]
-		None,
+	pub enum LayerTarget<Mark> {
+		None(PhantomData<fn() -> Mark>),
 		RequestReceiver(BoxedLayer),
 		RequestPasser(BoxedLayer),
 		RequestHandler(BoxedLayer),
@@ -26,29 +27,35 @@ mod private {
 		MistargetedRequestHandler(BoxedLayer),
 	}
 
-	impl ResourceLayerTarget {
+	impl<Mark> LayerTarget<Mark> {
 		#[inline(always)]
 		pub(crate) fn take(&mut self) -> Self {
 			std::mem::take(self)
 		}
 	}
 
-	impl IntoArray<ResourceLayerTarget, 1> for ResourceLayerTarget {
-		fn into_array(self) -> [ResourceLayerTarget; 1] {
+	impl<Mark> Default for LayerTarget<Mark> {
+		fn default() -> Self {
+			Self::None(PhantomData)
+		}
+	}
+
+	impl<Mark> IntoArray<LayerTarget<Mark>, 1> for LayerTarget<Mark> {
+		fn into_array(self) -> [LayerTarget<Mark>; 1] {
 			[self]
 		}
 	}
 }
 
-pub(crate) use private::ResourceLayerTarget;
+pub(crate) use private::LayerTarget;
 
 // ----------
 
 macro_rules! layer_target_wrapper {
 	($func:ident, $kind:ident) => {
-		pub fn $func<L, M>(layer: L) -> ResourceLayerTarget
+		pub fn $func<L, Mark>(layer: L) -> LayerTarget<Resource>
 		where
-			L: IntoLayer<M, AdaptiveHandler>,
+			L: IntoLayer<Mark, AdaptiveHandler>,
 			L::Layer: Layer<AdaptiveHandler> + Clone + 'static,
 			<L::Layer as Layer<AdaptiveHandler>>::Handler: Handler<
 					Response = Response,
@@ -59,18 +66,32 @@ macro_rules! layer_target_wrapper {
 				+ Sync
 				+ 'static,
 		{
-			ResourceLayerTarget::$kind(BoxedLayer::new(layer.into_layer()))
+			LayerTarget::$kind(BoxedLayer::new(layer.into_layer()))
 		}
 	};
 }
 
 layer_target_wrapper!(_request_receiver, RequestReceiver);
 
-layer_target_wrapper!(_request_passer, RequestPasser);
+pub fn _request_passer<TargetMark, L, Mark>(layer: L) -> LayerTarget<TargetMark>
+where
+	L: IntoLayer<Mark, AdaptiveHandler>,
+	L::Layer: Layer<AdaptiveHandler> + Clone + 'static,
+	<L::Layer as Layer<AdaptiveHandler>>::Handler: Handler<
+			Response = Response,
+			Error = BoxedErrorResponse,
+			Future = BoxedFuture<Result<Response, BoxedErrorResponse>>,
+		> + Clone
+		+ Send
+		+ Sync
+		+ 'static,
+{
+	LayerTarget::RequestPasser(BoxedLayer::new(layer.into_layer()))
+}
 
 layer_target_wrapper!(_request_handler, RequestHandler);
 
-pub fn _method_handler<M, const N: usize, L, Mark>(methods: M, layer: L) -> ResourceLayerTarget
+pub fn _method_handler<M, const N: usize, L, Mark>(methods: M, layer: L) -> LayerTarget<Resource>
 where
 	M: IntoArray<Method, N>,
 	L: IntoLayer<Mark, AdaptiveHandler>,
@@ -84,7 +105,7 @@ where
 		+ Sync
 		+ 'static,
 {
-	ResourceLayerTarget::MethodHandler(
+	LayerTarget::MethodHandler(
 		methods.into_array().into(),
 		BoxedLayer::new(layer.into_layer()),
 	)

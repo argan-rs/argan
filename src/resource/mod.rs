@@ -19,7 +19,10 @@ use crate::{
 		},
 		AdaptiveHandler, BoxedHandler, HandlerKind, IntoHandler,
 	},
-	middleware::{IntoResponseResultAdapter, ResponseResultFutureBoxer},
+	middleware::{
+		layer_targets::LayerTarget, IntoResponseResultAdapter, ResponseResultFutureBoxer,
+		_request_receiver,
+	},
 	pattern::{split_uri_host_and_path, Pattern, Similarity},
 	request::{FromRequest, FromRequestHead, Request, RequestHead},
 	response::Response,
@@ -29,19 +32,12 @@ use crate::{
 // --------------------------------------------------
 
 mod config;
-pub mod layer_targets;
 mod service;
 mod static_files;
 
 use self::{
 	config::{resource_config_from, ConfigFlags},
-	layer_targets::ResourceLayerTarget,
 	service::{RequestHandler, RequestPasser, RequestReceiver},
-};
-
-pub use layer_targets::{
-	_method_handler, _mistargeted_request_handler, _request_handler, _request_passer,
-	_request_receiver, _wildcard_method_handler,
 };
 
 pub use service::ResourceService;
@@ -63,7 +59,7 @@ pub struct Resource {
 	some_mistargeted_request_handler: Option<BoxedHandler>,
 
 	extensions: Extensions,
-	middleware: Vec<ResourceLayerTarget>,
+	middleware: Vec<LayerTarget<Self>>,
 
 	config_flags: ConfigFlags,
 }
@@ -1008,14 +1004,14 @@ impl Resource {
 
 	pub fn add_layer_to<L, const N: usize>(&mut self, layer_targets: L)
 	where
-		L: IntoArray<ResourceLayerTarget, N>,
+		L: IntoArray<LayerTarget<Self>, N>,
 	{
 		self.middleware.extend(layer_targets.into_array());
 	}
 
 	pub fn configure<C, const N: usize>(&mut self, config_options: C)
 	where
-		C: IntoArray<ConfigOption<Resource>, N>,
+		C: IntoArray<ConfigOption<Self>, N>,
 	{
 		let config_options = config_options.into_array();
 

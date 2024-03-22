@@ -9,7 +9,7 @@ use crate::{
 	data::extensions::NodeExtensions,
 	handler::{futures::ResponseToResultFuture, Args, BoxedHandler, Handler},
 	host::{Host, HostService},
-	middleware::Layer,
+	middleware::{layer_targets::LayerTarget, Layer},
 	pattern::ParamsList,
 	request::Request,
 	resource::{Resource, ResourceService},
@@ -17,7 +17,7 @@ use crate::{
 	routing::{RouteTraversal, RoutingState},
 };
 
-use super::RouterLayerTarget;
+use super::Router;
 
 // --------------------------------------------------------------------------------
 // --------------------------------------------------------------------------------
@@ -80,7 +80,7 @@ impl RequestPasser {
 		some_static_hosts: Option<Arc<[HostService]>>,
 		some_regex_hosts: Option<Arc<[HostService]>>,
 		some_root_resource: Option<Arc<ResourceService>>,
-		middleware: Vec<RouterLayerTarget>,
+		middleware: Vec<LayerTarget<Router>>,
 	) -> MaybeBoxed<Self> {
 		let request_passer = Self {
 			some_static_hosts,
@@ -92,8 +92,8 @@ impl RequestPasser {
 
 		for mut layer in middleware.into_iter().rev() {
 			match layer {
-				RouterLayerTarget::RequestPasser(_) => {
-					let RouterLayerTarget::RequestPasser(boxed_layer) = layer.take() else {
+				LayerTarget::RequestPasser(_) => {
+					let LayerTarget::RequestPasser(boxed_layer) = layer.take() else {
 						unreachable!()
 					};
 

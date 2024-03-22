@@ -7,7 +7,10 @@ use crate::{
 	common::{config::ConfigOption, BoxedError, BoxedFuture, IntoArray, SCOPE_VALIDITY},
 	handler::{AdaptiveHandler, BoxedHandler, Handler},
 	host::Host,
-	middleware::{BoxedLayer, IntoLayer, Layer, RequestExtensionsModifierLayer},
+	middleware::{
+		BoxedLayer, IntoLayer, Layer, RequestExtensionsModifierLayer, _request_passer,
+		layer_targets::LayerTarget,
+	},
 	pattern::{split_uri_host_and_path, Pattern, Similarity},
 	resource::{Iteration, Resource},
 	response::{BoxedErrorResponse, Response},
@@ -30,7 +33,7 @@ pub struct Router {
 	some_root_resource: Option<Box<Resource>>,
 
 	extensions: Extensions,
-	middleware: Vec<RouterLayerTarget>,
+	middleware: Vec<LayerTarget<Self>>,
 }
 
 impl Router {
@@ -323,14 +326,14 @@ impl Router {
 
 	pub fn add_layer_to<L, const N: usize>(&mut self, layer_targets: L)
 	where
-		L: IntoArray<RouterLayerTarget, N>,
+		L: IntoArray<LayerTarget<Self>, N>,
 	{
 		self.middleware.extend(layer_targets.into_array());
 	}
 
 	pub fn configure<C, const N: usize>(&mut self, config_options: C)
 	where
-		C: IntoArray<ConfigOption<Router>, N>,
+		C: IntoArray<ConfigOption<Self>, N>,
 	{
 		let config_options = config_options.into_array();
 
@@ -429,55 +432,6 @@ impl Router {
 		RouterService::new(extensions, request_passer)
 	}
 }
-
-// --------------------------------------------------
-// RouterLayerTarget
-
-pub mod layer_targets {
-	use super::*;
-
-	mod private {
-		use super::*;
-
-		#[allow(private_interfaces)]
-		#[derive(Default)]
-		pub enum RouterLayerTarget {
-			#[default]
-			None,
-			RequestPasser(BoxedLayer),
-		}
-
-		impl RouterLayerTarget {
-			#[inline(always)]
-			pub(crate) fn take(&mut self) -> Self {
-				std::mem::take(self)
-			}
-		}
-	}
-
-	pub(super) use private::RouterLayerTarget;
-
-	// ----------
-
-	pub fn _request_passer<L, M>(layer: L) -> RouterLayerTarget
-	where
-		L: IntoLayer<M, AdaptiveHandler>,
-		L::Layer: Layer<AdaptiveHandler> + Clone + 'static,
-		<L::Layer as Layer<AdaptiveHandler>>::Handler: Handler<
-				Response = Response,
-				Error = BoxedErrorResponse,
-				Future = BoxedFuture<Result<Response, BoxedErrorResponse>>,
-			> + Clone
-			+ Send
-			+ Sync
-			+ 'static,
-	{
-		RouterLayerTarget::RequestPasser(BoxedLayer::new(layer.into_layer()))
-	}
-}
-
-use layer_targets::RouterLayerTarget;
-pub use layer_targets::_request_passer;
 
 // --------------------------------------------------------------------------------
 // --------------------------------------------------------------------------------
