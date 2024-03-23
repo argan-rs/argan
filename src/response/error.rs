@@ -116,7 +116,7 @@ pub trait ErrorResponse: StdError + IntoResponse + 'static {
 	fn concrete_into_response(self: Box<Self>, _: mark::Private) -> Response;
 }
 
-impl dyn ErrorResponse + 'static {
+impl dyn ErrorResponse + Send + Sync {
 	pub fn implementor_type_id(&self) -> TypeId {
 		ErrorResponse::concrete_type_id(self, mark::Private)
 	}
@@ -151,7 +151,7 @@ impl dyn ErrorResponse + 'static {
 
 impl<E> ErrorResponse for E
 where
-	E: StdError + IntoResponse + 'static,
+	E: StdError + IntoResponse + Send + Sync + 'static,
 {
 	#[doc(hidden)]
 	fn as_any(self: Box<Self>, _: mark::Private) -> Box<dyn Any> {
@@ -178,7 +178,7 @@ where
 	}
 }
 
-impl<E: ErrorResponse> From<E> for BoxedErrorResponse {
+impl<E: ErrorResponse + Send + Sync> From<E> for BoxedErrorResponse {
 	fn from(error_response: E) -> Self {
 		Box::new(error_response)
 	}
@@ -278,7 +278,7 @@ mod test {
 
 	#[test]
 	fn error_response() {
-		let mut error = Box::new(E) as Box<dyn ErrorResponse>;
+		let mut error = Box::new(E) as BoxedErrorResponse;
 		assert_eq!(TypeId::of::<E>(), error.implementor_type_id());
 		assert!(error.is::<E>());
 		assert_eq!(Some(&mut E), error.downcast_mut::<E>());
@@ -287,10 +287,10 @@ mod test {
 
 		// ----------
 
-		let mut error = Box::new(A) as Box<dyn ErrorResponse>;
+		let mut error = Box::new(A) as BoxedErrorResponse;
 		assert_eq!(
 			TypeId::of::<A>(),
-			<dyn ErrorResponse>::implementor_type_id(error.as_ref())
+			<dyn ErrorResponse + Send + Sync>::implementor_type_id(error.as_ref())
 		);
 		assert!(error.is::<A>());
 		assert!(!error.is::<E>());
@@ -312,7 +312,7 @@ mod test {
 
 		// ----------
 
-		let mut error = Box::new(A) as Box<dyn ErrorResponse>;
+		let mut error = Box::new(A) as BoxedErrorResponse;
 		assert_eq!(
 			A,
 			error

@@ -43,6 +43,7 @@ macro_rules! handler_kind_by_method {
 			H::Handler: Handler + Clone + Send + Sync + 'static,
 			<H::Handler as Handler>::Response: IntoResponse,
 			<H::Handler as Handler>::Error: Into<BoxedErrorResponse>,
+			<H::Handler as Handler>::Future: Send,
 		{
 			let final_handler =
 				ResponseResultFutureBoxer::wrap(IntoResponseResultAdapter::wrap(handler.into_handler()));
@@ -69,6 +70,7 @@ where
 	H::Handler: Handler + Clone + Send + Sync + 'static,
 	<H::Handler as Handler>::Response: IntoResponse,
 	<H::Handler as Handler>::Error: Into<BoxedErrorResponse>,
+	<H::Handler as Handler>::Future: Send,
 {
 	let method = Method::from_str(method.as_ref())
 		.expect("HTTP method should be a valid token [RFC 9110, 5.6.2 Tokens]");
@@ -85,6 +87,7 @@ where
 	H::Handler: Handler + Clone + Send + Sync + 'static,
 	<H::Handler as Handler>::Response: IntoResponse,
 	<H::Handler as Handler>::Error: Into<BoxedErrorResponse>,
+	<H::Handler as Handler>::Future: Send,
 {
 	let some_final_handler = some_handler.map(|handler| {
 		let handler = handler.into_handler();
@@ -101,6 +104,7 @@ where
 	H::Handler: Handler + Clone + Send + Sync + 'static,
 	<H::Handler as Handler>::Response: IntoResponse,
 	<H::Handler as Handler>::Error: Into<BoxedErrorResponse>,
+	<H::Handler as Handler>::Future: Send,
 {
 	let final_handler =
 		ResponseResultFutureBoxer::wrap(IntoResponseResultAdapter::wrap(handler.into_handler()));
