@@ -301,7 +301,9 @@ impl WebSocket {
 		match self.0.read_frame().await {
 			Ok(complete_frame) => match complete_frame.opcode {
 				OpCode::Text => {
-					let text = String::from_utf8_lossy(complete_frame.payload.as_ref()).to_string();
+					// Price of #![forbid(unsafe_code)]
+					let text = String::from_utf8(complete_frame.payload.to_vec())
+						.expect("text payload should have been guaranteed to be a valid utf-8");
 
 					Some(Ok(Message::Text(text)))
 				}

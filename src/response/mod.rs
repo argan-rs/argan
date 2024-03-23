@@ -38,7 +38,7 @@ pub use error::{ErrorResponse, ResponseError};
 pub type Response<B = Body> = http::response::Response<B>;
 pub type ResponseHead = Parts;
 
-pub type BoxedErrorResponse = Box<dyn ErrorResponse + 'static>;
+pub type BoxedErrorResponse = Box<dyn ErrorResponse + Send + Sync>;
 
 // --------------------------------------------------
 // IntoResponseHead trait
@@ -214,9 +214,9 @@ impl<T: IntoResponse> IntoResponse for Option<T> {
 impl<N, V, const C: usize> IntoResponseHead for [(N, V); C]
 where
 	N: TryInto<HeaderName>,
-	N::Error: crate::StdError + 'static,
+	N::Error: crate::StdError + Send + Sync + 'static,
 	V: TryInto<HeaderValue>,
-	V::Error: crate::StdError + 'static,
+	V::Error: crate::StdError + Send + Sync + 'static,
 {
 	fn into_response_head(self, mut head: ResponseHead) -> Result<ResponseHead, BoxedErrorResponse> {
 		for (key, value) in self {
@@ -236,9 +236,9 @@ where
 impl<N, V, const C: usize> IntoResponseResult for [(N, V); C]
 where
 	N: TryInto<HeaderName>,
-	N::Error: crate::StdError + 'static,
+	N::Error: crate::StdError + Send + Sync + 'static,
 	V: TryInto<HeaderValue>,
-	V::Error: crate::StdError + 'static,
+	V::Error: crate::StdError + Send + Sync + 'static,
 {
 	fn into_response_result(self) -> Result<Response, BoxedErrorResponse> {
 		let (head, body) = Response::default().into_parts();

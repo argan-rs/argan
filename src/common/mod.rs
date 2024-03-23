@@ -35,7 +35,7 @@ pub(crate) mod test_helpers;
 // --------------------------------------------------------------------------------
 
 pub type BoxedError = Box<dyn std::error::Error + Send + Sync>;
-pub type BoxedFuture<T> = Pin<Box<dyn Future<Output = T>>>;
+pub type BoxedFuture<T> = Pin<Box<dyn Future<Output = T> + Send>>;
 
 // --------------------------------------------------------------------------------
 

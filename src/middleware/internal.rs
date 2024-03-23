@@ -117,7 +117,7 @@ pub(crate) struct ResponseResultFutureBoxer<H>(H);
 impl<H, B> Handler<B> for ResponseResultFutureBoxer<H>
 where
 	H: Handler<B, Response = Response, Error = BoxedErrorResponse>,
-	H::Future: 'static,
+	H::Future: Send + 'static,
 {
 	type Response = H::Response;
 	type Error = H::Error;
