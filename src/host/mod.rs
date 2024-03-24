@@ -11,6 +11,8 @@ mod service;
 
 pub use service::HostService;
 
+use self::service::{ArcHostService, LeakedHostService};
+
 // --------------------------------------------------------------------------------
 // --------------------------------------------------------------------------------
 
@@ -120,6 +122,16 @@ impl Host {
 		} = self;
 
 		HostService::new(pattern, root_resource.into_service())
+	}
+
+	#[inline(always)]
+	pub fn into_arc_service(self) -> ArcHostService {
+		ArcHostService::from(self.into_service())
+	}
+
+	#[inline(always)]
+	pub fn into_leaked_service(self) -> LeakedHostService {
+		LeakedHostService::from(self.into_service())
 	}
 }
 
