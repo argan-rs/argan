@@ -22,7 +22,7 @@ mod service;
 
 pub use service::RouterService;
 
-use self::service::RequestPasser;
+use self::service::{ArcRouterService, LeakedRouterService, RequestPasser};
 
 // --------------------------------------------------------------------------------
 // --------------------------------------------------------------------------------
@@ -430,6 +430,16 @@ impl Router {
 		);
 
 		RouterService::new(extensions, request_passer)
+	}
+
+	#[inline(always)]
+	pub fn into_arc_service(self) -> ArcRouterService {
+		ArcRouterService::from(self.into_service())
+	}
+
+	#[inline(always)]
+	pub fn into_leaked_service(self) -> LeakedRouterService {
+		LeakedRouterService::from(self.into_service())
 	}
 }
 

@@ -181,6 +181,67 @@ where
 	}
 }
 
+// -------------------------
+
+pub struct ArcResourceService(Arc<ResourceService>);
+
+impl From<ResourceService> for ArcResourceService {
+	#[inline(always)]
+	fn from(resource_service: ResourceService) -> Self {
+		ArcResourceService(Arc::new(resource_service))
+	}
+}
+
+impl Clone for ArcResourceService {
+	fn clone(&self) -> Self {
+		ArcResourceService(Arc::clone(&self.0))
+	}
+}
+
+impl<B> Service<Request<B>> for ArcResourceService
+where
+	B: HttpBody<Data = Bytes> + Send + Sync + 'static,
+	B::Error: Into<BoxedError>,
+{
+	type Response = Response;
+	type Error = Infallible;
+	type Future = InfallibleResponseFuture;
+
+	#[inline(always)]
+	fn call(&self, request: Request<B>) -> Self::Future {
+		self.0.as_ref().call(request)
+	}
+}
+
+// -------------------------
+
+#[derive(Clone)]
+pub struct LeakedResourceService(&'static ResourceService);
+
+impl From<ResourceService> for LeakedResourceService {
+	#[inline(always)]
+	fn from(resource_service: ResourceService) -> Self {
+		let resource_service_static_ref = Box::leak(Box::new(resource_service));
+
+		LeakedResourceService(resource_service_static_ref)
+	}
+}
+
+impl<B> Service<Request<B>> for LeakedResourceService
+where
+	B: HttpBody<Data = Bytes> + Send + Sync + 'static,
+	B::Error: Into<BoxedError>,
+{
+	type Response = Response;
+	type Error = Infallible;
+	type Future = InfallibleResponseFuture;
+
+	#[inline(always)]
+	fn call(&self, request: Request<B>) -> Self::Future {
+		self.0.call(request)
+	}
+}
+
 // --------------------------------------------------
 
 #[derive(Clone)]

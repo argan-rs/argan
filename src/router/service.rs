@@ -65,6 +65,67 @@ where
 	}
 }
 
+// -------------------------
+
+pub struct ArcRouterService(Arc<RouterService>);
+
+impl From<RouterService> for ArcRouterService {
+	#[inline(always)]
+	fn from(router_service: RouterService) -> Self {
+		ArcRouterService(Arc::new(router_service))
+	}
+}
+
+impl Clone for ArcRouterService {
+	fn clone(&self) -> Self {
+		ArcRouterService(Arc::clone(&self.0))
+	}
+}
+
+impl<B> Service<Request<B>> for ArcRouterService
+where
+	B: HttpBody<Data = Bytes> + Send + Sync + 'static,
+	B::Error: Into<BoxedError>,
+{
+	type Response = Response;
+	type Error = Infallible;
+	type Future = InfallibleResponseFuture;
+
+	#[inline(always)]
+	fn call(&self, request: Request<B>) -> Self::Future {
+		self.0.as_ref().call(request)
+	}
+}
+
+// -------------------------
+
+#[derive(Clone)]
+pub struct LeakedRouterService(&'static RouterService);
+
+impl From<RouterService> for LeakedRouterService {
+	#[inline(always)]
+	fn from(router_service: RouterService) -> Self {
+		let router_service_static_ref = Box::leak(Box::new(router_service));
+
+		LeakedRouterService(router_service_static_ref)
+	}
+}
+
+impl<B> Service<Request<B>> for LeakedRouterService
+where
+	B: HttpBody<Data = Bytes> + Send + Sync + 'static,
+	B::Error: Into<BoxedError>,
+{
+	type Response = Response;
+	type Error = Infallible;
+	type Future = InfallibleResponseFuture;
+
+	#[inline(always)]
+	fn call(&self, request: Request<B>) -> Self::Future {
+		self.0.call(request)
+	}
+}
+
 // --------------------------------------------------
 // RequestPasser
 

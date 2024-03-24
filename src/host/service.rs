@@ -1,4 +1,4 @@
-use std::{convert::Infallible, future::ready};
+use std::{convert::Infallible, future::ready, sync::Arc};
 
 use http::{Extensions, StatusCode};
 use hyper::service::Service;
@@ -96,6 +96,67 @@ where
 		}
 
 		handle_unmatching_host!()
+	}
+}
+
+// -------------------------
+
+pub struct ArcHostService(Arc<HostService>);
+
+impl From<HostService> for ArcHostService {
+	#[inline(always)]
+	fn from(host_service: HostService) -> Self {
+		ArcHostService(Arc::new(host_service))
+	}
+}
+
+impl Clone for ArcHostService {
+	fn clone(&self) -> Self {
+		ArcHostService(Arc::clone(&self.0))
+	}
+}
+
+impl<B> Service<Request<B>> for ArcHostService
+where
+	B: HttpBody<Data = Bytes> + Send + Sync + 'static,
+	B::Error: Into<BoxedError>,
+{
+	type Response = Response;
+	type Error = Infallible;
+	type Future = InfallibleResponseFuture;
+
+	#[inline(always)]
+	fn call(&self, request: Request<B>) -> Self::Future {
+		self.0.as_ref().call(request)
+	}
+}
+
+// -------------------------
+
+#[derive(Clone)]
+pub struct LeakedHostService(&'static HostService);
+
+impl From<HostService> for LeakedHostService {
+	#[inline(always)]
+	fn from(host_service: HostService) -> Self {
+		let host_service_static_ref = Box::leak(Box::new(host_service));
+
+		LeakedHostService(host_service_static_ref)
+	}
+}
+
+impl<B> Service<Request<B>> for LeakedHostService
+where
+	B: HttpBody<Data = Bytes> + Send + Sync + 'static,
+	B::Error: Into<BoxedError>,
+{
+	type Response = Response;
+	type Error = Infallible;
+	type Future = InfallibleResponseFuture;
+
+	#[inline(always)]
+	fn call(&self, request: Request<B>) -> Self::Future {
+		self.0.call(request)
 	}
 }
 

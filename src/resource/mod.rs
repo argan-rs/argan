@@ -37,7 +37,9 @@ mod static_files;
 
 use self::{
 	config::{resource_config_from, ConfigFlags},
-	service::{RequestHandler, RequestPasser, RequestReceiver},
+	service::{
+		ArcResourceService, LeakedResourceService, RequestHandler, RequestPasser, RequestReceiver,
+	},
 };
 
 pub use service::ResourceService;
@@ -1180,6 +1182,16 @@ impl Resource {
 			request_receiver,
 			some_mistargeted_request_handler,
 		)
+	}
+
+	#[inline(always)]
+	pub fn into_arc_service(self) -> ArcResourceService {
+		ArcResourceService::from(self.into_service())
+	}
+
+	#[inline(always)]
+	pub fn into_leaked_service(self) -> LeakedResourceService {
+		LeakedResourceService::from(self.into_service())
 	}
 }
 
