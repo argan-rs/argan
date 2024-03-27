@@ -11,6 +11,10 @@ use std::{
 	usize,
 };
 
+use argan_core::{
+	body::{Body, Frame, HttpBody},
+	BoxedError, IntoArray,
+};
 use bytes::{BufMut, Bytes, BytesMut};
 use flate2::{read::GzEncoder, Compression};
 use http::{
@@ -25,8 +29,7 @@ use percent_encoding::{percent_encode, NON_ALPHANUMERIC};
 use rand::{rngs::SmallRng, Rng, SeedableRng};
 
 use crate::{
-	body::{Body, Frame, HttpBody},
-	common::{BoxedError, IntoArray, SCOPE_VALIDITY},
+	common::SCOPE_VALIDITY,
 	response::{IntoResponse, Response},
 };
 
@@ -291,84 +294,6 @@ impl FileStream {
 			}
 		}
 	}
-
-	// pub fn as_attachment(&mut self) -> &mut Self {
-	// 	self.config_flags.add(ConfigFlags::ATTACHMENT);
-	//
-	// 	self
-	// }
-	//
-	// pub fn support_partial_content(&mut self) -> &mut Self {
-	// 	if let MaybeEncoded::Gzip(_) = self.maybe_encoded_file {
-	// 		panic!("cannot support partial content with dynamic encoding");
-	// 	}
-	//
-	// 	self.config_flags.add(ConfigFlags::PARTIAL_CONTENT_SUPPORT);
-	//
-	// 	self
-	// }
-	//
-	// pub fn set_content_encoding(&mut self, header_value: HeaderValue) -> &mut Self {
-	// 	if let MaybeEncoded::Gzip(_) = self.maybe_encoded_file {
-	// 		if header_value.to_str().map_or(true, |value| value != "gzip") {
-	// 			panic!("applied dynamic encoding and Content-Encoding are different");
-	// 		}
-	// 	}
-	//
-	// 	self.some_content_encoding = Some(header_value);
-	//
-	// 	self
-	// }
-	//
-	// pub fn set_content_type(&mut self, header_value: HeaderValue) -> &mut Self {
-	// 	self.some_content_type = Some(header_value);
-	//
-	// 	self
-	// }
-	//
-	// pub fn set_boundary(&mut self, boundary: Box<str>) -> &mut Self {
-	// 	if let MaybeEncoded::Gzip(_) = self.maybe_encoded_file {
-	// 		panic!("boundary cannot be set with dynamic encoding");
-	// 	}
-	//
-	// 	if boundary.len() > 70 {
-	// 		panic!("boundary exceeds 70 characters");
-	// 	}
-	//
-	// 	if boundary.chars().any(|ch| !ch.is_ascii_graphic()) {
-	// 		panic!("boundary contains non-graphic character");
-	// 	}
-	//
-	// 	self.some_boundary = Some(boundary);
-	// 	self.config_flags.add(ConfigFlags::PARTIAL_CONTENT_SUPPORT);
-	//
-	// 	self
-	// }
-	//
-	// pub fn set_file_name<F: AsRef<str>>(&mut self, file_name: F) -> &mut Self {
-	// 	let file_name = file_name.as_ref();
-	//
-	// 	let mut file_name_string = String::new();
-	// 	file_name_string.push_str("; filename");
-	//
-	// 	if file_name
-	// 		.as_bytes()
-	// 		.iter()
-	// 		.any(|ch| !ch.is_ascii_alphanumeric())
-	// 	{
-	// 		file_name_string.push_str("*=utf-8''");
-	// 		file_name_string
-	// 			.push_str(&percent_encode(file_name.as_bytes(), NON_ALPHANUMERIC).to_string());
-	// 	} else {
-	// 		file_name_string.push_str("=\"");
-	// 		file_name_string.push_str(file_name.as_ref());
-	// 		file_name_string.push('"');
-	// 	}
-	//
-	// 	self.some_file_name = Some(file_name_string.into());
-	//
-	// 	self
-	// }
 }
 
 impl IntoResponse for FileStream {

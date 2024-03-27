@@ -1,16 +1,11 @@
 use std::{
 	any::{Any, TypeId},
-	fmt::{self, Display, Formatter, Write},
+	fmt::{self, Display, Formatter},
 };
 
-use bytes::Bytes;
 use http::StatusCode;
 
-use crate::{
-	body::Body,
-	common::{mark, BoxedError, SCOPE_VALIDITY},
-	StdError,
-};
+use crate::{body::Body, marker, BoxedError, StdError, SCOPE_VALIDITY};
 
 use super::{BoxedErrorResponse, IntoResponse, Response};
 
@@ -99,30 +94,30 @@ impl IntoResponse for ResponseError {
 
 pub trait ErrorResponse: StdError + IntoResponse + 'static {
 	#[doc(hidden)]
-	fn concrete_type_id(&self, _: mark::Private) -> TypeId {
+	fn concrete_type_id(&self, _: marker::Private) -> TypeId {
 		TypeId::of::<Self>()
 	}
 
 	#[doc(hidden)]
-	fn as_any(self: Box<Self>, _: mark::Private) -> Box<dyn Any>;
+	fn as_any(self: Box<Self>, _: marker::Private) -> Box<dyn Any>;
 
 	#[doc(hidden)]
-	fn as_any_ref(&self, _: mark::Private) -> &dyn Any;
+	fn as_any_ref(&self, _: marker::Private) -> &dyn Any;
 
 	#[doc(hidden)]
-	fn as_any_mut(&mut self, _: mark::Private) -> &mut dyn Any;
+	fn as_any_mut(&mut self, _: marker::Private) -> &mut dyn Any;
 
 	#[doc(hidden)]
-	fn concrete_into_response(self: Box<Self>, _: mark::Private) -> Response;
+	fn concrete_into_response(self: Box<Self>, _: marker::Private) -> Response;
 }
 
 impl dyn ErrorResponse + Send + Sync {
 	pub fn implementor_type_id(&self) -> TypeId {
-		ErrorResponse::concrete_type_id(self, mark::Private)
+		ErrorResponse::concrete_type_id(self, marker::Private)
 	}
 
 	pub fn is<E: Any + 'static>(&self) -> bool {
-		let self_id = ErrorResponse::concrete_type_id(self, mark::Private);
+		let self_id = ErrorResponse::concrete_type_id(self, marker::Private);
 		let param_id = TypeId::of::<E>();
 
 		self_id == param_id
@@ -130,22 +125,27 @@ impl dyn ErrorResponse + Send + Sync {
 
 	pub fn downcast<E: Any + 'static>(self: Box<Self>) -> Result<Box<E>, Box<Self>> {
 		if self.is::<E>() {
-			Ok(self.as_any(mark::Private).downcast().expect(SCOPE_VALIDITY))
+			Ok(
+				self
+					.as_any(marker::Private)
+					.downcast()
+					.expect(SCOPE_VALIDITY),
+			)
 		} else {
 			Err(self)
 		}
 	}
 
 	pub fn downcast_ref<E: Any + 'static>(&self) -> Option<&E> {
-		self.as_any_ref(mark::Private).downcast_ref()
+		self.as_any_ref(marker::Private).downcast_ref()
 	}
 
 	pub fn downcast_mut<E: Any + 'static>(&mut self) -> Option<&mut E> {
-		self.as_any_mut(mark::Private).downcast_mut()
+		self.as_any_mut(marker::Private).downcast_mut()
 	}
 
 	pub fn into_response(self: Box<Self>) -> Response {
-		self.concrete_into_response(mark::Private)
+		self.concrete_into_response(marker::Private)
 	}
 }
 
@@ -154,22 +154,22 @@ where
 	E: StdError + IntoResponse + Send + Sync + 'static,
 {
 	#[doc(hidden)]
-	fn as_any(self: Box<Self>, _: mark::Private) -> Box<dyn Any> {
+	fn as_any(self: Box<Self>, _: marker::Private) -> Box<dyn Any> {
 		self
 	}
 
 	#[doc(hidden)]
-	fn as_any_ref(&self, _: mark::Private) -> &dyn Any {
+	fn as_any_ref(&self, _: marker::Private) -> &dyn Any {
 		self
 	}
 
 	#[doc(hidden)]
-	fn as_any_mut(&mut self, _: mark::Private) -> &mut dyn Any {
+	fn as_any_mut(&mut self, _: marker::Private) -> &mut dyn Any {
 		self
 	}
 
 	#[doc(hidden)]
-	fn concrete_into_response(self: Box<Self>, _: mark::Private) -> Response {
+	fn concrete_into_response(self: Box<Self>, _: marker::Private) -> Response {
 		let e = (self as Box<dyn Any>)
 			.downcast::<E>()
 			.expect(SCOPE_VALIDITY);
@@ -312,7 +312,7 @@ mod test {
 
 		// ----------
 
-		let mut error = Box::new(A) as BoxedErrorResponse;
+		let error = Box::new(A) as BoxedErrorResponse;
 		assert_eq!(
 			A,
 			error

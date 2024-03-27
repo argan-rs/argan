@@ -1,16 +1,20 @@
 use std::{
+	any::Any,
 	future::Future,
 	marker::PhantomData,
 	pin::{pin, Pin},
 	task::{Context, Poll},
 };
 
+use argan_core::{
+	body::{Body, HttpBody},
+	Arguments, BoxedError, BoxedFuture,
+};
+use bytes::Bytes;
 use pin_project::pin_project;
 
 use crate::{
-	body::{Body, Bytes, HttpBody},
-	common::{mark::Private, BoxedError, BoxedFuture},
-	data::extensions::NodeExtensions,
+	common::{marker::Private, NodeExtensions},
 	request::{FromRequest, FromRequestHead, Request},
 	response::{BoxedErrorResponse, IntoResponse, IntoResponseResult, Response},
 	routing::RoutingState,
@@ -141,13 +145,14 @@ where
 macro_rules! impl_handler_fn {
 	($(($($ps:ident),*),)? $($lp:ident)?) => {
 		#[allow(non_snake_case)]
-		impl<Func, $($($ps,)*)? $($lp,)? Fut, O, B, E> IntoHandler<(Private, $($($ps,)*)? $($lp)?), B, E>
-			for Func
+		impl<Func, $($($ps,)*)? $($lp,)? Fut, O, B, Ext>
+		IntoHandler<(Private, $($($ps,)*)? $($lp)?), B, Ext>
+		for Func
 		where
 			Func: Fn($($($ps,)*)? $($lp)?) -> Fut,
 			Fut: Future<Output = O>,
 			O: IntoResponseResult,
-			HandlerFn<Func, (Private, $($($ps,)*)? $($lp)?)>: Handler<B, E>,
+			HandlerFn<Func, (Private, $($($ps,)*)? $($lp)?)>: Handler<B, Ext>,
 		{
 			type Handler = HandlerFn<Func, (Private, $($($ps,)*)? $($lp)?)>;
 
@@ -157,22 +162,22 @@ macro_rules! impl_handler_fn {
 		}
 
 		#[allow(non_snake_case)]
-		impl<Func, $($($ps,)*)? $($lp,)? Fut, O, B, E> Handler<B, E>
+		impl<Func, $($($ps,)*)? $($lp,)? Fut, O, B, Ext> Handler<B, Ext>
 			for HandlerFn<Func, (Private, $($($ps,)*)? $($lp)?)>
 		where
 			Func: Fn($($($ps,)*)? $($lp)?) -> Fut + Clone + 'static,
-			$($($ps: FromRequestHead<E>,)*)?
-			$($lp: FromRequest<B, E>,)?
+			$($($ps: for <'n> FromRequestHead<Args<'n, Ext>, Ext>,)*)?
+			$($lp: for <'n> FromRequest<B, Args<'n, Ext>, Ext>,)?
 			Fut: Future<Output = O>,
 			O: IntoResponseResult,
 			B: 'static,
-			E: Clone + Sync,
+			Ext: Clone + Sync,
 		{
 			type Response = Response;
 			type Error = BoxedErrorResponse;
-			type Future = HandlerFnFuture<Func, (Private, $($($ps,)*)? $($lp)?), B, E>;
+			type Future = HandlerFnFuture<Func, (Private, $($($ps,)*)? $($lp)?), B, Ext>;
 
-			fn handle(&self, request: Request<B>, args: &mut Args<'_, E>) -> Self::Future {
+			fn handle(&self, request: Request<B>, args: &mut Args<'_, Ext>) -> Self::Future {
 				let func_clone = self.func.clone();
 				let routing_state = std::mem::take(&mut args.routing_state);
 				let node_extensions = args.node_extensions.clone().into_owned();
@@ -189,16 +194,16 @@ macro_rules! impl_handler_fn {
 		}
 
 		#[allow(non_snake_case)]
-		impl<Func, $($($ps,)*)? $($lp,)? Fut, O, B, E> Future
-			for HandlerFnFuture<Func, (Private, $($($ps,)*)? $($lp)?), B, E>
+		impl<Func, $($($ps,)*)? $($lp,)? Fut, O, B, Ext> Future
+			for HandlerFnFuture<Func, (Private, $($($ps,)*)? $($lp)?), B, Ext>
 		where
 			Func: Fn($($($ps,)*)? $($lp)?) -> Fut + Clone + 'static,
-			$($($ps: FromRequestHead<E>,)*)?
-			$($lp: FromRequest<B, E>,)?
+			$($($ps: for <'n> FromRequestHead<Args<'n, Ext>, Ext>,)*)?
+			$($lp: for <'n> FromRequest<B, Args<'n, Ext>, Ext>,)?
 			Fut: Future<Output = O>,
 			O: IntoResponseResult,
 			B: 'static,
-			E: Sync,
+			Ext: Sync,
 		{
 			type Output = Result<Response, BoxedErrorResponse>;
 

@@ -6,18 +6,17 @@ use std::{
 	sync::Arc,
 };
 
+use argan_core::IntoArray;
 use http::{Extensions, Uri};
 
 use crate::{
-	common::{
-		config::ConfigOption, mark::Private, patterns_to_route, BoxedFuture, IntoArray, Uncloneable,
-	},
+	common::{config::ConfigOption, marker::Private, patterns_to_route, Uncloneable},
 	handler::{
 		request_handlers::{
 			handle_mistargeted_request, wrap_mistargeted_request_handler, ImplementedMethods,
 			MethodHandlers,
 		},
-		AdaptiveHandler, BoxedHandler, HandlerKind, IntoHandler,
+		BoxedHandler, HandlerKind, IntoHandler,
 	},
 	middleware::{
 		layer_targets::LayerTarget, IntoResponseResultAdapter, ResponseResultFutureBoxer,

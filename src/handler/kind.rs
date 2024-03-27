@@ -1,10 +1,9 @@
 use std::str::FromStr;
 
+use argan_core::body::Body;
 use http::Method;
 
 use crate::{
-	body::Body,
-	common::{BoxedError, IntoArray},
 	middleware::{IntoResponseResultAdapter, ResponseResultFutureBoxer},
 	response::{BoxedErrorResponse, IntoResponse},
 };
@@ -15,6 +14,8 @@ use super::{BoxedHandler, FinalHandler, Handler, IntoHandler};
 // --------------------------------------------------------------------------------
 
 mod private {
+	use argan_core::IntoArray;
+
 	use super::*;
 
 	#[allow(private_interfaces)]
@@ -113,3 +114,86 @@ where
 }
 
 // --------------------------------------------------------------------------------
+
+#[cfg(test)]
+mod test {
+	use std::{convert::Infallible, future::ready, marker::PhantomData};
+
+	use argan_core::{
+		request::{FromRequest, FromRequestHead, Request},
+		response::Response,
+		Arguments, BoxedFuture,
+	};
+	use http::{Extensions, Uri};
+
+	use crate::{
+		common::{marker::Private, NodeExtensions},
+		handler::Args,
+		request::{PathParams, RemainingPath},
+		routing::{RouteTraversal, RoutingState},
+	};
+
+	use super::*;
+
+	// --------------------------------------------------------------------------------
+	// --------------------------------------------------------------------------------
+
+	struct H<A, T1>(PhantomData<(T1, A)>);
+	impl<'n, A: Arguments<'n>, T1: FromRequest<Body, A, ()>> Handler for H<A, T1> {
+		type Response = Response;
+		type Error = Infallible;
+		type Future = BoxedFuture<Result<Self::Response, Self::Error>>;
+
+		fn handle(&self, request: Request<Body>, args: &mut Args<'_, ()>) -> Self::Future {
+			Box::pin(ready(Ok(Response::default())))
+		}
+	}
+
+	struct Boo<T1>(PhantomData<T1>);
+
+	impl<'n, A: Arguments<'n>, T1> IntoHandler<(Private, &'n A)> for Boo<T1>
+	where
+		H<A, T1>: Handler,
+	{
+		type Handler = H<A, T1>;
+
+		fn into_handler(self) -> Self::Handler {
+			H::<A, T1>(PhantomData)
+		}
+	}
+
+	fn is_from_request<
+		'a,
+		F2: FromRequestHead<Args<'a, ()>, ()>,
+		F1: FromRequest<Body, Args<'a, ()>, ()>,
+	>() {
+	}
+
+	fn is_arguments<'a, A: Arguments<'a, ()>>(_: A) {}
+
+	fn is_into_handler<Mark, I: IntoHandler<Mark>>(_: I) {}
+
+	fn test() {
+		let args = Args {
+			routing_state: RoutingState::new(RouteTraversal::default()),
+			node_extensions: NodeExtensions::new_owned(Extensions::new()),
+			handler_extension: &(),
+		};
+
+		is_arguments(args);
+
+		is_from_request::<RemainingPath, PathParams<String>>();
+		is_from_request::<Method, Uri>();
+		is_from_request::<Method, RemainingPath>();
+		is_from_request::<PathParams<String>, Request>();
+
+		let boo = Boo::<RemainingPath>(PhantomData);
+		is_into_handler(boo);
+
+		let boo = Boo::<PathParams<String>>(PhantomData);
+		is_into_handler(boo);
+
+		let h = |_: PathParams<String>, _: RemainingPath, _: Request| async {};
+		// is_into_handler(h);
+	}
+}

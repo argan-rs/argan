@@ -1,5 +1,6 @@
 use std::fmt::Display;
 
+use argan_core::BoxedError;
 use http::StatusCode;
 use serde::{
 	de::{DeserializeSeed, EnumAccess, VariantAccess, Visitor},
@@ -13,10 +14,7 @@ mod from_params_list;
 
 pub(crate) use from_params_list::FromParamsList;
 
-use crate::{
-	common::BoxedError,
-	response::{IntoResponse, Response},
-};
+use crate::response::{IntoResponse, Response};
 
 // --------------------------------------------------------------------------------
 // --------------------------------------------------------------------------------

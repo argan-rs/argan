@@ -9,7 +9,7 @@ use std::{
 	time::Duration,
 };
 
-use http::StatusCode;
+use http::{Extensions, StatusCode};
 
 use crate::{
 	handler::BoxedHandler,
@@ -34,38 +34,19 @@ pub(crate) mod test_helpers;
 // --------------------------------------------------------------------------------
 // --------------------------------------------------------------------------------
 
-pub type BoxedError = Box<dyn std::error::Error + Send + Sync>;
-pub type BoxedFuture<T> = Pin<Box<dyn Future<Output = T> + Send>>;
+// --------------------------------------------------
+// Markers
 
-// --------------------------------------------------------------------------------
-
-// Used when expecting a valid value in Options or Results.
-pub(crate) const SCOPE_VALIDITY: &'static str = "scope validity";
-
-// --------------------------------------------------------------------------------
-
-pub trait IntoArray<T, const N: usize> {
-	fn into_array(self) -> [T; N];
-}
-
-impl<T, const N: usize> IntoArray<T, N> for [T; N]
-where
-	T: IntoArray<T, 1>,
-{
-	fn into_array(self) -> [T; N] {
-		self
-	}
-}
-
-// --------------------------------------------------------------------------------
-
-pub(crate) mod mark {
+pub(crate) mod marker {
 	pub trait Sealed {}
 
 	// ----------
 
 	pub struct Private;
 }
+
+// Used when expecting a valid value in Options or Results.
+pub(crate) const SCOPE_VALIDITY: &'static str = "scope validity";
 
 // --------------------------------------------------------------------------------
 
@@ -204,6 +185,164 @@ pub(crate) fn normalize_path(path: &str) -> String {
 	}
 
 	new_path
+}
+
+// --------------------------------------------------------------------------------
+// --------------------------------------------------------------------------------
+// Temp Place
+
+// #[inline]
+// pub(crate) fn node_extensions_replaced<'e>(
+// 	&mut self,
+// 	extensions: &'e Extensions,
+// ) -> Args<'e, PrivateExt> {
+// 	let Args {
+// 		private_extension,
+// 		node_extension: node_extensions,
+// 		handler_extension,
+// 	} = self;
+//
+// 	let mut args = Args {
+// 		private_extension: std::mem::take(private_extension),
+// 		node_extension: NodeExtensions::new_borrowed(extensions),
+// 		handler_extension: &(),
+// 	};
+//
+// 	args
+// }
+
+// --------------------------------------------------
+// NodeExtension
+
+// pub struct NodeExtension<NE>(NE);
+//
+// impl<HE, NE> FromRequestHead<HE> for NodeExtension<NE>
+// where
+// 	HE: Sync,
+// 	NE: Clone + Send + Sync + 'static,
+// {
+// 	type Error = ExtensionExtractorError<NE>;
+//
+// 	#[inline]
+// 	async fn from_request_head(
+// 		head: &mut RequestHead,
+// 		args: &mut impl Args<'_, HE>,
+// 	) -> Result<Self, Self::Error> {
+// 		args
+// 			.node_extension()
+// 			.get_ref::<NE>()
+// 			.map(|value| Self(value.clone()))
+// 			.ok_or(ExtensionExtractorError(PhantomData))
+// 	}
+// }
+//
+// impl<B, HE, NE> FromRequest<B, HE> for NodeExtension<NE>
+// where
+// 	B: Send,
+// 	HE: Sync,
+// 	NE: Clone + Send + Sync + 'static,
+// {
+// 	type Error = ExtensionExtractorError<NE>;
+//
+// 	#[inline]
+// 	async fn from_request(request: Request<B>, args: &mut impl Args<'_, HE>) -> Result<Self, Self::Error> {
+// 		args
+// 			.node_extension()
+// 			.get_ref::<NE>()
+// 			.map(|value| Self(value.clone()))
+// 			.ok_or(ExtensionExtractorError(PhantomData))
+// 	}
+// }
+
+// --------------------------------------------------
+// NodeExtensions
+
+#[derive(Clone)]
+pub struct NodeExtensions<'r>(Cow<'r, Extensions>);
+
+impl<'r> NodeExtensions<'r> {
+	#[inline(always)]
+	pub(crate) fn new_borrowed(extensions: &'r Extensions) -> Self {
+		Self(Cow::Borrowed(extensions))
+	}
+
+	#[inline(always)]
+	pub(crate) fn new_owned(extensions: Extensions) -> NodeExtensions<'static> {
+		NodeExtensions(Cow::Owned(extensions))
+	}
+
+	#[inline(always)]
+	pub fn get_ref<T: Send + Sync + 'static>(&self) -> Option<&T> {
+		self.0.get::<T>()
+	}
+
+	#[inline(always)]
+	pub(crate) fn take(&mut self) -> NodeExtensions<'_> {
+		NodeExtensions(std::mem::take(&mut self.0))
+	}
+
+	#[inline(always)]
+	pub(crate) fn into_owned(self) -> NodeExtensions<'static> {
+		NodeExtensions(Cow::<'static, _>::Owned(self.0.into_owned()))
+	}
+}
+
+// --------------------------------------------------
+// BoxedAny
+
+pub(crate) struct BoxedAny(Box<dyn AnyCloneable + Send + Sync>);
+
+impl BoxedAny {
+	pub(crate) fn new<T: Any + Clone + Send + Sync>(value: T) -> Self {
+		Self(Box::new(value))
+	}
+
+	pub(crate) fn as_any(&self) -> &(dyn Any + Send + Sync) {
+		self.0.as_ref().as_any()
+	}
+}
+
+impl Clone for BoxedAny {
+	fn clone(&self) -> Self {
+		self.0.as_ref().boxed_clone()
+	}
+}
+
+// --------------------------------------------------
+// AnyClonealbe
+
+trait AnyCloneable {
+	fn as_any(&self) -> &(dyn Any + Send + Sync);
+	fn boxed_clone(&self) -> BoxedAny;
+}
+
+impl<A: Any + Clone + Send + Sync> AnyCloneable for A {
+	fn as_any(&self) -> &(dyn Any + Send + Sync) {
+		self
+	}
+
+	fn boxed_clone(&self) -> BoxedAny {
+		BoxedAny::new(self.clone())
+	}
+}
+
+// --------------------------------------------------
+// NodeExtensions
+
+pub(crate) enum OptionCow<'a, T> {
+	None,
+	Borrowed(&'a T),
+	Owned(T),
+}
+
+impl<T: Clone + 'static> Clone for OptionCow<'_, T> {
+	fn clone(&self) -> OptionCow<'static, T> {
+		match self {
+			Self::None => Self::None,
+			Self::Borrowed(value) => Self::Owned((*value).clone()),
+			Self::Owned(value) => Self::Owned(value.clone()),
+		}
+	}
 }
 
 // --------------------------------------------------------------------------------

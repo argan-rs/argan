@@ -7,8 +7,7 @@ use mime::Mime;
 use multer::parse_boundary;
 
 use crate::{
-	body::{Body, HttpBody},
-	common::{BoxedError, SCOPE_VALIDITY},
+	common::SCOPE_VALIDITY,
 	handler::Args,
 	response::{BoxedErrorResponse, IntoResponseResult},
 	StdError,
@@ -24,17 +23,21 @@ use super::*;
 
 pub struct Form<T, const SIZE_LIMIT: usize = { 2 * 1024 * 1024 }>(pub T);
 
-impl<B, E, T, const SIZE_LIMIT: usize> FromRequest<B, E> for Form<T, SIZE_LIMIT>
+impl<'n, B, HandlerExt, T, const SIZE_LIMIT: usize> FromRequest<B, Args<'n, HandlerExt>, HandlerExt>
+	for Form<T, SIZE_LIMIT>
 where
 	B: HttpBody + Send,
 	B::Data: Send,
 	B::Error: Into<BoxedError>,
-	E: Sync,
+	HandlerExt: Sync,
 	T: DeserializeOwned,
 {
 	type Error = FormError;
 
-	async fn from_request(request: Request<B>, _args: &mut Args<'_, E>) -> Result<Self, Self::Error> {
+	async fn from_request(
+		request: Request<B>,
+		_args: &mut Args<'n, HandlerExt>,
+	) -> Result<Self, Self::Error> {
 		let content_type_str = content_type(&request).map_err(Into::<FormError>::into)?;
 
 		if content_type_str == mime::APPLICATION_WWW_FORM_URLENCODED {
@@ -143,15 +146,19 @@ impl<const SIZE_LIMIT: usize> Multipart<SIZE_LIMIT> {
 	}
 }
 
-impl<B, E, const SIZE_LIMIT: usize> FromRequest<B, E> for Multipart<SIZE_LIMIT>
+impl<'n, B, HandlerExt, const SIZE_LIMIT: usize> FromRequest<B, Args<'n, HandlerExt>, HandlerExt>
+	for Multipart<SIZE_LIMIT>
 where
 	B: HttpBody<Data = Bytes> + Send + Sync + 'static,
 	B::Error: Into<BoxedError>,
-	E: Sync,
+	HandlerExt: Sync,
 {
 	type Error = MultipartFormError;
 
-	async fn from_request(request: Request<B>, _args: &mut Args<'_, E>) -> Result<Self, Self::Error> {
+	async fn from_request(
+		request: Request<B>,
+		_args: &mut Args<'n, HandlerExt>,
+	) -> Result<Self, Self::Error> {
 		let content_type_str = content_type(&request).map_err(Into::<MultipartFormError>::into)?;
 
 		parse_boundary(content_type_str)

@@ -1,0 +1,19 @@
+[package]
+name = "argan-core"
+version = "0.0.0"
+description = "Core types and traits of the Argan Web Framework."
+authors = ["Shohruh Adham <shohruh.adham@gmail.com>"]
+license.workspace = true
+edition.workspace = true
+
+[dependencies]
+bytes = { workspace = true }
+http = { workspace = true }
+http-body = { workspace = true }
+http-body-util = { workspace = true }
+futures-util = { workspace = true }
+thiserror = { workspace = true }
+mime = { workspace = true }
+
+[lints]
+workspace = true

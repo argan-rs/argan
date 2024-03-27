@@ -1,18 +1,17 @@
 use std::{
-	any::Any,
 	pin::{pin, Pin},
 	task::{Context, Poll},
 };
 
-use hyper::HeaderMap;
-use pin_project::pin_project;
+use bytes::Bytes;
+use http_body_util::BodyExt;
 
-use super::common::{BoxedError, SCOPE_VALIDITY};
+use crate::BoxedError;
 
 // ----------
 
-pub use http_body_util::BodyExt;
-pub use hyper::body::{Body as HttpBody, Buf, Bytes, Frame, Incoming};
+pub use http_body::Body as HttpBody;
+pub use http_body::{Frame, SizeHint};
 
 // --------------------------------------------------------------------------------
 // --------------------------------------------------------------------------------

@@ -10,6 +10,11 @@ use std::{
 	task::{Context, Poll},
 };
 
+use argan_core::{
+	body::{Body, HttpBody},
+	BoxedError,
+};
+use bytes::Bytes;
 use http::{
 	header::{ToStrError, CONTENT_TYPE, COOKIE, SET_COOKIE},
 	HeaderValue, StatusCode, Version,
@@ -20,8 +25,6 @@ use serde::{de::DeserializeOwned, Serialize};
 use serde_json::error::Category;
 
 use crate::{
-	body::{Body, Bytes, HttpBody},
-	common::BoxedError,
 	handler::Args,
 	request::{FromRequest, FromRequestHead, Request, RequestHead},
 	response::{IntoResponse, IntoResponseHead, Response, ResponseError, ResponseHead},
@@ -31,7 +34,6 @@ use crate::{
 // --------------------------------------------------
 
 pub mod cookie;
-pub mod extensions;
 pub mod form;
 pub mod header;
 pub mod json;
@@ -42,31 +44,25 @@ use header::content_type;
 // --------------------------------------------------------------------------------
 
 // --------------------------------------------------
-// &'static str
-
-impl IntoResponse for &'static str {
-	#[inline]
-	fn into_response(self) -> Response {
-		Cow::<'_, str>::Borrowed(self).into_response()
-	}
-}
-
-// --------------------------------------------------
 // String
 
 #[derive(Debug)]
 pub struct Text<const SIZE_LIMIT: usize = { 2 * 1024 * 1024 }>(String);
 
-impl<B, E, const SIZE_LIMIT: usize> FromRequest<B, E> for Text<SIZE_LIMIT>
+impl<'n, B, HandlerExt, const SIZE_LIMIT: usize> FromRequest<B, Args<'n, HandlerExt>, HandlerExt>
+	for Text<SIZE_LIMIT>
 where
 	B: HttpBody + Send,
 	B::Data: Send,
 	B::Error: Into<BoxedError>,
-	E: Sync,
+	HandlerExt: Sync,
 {
 	type Error = TextExtractorError;
 
-	async fn from_request(request: Request<B>, _args: &mut Args<'_, E>) -> Result<Self, Self::Error> {
+	async fn from_request(
+		request: Request<B>,
+		_args: &mut Args<'n, HandlerExt>,
+	) -> Result<Self, Self::Error> {
 		let content_type = content_type(&request)?;
 
 		if content_type == mime::TEXT_PLAIN_UTF_8 || content_type == mime::TEXT_PLAIN {
@@ -99,98 +95,40 @@ data_extractor_error! {
 }
 
 // --------------------------------------------------
-// String
-
-impl IntoResponse for String {
-	#[inline]
-	fn into_response(self) -> Response {
-		Cow::<'_, str>::Owned(self).into_response()
-	}
-}
-
-// --------------------------------------------------
-// Cow<'static, str>
-
-impl IntoResponse for Cow<'static, str> {
-	#[inline]
-	fn into_response(self) -> Response {
-		let mut response = Full::from(self).into_response();
-		response.headers_mut().insert(
-			CONTENT_TYPE,
-			HeaderValue::from_static(mime::TEXT_PLAIN_UTF_8.as_ref()),
-		);
-
-		response
-	}
-}
-
-// --------------------------------------------------
-// &'static [u8]
-
-impl IntoResponse for &'static [u8] {
-	#[inline]
-	fn into_response(self) -> Response {
-		Cow::<'_, [u8]>::Borrowed(self).into_response()
-	}
-}
-
-// --------------------------------------------------
-// Vec<u8>
-
-impl IntoResponse for Vec<u8> {
-	#[inline]
-	fn into_response(self) -> Response {
-		Cow::<'_, [u8]>::Owned(self).into_response()
-	}
-}
-
-// --------------------------------------------------
-// Cow<'static, [u8]>
-
-impl IntoResponse for Cow<'static, [u8]> {
-	#[inline]
-	fn into_response(self) -> Response {
-		let mut response = Full::from(self).into_response();
-		response.headers_mut().insert(
-			CONTENT_TYPE,
-			HeaderValue::from_static(mime::APPLICATION_OCTET_STREAM.as_ref()),
-		);
-
-		response
-	}
-}
-
-// --------------------------------------------------
-// Octets
+// Binary
 
 #[derive(Debug)]
-pub struct Octets<const SIZE_LIMIT: usize = { 16 * 1024 * 1024 }>(Bytes);
+pub struct Binary<const SIZE_LIMIT: usize = { 16 * 1024 * 1024 }>(Bytes);
 
-impl<B, E, const SIZE_LIMIT: usize> FromRequest<B, E> for Octets<SIZE_LIMIT>
+impl<'n, B, HandlerExt, const SIZE_LIMIT: usize> FromRequest<B, Args<'n, HandlerExt>, HandlerExt>
+	for Binary<SIZE_LIMIT>
 where
 	B: HttpBody + Send,
 	B::Data: Send,
 	B::Error: Into<BoxedError>,
-	E: Sync,
+	HandlerExt: Sync,
 {
-	type Error = OctetsExtractorError;
+	type Error = BinaryExtractorError;
 
-	async fn from_request(request: Request<B>, _args: &mut Args<'_, E>) -> Result<Self, Self::Error> {
+	async fn from_request(
+		request: Request<B>,
+		_args: &mut Args<'n, HandlerExt>,
+	) -> Result<Self, Self::Error> {
 		let content_type = content_type(&request)?;
 
 		if content_type == mime::APPLICATION_OCTET_STREAM || content_type == mime::OCTET_STREAM {
 			match Limited::new(request, SIZE_LIMIT).collect().await {
-				Ok(body) => Ok(Octets(body.to_bytes())),
+				Ok(body) => Ok(Binary(body.to_bytes())),
 				Err(error) => Err(
 					error
 						.downcast_ref::<LengthLimitError>()
-						.map_or(OctetsExtractorError::BufferingFailure, |_| {
-							OctetsExtractorError::ContentTooLarge
+						.map_or(BinaryExtractorError::BufferingFailure, |_| {
+							BinaryExtractorError::ContentTooLarge
 						}),
 				),
 			}
 		} else {
-			Err(OctetsExtractorError::UnsupportedMediaType)
+			Err(BinaryExtractorError::UnsupportedMediaType)
 		}
 	}
 }
@@ -199,7 +137,7 @@ where
 
 data_extractor_error! {
 	#[derive(Debug)]
-	pub OctetsExtractorError {}
+	pub BinaryExtractorError {}
 }
 
 // --------------------------------------------------
@@ -208,16 +146,20 @@ data_extractor_error! {
 #[derive(Debug)]
 pub struct RawBody<const SIZE_LIMIT: usize = { 16 * 1024 * 1024 }>(Bytes);
 
-impl<B, E, const SIZE_LIMIT: usize> FromRequest<B, E> for RawBody<SIZE_LIMIT>
+impl<'n, B, HandlerExt, const SIZE_LIMIT: usize> FromRequest<B, Args<'n, HandlerExt>, HandlerExt>
+	for RawBody<SIZE_LIMIT>
 where
 	B: HttpBody + Send,
 	B::Data: Send,
 	B::Error: Into<BoxedError>,
-	E: Sync,
+	HandlerExt: Sync,
 {
 	type Error = RawBodyExtractorError;
 
-	async fn from_request(request: Request<B>, _args: &mut Args<'_, E>) -> Result<Self, Self::Error> {
+	async fn from_request(
+		request: Request<B>,
+		_args: &mut Args<'n, HandlerExt>,
+	) -> Result<Self, Self::Error> {
 		match Limited::new(request, SIZE_LIMIT).collect().await {
 			Ok(body) => Ok(RawBody(body.to_bytes())),
 			Err(error) => Err(
@@ -251,57 +193,15 @@ impl IntoResponse for RawBodyExtractorError {
 	}
 }
 
-// --------------------------------------------------
-// Bytes
-
-impl IntoResponse for Bytes {
-	#[inline]
-	fn into_response(self) -> Response {
-		let mut response = Full::from(self).into_response();
-		response.headers_mut().insert(
-			CONTENT_TYPE,
-			HeaderValue::from_static(mime::APPLICATION_OCTET_STREAM.as_ref()),
-		);
-
-		response
-	}
-}
-
-// --------------------------------------------------
-// Empty<Bytes>
-
-impl IntoResponse for Empty<Bytes> {
-	#[inline]
-	fn into_response(self) -> Response {
-		Response::new(Body::new(self))
-	}
-}
-
-// --------------------------------------------------
-// Full<Bytes>
-
-impl IntoResponse for Full<Bytes> {
-	#[inline]
-	fn into_response(self) -> Response {
-		Response::new(Body::new(self))
-	}
-}
-
 // --------------------------------------------------------------------------------
 // --------------------------------------------------------------------------------
 
 #[cfg(test)]
 mod test {
-	use core::panic;
-
+	use argan_core::body::HttpBody;
 	use http::Extensions;
 
-	use crate::{
-		body::HttpBody,
-		routing::{RouteTraversal, RoutingState},
-	};
-
-	use self::extensions::NodeExtensions;
+	use crate::routing::{RouteTraversal, RoutingState};
 
 	use super::*;
 
@@ -394,7 +294,7 @@ mod test {
 
 		let mut args = Args::new();
 
-		let Octets(data) = Octets::<1024>::from_request(request, &mut args)
+		let Binary(data) = Binary::<1024>::from_request(request, &mut args)
 			.await
 			.unwrap();
 
@@ -404,12 +304,12 @@ mod test {
 
 		let request = Request::new(full_body.clone());
 
-		let error = Octets::<1024>::from_request(request, &mut args)
+		let error = Binary::<1024>::from_request(request, &mut args)
 			.await
 			.unwrap_err();
 
 		match error {
-			OctetsExtractorError::MissingContentType => {}
+			BinaryExtractorError::MissingContentType => {}
 			error => panic!("unexpected error {}", error),
 		}
 
@@ -424,12 +324,12 @@ mod test {
 			.body(full_body.clone())
 			.unwrap();
 
-		let error = Octets::<1024>::from_request(request, &mut args)
+		let error = Binary::<1024>::from_request(request, &mut args)
 			.await
 			.unwrap_err();
 
 		match error {
-			OctetsExtractorError::UnsupportedMediaType => {}
+			BinaryExtractorError::UnsupportedMediaType => {}
 			error => panic!("unexpected error {}", error),
 		}
 
@@ -444,12 +344,12 @@ mod test {
 			.body(full_body.clone())
 			.unwrap();
 
-		let error = Octets::<8>::from_request(request, &mut args)
+		let error = Binary::<8>::from_request(request, &mut args)
 			.await
 			.unwrap_err();
 
 		match error {
-			OctetsExtractorError::ContentTooLarge => {}
+			BinaryExtractorError::ContentTooLarge => {}
 			error => panic!("unexpected error {}", error),
 		}
 	}
