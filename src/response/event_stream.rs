@@ -4,6 +4,10 @@ use std::{
 	time::Duration,
 };
 
+use argan_core::{
+	body::{Body, Frame, HttpBody},
+	BoxedError,
+};
 use bytes::{BufMut, Bytes, BytesMut};
 use futures_util::{Future, Stream};
 use http::{
@@ -15,11 +19,7 @@ use pin_project::pin_project;
 use serde::Serialize;
 
 use crate::{
-	body::{Body, Frame, HttpBody},
-	common::{
-		timer::{Interval, UninitializedTimer},
-		BoxedError,
-	},
+	common::timer::{Interval, UninitializedTimer},
 	response::{IntoResponse, Response},
 };
 

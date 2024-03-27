@@ -7,10 +7,7 @@ use std::{
 
 use pin_project::pin_project;
 
-use crate::{
-	common::{BoxedError, BoxedFuture},
-	response::{BoxedErrorResponse, Response},
-};
+use crate::response::{BoxedErrorResponse, Response};
 
 // --------------------------------------------------------------------------------
 // --------------------------------------------------------------------------------

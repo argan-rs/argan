@@ -1,11 +1,11 @@
 use std::{error::Error, sync::Arc};
 
+use argan_core::BoxedFuture;
 use http::Method;
 use tower_layer::Layer as TowerLayer;
 
 use crate::{
-	common::{BoxedError, BoxedFuture, IntoArray},
-	handler::{AdaptiveHandler, BoxedHandler, Handler, HandlerService /* HandlerService */},
+	handler::{AdaptiveHandler, BoxedHandler, Handler, HandlerService},
 	response::{BoxedErrorResponse, IntoResponse, Response},
 };
 

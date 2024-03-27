@@ -6,6 +6,7 @@ use std::{
 	task::{Context, Poll},
 };
 
+use argan_core::BoxedError;
 use base64::prelude::*;
 use bytes::Bytes;
 use fastwebsockets::{
@@ -155,12 +156,12 @@ impl WebSocketUpgrade {
 	}
 }
 
-impl<Ext> FromRequestHead<Ext> for WebSocketUpgrade {
+impl<'n, HandlerExt> FromRequestHead<Args<'n, HandlerExt>, HandlerExt> for WebSocketUpgrade {
 	type Error = WebSocketUpgradeError;
 
 	fn from_request_head(
 		head: &mut RequestHead,
-		_args: &mut Args<'_, Ext>,
+		_args: &mut Args<'n, HandlerExt>,
 	) -> impl Future<Output = Result<Self, Self::Error>> + Send {
 		if head.method != Method::GET {
 			panic!("WebSocket is not supported with methods other than GET")

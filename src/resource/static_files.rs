@@ -8,6 +8,7 @@ use std::{
 	sync::Arc,
 };
 
+use argan_core::BoxedError;
 use http::{
 	header::{
 		ACCEPT_ENCODING, IF_MATCH, IF_MODIFIED_SINCE, IF_NONE_MATCH, IF_RANGE, IF_UNMODIFIED_SINCE,
@@ -18,10 +19,7 @@ use http::{
 use httpdate::HttpDate;
 
 use crate::{
-	common::{
-		normalize_path, patterns_to_route, strip_double_quotes, BoxedError, BoxedFuture, Uncloneable,
-		SCOPE_VALIDITY,
-	},
+	common::{normalize_path, patterns_to_route, strip_double_quotes, Uncloneable, SCOPE_VALIDITY},
 	data::header::{split_header_value_with_weights, SplitHeaderValueError},
 	handler::{_get, request_handlers::handle_mistargeted_request, Handler, IntoHandler},
 	request::{FromRequest, RemainingPath, Request},

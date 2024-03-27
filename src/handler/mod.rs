@@ -1,4 +1,5 @@
 use std::{
+	any::Any,
 	convert::Infallible,
 	fmt::Debug,
 	future::Future,
@@ -8,32 +9,31 @@ use std::{
 	task::{Context, Poll},
 };
 
+use argan_core::{body::Body, Arguments, BoxedFuture};
+use bytes::Bytes;
+use http::{Extensions, StatusCode};
+use tower_service::Service;
+
 use crate::{
-	body::{Body, HttpBody},
-	common::{BoxedError, BoxedFuture, Uncloneable},
-	data::extensions::NodeExtensions,
+	common::{BoxedAny, NodeExtensions, OptionCow, Uncloneable},
 	middleware::Layer,
 	request::{FromRequest, FromRequestHead, Request, RequestHead},
 	response::{BoxedErrorResponse, IntoResponse, Response},
 	routing::RoutingState,
 };
 
-// ----------
-
-use bytes::Bytes;
-use http::{Extensions, StatusCode};
-use tower_service::Service;
-
 // --------------------------------------------------
 
 pub(crate) mod futures;
-mod impls;
-mod kind;
-pub(crate) mod request_handlers;
+use futures::{DefaultResponseFuture, ResponseToResultFuture, ResultToResponseFuture};
 
-use self::futures::{DefaultResponseFuture, ResponseToResultFuture, ResultToResponseFuture};
-pub(crate) use impls::*;
+mod impls;
+pub use impls::*;
+
+mod kind;
 pub use kind::*;
+
+pub(crate) mod request_handlers;
 
 // --------------------------------------------------------------------------------
 // --------------------------------------------------------------------------------
@@ -383,11 +383,10 @@ impl Handler for DummyHandler<BoxedFuture<Result<Response, BoxedErrorResponse>>>
 // --------------------------------------------------------------------------------
 // Args
 
-#[non_exhaustive]
-pub struct Args<'r, Ext = ()> {
+pub struct Args<'n, HandlerExt = ()> {
 	pub(crate) routing_state: RoutingState,
-	pub node_extensions: NodeExtensions<'r>,
-	pub handler_extension: &'r Ext, // The handler has the same lifetime as the resource it belongs to.
+	pub(crate) node_extensions: NodeExtensions<'n>,
+	pub(crate) handler_extension: &'n HandlerExt,
 }
 
 impl Args<'_, ()> {
@@ -400,20 +399,42 @@ impl Args<'_, ()> {
 	}
 
 	#[inline]
-	pub(crate) fn node_extensions_replaced<'e>(&mut self, extensions: &'e Extensions) -> Args<'e> {
+	pub(crate) fn node_extension_replaced<'e>(
+		&mut self,
+		node_extensions: &'e Extensions,
+	) -> Args<'e> {
 		let Args {
 			routing_state,
-			node_extensions,
 			handler_extension,
+			..
 		} = self;
 
 		let mut args = Args {
 			routing_state: std::mem::take(routing_state),
-			node_extensions: NodeExtensions::new_borrowed(extensions),
+			node_extensions: NodeExtensions::new_borrowed(node_extensions),
 			handler_extension: &(),
 		};
 
 		args
+	}
+}
+
+impl<'n, HandlerExt> Arguments<'n, HandlerExt> for Args<'n, HandlerExt> {
+
+	#[allow(refining_impl_trait)]
+	#[inline(always)]
+	fn private_extension(&mut self) -> &mut RoutingState {
+		&mut self.routing_state
+	}
+
+	#[inline(always)]
+	fn node_extension<Ext: Send + Sync + 'static>(&self) -> Option<&'n Ext> {
+		self.node_extensions.get_ref::<Ext>()
+	}
+
+	#[inline(always)]
+	fn handler_extension(&self) -> &'n HandlerExt {
+		self.handler_extension
 	}
 }
 

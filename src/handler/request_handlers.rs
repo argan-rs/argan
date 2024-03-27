@@ -1,13 +1,14 @@
 use std::{
+	any::Any,
 	fmt::Debug,
 	future::{ready, Ready},
 };
 
+use argan_core::BoxedFuture;
 use http::{header::InvalidHeaderValue, Extensions, HeaderName, HeaderValue, Method, StatusCode};
 
 use crate::{
-	common::{mark::Private, BoxedError, BoxedFuture, Uncloneable},
-	data::extensions::NodeExtensions,
+	common::{marker::Private, NodeExtensions, Uncloneable},
 	middleware::{layer_targets::LayerTarget, BoxedLayer, Layer, ResponseResultFutureBoxer},
 	request::Request,
 	resource::Resource,

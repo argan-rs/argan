@@ -1,12 +1,15 @@
 use std::{convert::Infallible, future::ready, sync::Arc};
 
+use argan_core::{
+	body::{Body, HttpBody},
+	BoxedError, BoxedFuture,
+};
+use bytes::Bytes;
 use http::{Extensions, StatusCode};
 use hyper::service::Service;
 
 use crate::{
-	body::{Body, Bytes, HttpBody},
-	common::{BoxedError, BoxedFuture, MaybeBoxed},
-	data::extensions::NodeExtensions,
+	common::{MaybeBoxed, NodeExtensions},
 	handler::{futures::ResponseToResultFuture, Args, BoxedHandler, Handler},
 	host::{Host, HostService},
 	middleware::{layer_targets::LayerTarget, Layer},

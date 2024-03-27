@@ -6,8 +6,6 @@ use serde::{de::DeserializeOwned, Serialize};
 use serde_json::error::Category;
 
 use crate::{
-	body::HttpBody,
-	common::BoxedError,
 	handler::Args,
 	request::{FromRequest, Request},
 	response::{BoxedErrorResponse, IntoResponse, IntoResponseResult, Response},
@@ -23,17 +21,21 @@ use super::*;
 
 pub struct Json<T, const SIZE_LIMIT: usize = { 2 * 1024 * 1024 }>(pub T);
 
-impl<B, E, T, const SIZE_LIMIT: usize> FromRequest<B, E> for Json<T, SIZE_LIMIT>
+impl<'n, B, HandlerExt, T, const SIZE_LIMIT: usize> FromRequest<B, Args<'n, HandlerExt>, HandlerExt>
+	for Json<T, SIZE_LIMIT>
 where
 	B: HttpBody + Send,
 	B::Data: Send,
 	B::Error: Into<BoxedError>,
-	E: Sync,
+	HandlerExt: Sync,
 	T: DeserializeOwned,
 {
 	type Error = JsonError;
 
-	async fn from_request(request: Request<B>, _args: &mut Args<'_, E>) -> Result<Self, Self::Error> {
+	async fn from_request(
+		request: Request<B>,
+		_args: &mut Args<'n, HandlerExt>,
+	) -> Result<Self, Self::Error> {
 		let content_type = content_type(&request)?;
 
 		if content_type == mime::APPLICATION_JSON {

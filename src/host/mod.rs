@@ -1,5 +1,5 @@
 use crate::{
-	common::{IntoArray, SCOPE_VALIDITY},
+	common::SCOPE_VALIDITY,
 	handler::HandlerKind,
 	pattern::{split_uri_host_and_path, Pattern, Similarity},
 	resource::{self, Resource},

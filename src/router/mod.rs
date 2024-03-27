@@ -1,11 +1,12 @@
 use core::panic;
 use std::{any, future::ready, num::NonZeroIsize, str::FromStr, sync::Arc};
 
+use argan_core::IntoArray;
 use http::{Extensions, StatusCode, Uri};
 
 use crate::{
-	common::{config::ConfigOption, BoxedError, BoxedFuture, IntoArray, SCOPE_VALIDITY},
-	handler::{AdaptiveHandler, BoxedHandler, Handler},
+	common::{config::ConfigOption, SCOPE_VALIDITY},
+	handler::{BoxedHandler, Handler},
 	host::Host,
 	middleware::{
 		BoxedLayer, IntoLayer, Layer, RequestExtensionsModifierLayer, _request_passer,

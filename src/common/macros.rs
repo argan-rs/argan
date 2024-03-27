@@ -21,7 +21,7 @@ macro_rules! config_option {
 				$($option_name $(($($tokens),+))?,)+
 			}
 
-			impl$(<$($lt),* $($tp),*>)? IntoArray<$config_name$(<$($lt),* $($tp),*>)?, 1>
+			impl$(<$($lt),* $($tp),*>)? argan_core::IntoArray<$config_name$(<$($lt),* $($tp),*>)?, 1>
 			for $config_name$(<$($lt),* $($tp),*>)? {
 				fn into_array(self) -> [$config_name$(<$($lt),* $($tp),*>)?; 1] {
 					[self]
@@ -112,29 +112,6 @@ macro_rules! bit_flags {
 			}
 		}
 	)
-}
-
-// --------------------------------------------------------------------------------
-
-#[rustfmt::skip]
-macro_rules! call_for_tuples {
-	($m:ident!) => {
-		$m!(T1, TL);
-		$m!(T1, (T2), TL);
-		$m!(T1, (T2, T3), TL);
-		$m!(T1, (T2, T3, T4), TL);
-		$m!(T1, (T2, T3, T4, T5), TL);
-		$m!(T1, (T2, T3, T4, T5, T6), TL);
-		$m!(T1, (T2, T3, T4, T5, T6, T7), TL);
-		$m!(T1, (T2, T3, T4, T5, T6, T7, T8), TL);
-		$m!(T1, (T2, T3, T4, T5, T6, T7, T8, T9), TL);
-		$m!(T1, (T2, T3, T4, T5, T6, T7, T8, T9, T10), TL);
-		$m!(T1, (T2, T3, T4, T5, T6, T7, T8, T9, T10, T11), TL);
-		$m!(T1, (T2, T3, T4, T5, T6, T7, T8, T9, T10, T11, T12), TL);
-		$m!(T1, (T2, T3, T4, T5, T6, T7, T8, T9, T10, T11, T12, T13), TL);
-		$m!(T1, (T2, T3, T4, T5, T6, T7, T8, T9, T10, T11, T12, T13, T14), TL);
-		$m!(T1, (T2, T3, T4, T5, T6, T7, T8, T9, T10, T11, T12, T13, T14, T15), TL);
-	};
 }
 
 // --------------------------------------------------------------------------------

@@ -1,26 +1,47 @@
+[workspace]
+
+[workspace.package]
+license = "MIT OR Apache-2.0"
+edition = "2021"
+
+[workspace.dependencies]
+bytes = "1"
+http = "1"
+http-body = "1"
+http-body-util = "0.1"
+futures-util = "0.3"
+thiserror = "1"
+mime = "0.3"
+
+[workspace.lints.rust]
+unsafe_code = "forbid"
+
 [package]
 name = "argan"
 version = "0.0.0"
-edition = "2021"
 description = "Experiment."
-license = "MIT OR Apache-2.0"
 authors = ["Shohruh Adham <shohruh.adham@gmail.com>"]
+license.workspace = true
+edition.workspace = true
 
 [dependencies]
+argan-core = { version = "0.0.0", path = "argan-core" }
+bytes = { workspace = true }
+http = { workspace = true }
+http-body = { workspace = true }
+http-body-util = { workspace = true }
+futures-util = { workspace = true }
+thiserror = {workspace = true}
+mime = { workspace = true }
 base64 = "0.22.0"
 biscotti = "0.2.1"
-bytes = "1.5.0"
 cookie = { version = "0.18.0", features = ["percent-encode", "secure"] }
 fastwebsockets = { version = "0.7.1", features = ["upgrade"] }
 flate2 = "1.0.28"
-futures-util = "0.3.30"
-http = "1.0.0"
-http-body-util = "0.1.0"
 httparse = "1.8.0"
 httpdate = "1.0.3"
 hyper = { version = "1.2.0", features = ["full"] }
 hyper-util = { version = "0.1.3", features = ["tokio"] }
-mime = "0.3.17"
 mime_guess = "2.0.4"
 multer = { version = "3.0.0", features = ["json"] }
 percent-encoding = "2.3.0"
@@ -31,7 +52,6 @@ serde = { version = "1.0.188", features = ["derive"] }
 serde_json = "1.0.107"
 serde_urlencoded = "0.7.1"
 sha1 = "0.10.6"
-thiserror = "1.0.56"
 tokio = { version = "1.28.1", features = ["rt-multi-thread"] }
 tower-layer = "0.3.2"
 tower-service = "0.3.2"

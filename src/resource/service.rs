@@ -9,6 +9,10 @@ use std::{
 	sync::Arc,
 };
 
+use argan_core::{
+	body::{Body, HttpBody},
+	BoxedError, BoxedFuture,
+};
 use bytes::Bytes;
 use http::{Extensions, Method, StatusCode, Uri};
 use http_body_util::{BodyExt, Empty};
@@ -16,16 +20,14 @@ use hyper::service::Service;
 use percent_encoding::percent_decode_str;
 
 use crate::{
-	body::{Body, HttpBody},
-	common::{mark::Private, BoxedError, BoxedFuture, MaybeBoxed, Uncloneable, SCOPE_VALIDITY},
-	data::extensions::NodeExtensions,
+	common::{marker::Private, MaybeBoxed, NodeExtensions, Uncloneable, SCOPE_VALIDITY},
 	handler::{
 		futures::ResponseToResultFuture,
 		request_handlers::{
 			self, handle_mistargeted_request, handle_unimplemented_method, MethodHandlers,
 			MistargetedRequestHandler, UnimplementedMethodHandler, WildcardMethodHandler,
 		},
-		AdaptiveHandler, ArcHandler, Args, BoxedHandler, Handler, IntoHandler,
+		ArcHandler, Args, BoxedHandler, Handler, IntoHandler,
 	},
 	middleware::{layer_targets::LayerTarget, BoxedLayer, Layer, ResponseResultFutureBoxer},
 	pattern::{ParamsList, Pattern},
@@ -88,7 +90,7 @@ impl ResourceService {
 		B::Error: Into<BoxedError>,
 	{
 		let mut request = request.map(Body::new);
-		let mut args = args.node_extensions_replaced(&self.extensions);
+		let mut args = args.node_extension_replaced(&self.extensions);
 
 		match &self.request_receiver {
 			MaybeBoxed::Boxed(boxed_request_receiver) => {
@@ -575,7 +577,7 @@ impl Handler for RequestPasser {
 		};
 
 		if let Some(next_resource) = some_next_resource {
-			let mut args = args.node_extensions_replaced(&next_resource.extensions);
+			let mut args = args.node_extension_replaced(&next_resource.extensions);
 
 			match &next_resource.request_receiver {
 				MaybeBoxed::Boxed(boxed_request_receiver) => {
