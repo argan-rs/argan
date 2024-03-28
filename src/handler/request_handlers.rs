@@ -167,21 +167,12 @@ impl Handler for WildcardMethodHandler {
 	type Error = BoxedErrorResponse;
 	type Future = BoxedFuture<Result<Self::Response, Self::Error>>;
 
-	fn handle(&self, request: Request, args: &mut Args) -> Self::Future {
+	fn handle(&self, request: Request, mut args: Args) -> Self::Future {
 		match self {
 			Self::Default => handle_unimplemented_method(args),
 			Self::Custom(boxed_handler) => boxed_handler.handle(request, args),
 			Self::None(some_mistargeted_request_handler) => {
-				let routing_state = args.take_routing_state();
-				let node_extensions = args.take_node_extensions();
-
-				handle_mistargeted_request(
-					request,
-					routing_state,
-					some_mistargeted_request_handler
-						.as_ref()
-						.map(|handler| (handler, node_extensions)),
-				)
+				handle_mistargeted_request(request, args, some_mistargeted_request_handler.as_ref())
 			}
 		}
 	}
@@ -216,7 +207,7 @@ impl Handler for UnimplementedMethodHandler {
 	type Error = BoxedErrorResponse;
 	type Future = BoxedFuture<Result<Self::Response, Self::Error>>;
 
-	fn handle(&self, request: Request, args: &mut Args) -> Self::Future {
+	fn handle(&self, request: Request, args: Args) -> Self::Future {
 		handle_unimplemented_method(args)
 	}
 }
@@ -224,7 +215,7 @@ impl Handler for UnimplementedMethodHandler {
 // -------------------------
 
 pub(crate) fn handle_unimplemented_method(
-	args: &mut Args,
+	args: Args,
 ) -> BoxedFuture<Result<Response, BoxedErrorResponse>> {
 	let mut response = StatusCode::METHOD_NOT_ALLOWED.into_response();
 
@@ -275,7 +266,7 @@ impl Handler for MistargetedRequestHandler {
 	type Error = BoxedErrorResponse;
 	type Future = Ready<Result<Self::Response, Self::Error>>;
 
-	fn handle(&self, _request: Request, _args: &mut Args) -> Self::Future {
+	fn handle(&self, _request: Request, _args: Args) -> Self::Future {
 		let mut response = Response::default();
 		*response.status_mut() = StatusCode::NOT_FOUND;
 
@@ -315,32 +306,24 @@ pub(crate) fn wrap_mistargeted_request_handler(
 
 pub(crate) fn handle_mistargeted_request(
 	mut request: Request,
-	routing_state: RoutingState,
-	mut some_custom_handler_with_extensions: Option<(&ArcHandler, NodeExtensions)>,
+	mut args: Args,
+	mut some_custom_handler_with_extensions: Option<&ArcHandler>,
 ) -> BoxedFuture<Result<Response, BoxedErrorResponse>> {
-	if let Some((mistargeted_request_handler, node_extensions)) =
-		some_custom_handler_with_extensions.take()
-	{
-		let mut args = Args {
-			routing_state,
-			node_extensions,
-			handler_extension: &(),
-		};
-
+	if let Some(mistargeted_request_handler) = some_custom_handler_with_extensions.take() {
 		// Custom handler with a custom 404 Not Found respnose.
-		return mistargeted_request_handler.handle(request, &mut args);
+		return mistargeted_request_handler.handle(request, args);
 	}
 
 	let mut response = StatusCode::NOT_FOUND.into_response();
 
-	if routing_state.subtree_handler_exists {
+	if args.routing_state.subtree_handler_exists {
 		response
 			.extensions_mut()
 			.insert(Uncloneable::from(UnusedRequest::from(request)));
 
-		response
-			.extensions_mut()
-			.insert(Uncloneable::from(routing_state));
+		let args = args.move_to_owned_without_handler_extension();
+
+		response.extensions_mut().insert(Uncloneable::from(args));
 	}
 
 	Box::pin(ready(Ok(response)))

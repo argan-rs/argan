@@ -47,7 +47,7 @@ impl HostService {
 	pub(crate) fn handle<B>(
 		&self,
 		request: Request<B>,
-		args: &mut Args,
+		args: Args,
 	) -> BoxedFuture<Result<Response, BoxedErrorResponse>>
 	where
 		B: HttpBody<Data = Bytes> + Send + Sync + 'static,
@@ -85,14 +85,14 @@ where
 		};
 
 		if let Some(result) = self.pattern.is_static_match(host) {
-			return InfallibleResponseFuture::from(self.root_resource.handle(request, &mut args));
+			return InfallibleResponseFuture::from(self.root_resource.handle(request, args));
 		}
 
 		if let Some(result) = self
 			.pattern
 			.is_regex_match(host, &mut args.routing_state.uri_params)
 		{
-			return InfallibleResponseFuture::from(self.root_resource.handle(request, &mut args));
+			return InfallibleResponseFuture::from(self.root_resource.handle(request, args));
 		}
 
 		handle_unmatching_host!()

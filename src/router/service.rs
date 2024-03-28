@@ -60,11 +60,11 @@ where
 		};
 
 		match &self.request_passer {
-			MaybeBoxed::Boxed(boxed_request_passer) => InfallibleResponseFuture::from(
-				boxed_request_passer.handle(request.map(Body::new), &mut args),
-			),
+			MaybeBoxed::Boxed(boxed_request_passer) => {
+				InfallibleResponseFuture::from(boxed_request_passer.handle(request.map(Body::new), args))
+			}
 			MaybeBoxed::Unboxed(request_passer) => {
-				InfallibleResponseFuture::from(request_passer.handle(request, &mut args))
+				InfallibleResponseFuture::from(request_passer.handle(request, args))
 			}
 		}
 	}
@@ -193,7 +193,7 @@ where
 	type Error = BoxedErrorResponse;
 	type Future = BoxedFuture<Result<Self::Response, Self::Error>>;
 
-	fn handle(&self, request: Request<B>, args: &mut Args) -> Self::Future {
+	fn handle(&self, request: Request<B>, mut args: Args) -> Self::Future {
 		if let Some(uri_host) = request.uri().host() {
 			if let Some(host) = self.some_static_hosts.as_ref().and_then(|hosts| {
 				hosts.iter().find(|host| {
