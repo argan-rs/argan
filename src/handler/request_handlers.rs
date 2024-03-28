@@ -4,11 +4,12 @@ use std::{
 	future::{ready, Ready},
 };
 
-use argan_core::{extensions::NodeExtensions, BoxedFuture};
+use argan_core::BoxedFuture;
 use http::{header::InvalidHeaderValue, Extensions, HeaderName, HeaderValue, Method, StatusCode};
 
 use crate::{
 	common::{marker::Private, Uncloneable},
+	data::extensions::NodeExtensions,
 	middleware::{layer_targets::LayerTarget, BoxedLayer, Layer, ResponseResultFutureBoxer},
 	request::Request,
 	resource::Resource,
@@ -16,7 +17,7 @@ use crate::{
 	routing::{RoutingState, UnusedRequest},
 };
 
-use super::{AdaptiveHandler, ArcHandler, Args, ArgsExt, BoxedHandler, FinalHandler, Handler, IntoHandler};
+use super::{AdaptiveHandler, ArcHandler, Args, BoxedHandler, FinalHandler, Handler, IntoHandler};
 
 // --------------------------------------------------------------------------------
 // --------------------------------------------------------------------------------
@@ -171,7 +172,7 @@ impl Handler for WildcardMethodHandler {
 			Self::Default => handle_unimplemented_method(args),
 			Self::Custom(boxed_handler) => boxed_handler.handle(request, args),
 			Self::None(some_mistargeted_request_handler) => {
-				let routing_state = args.take_private_extension();
+				let routing_state = args.take_routing_state();
 				let node_extensions = args.take_node_extensions();
 
 				handle_mistargeted_request(
@@ -320,8 +321,11 @@ pub(crate) fn handle_mistargeted_request(
 	if let Some((mistargeted_request_handler, node_extensions)) =
 		some_custom_handler_with_extensions.take()
 	{
-		let mut args = Args::new(routing_state, &());
-		args.node_extensions = node_extensions;
+		let mut args = Args {
+			routing_state,
+			node_extensions,
+			handler_extension: &(),
+		};
 
 		// Custom handler with a custom 404 Not Found respnose.
 		return mistargeted_request_handler.handle(request, &mut args);

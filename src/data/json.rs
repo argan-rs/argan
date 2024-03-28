@@ -22,7 +22,7 @@ use super::*;
 
 pub struct Json<T, const SIZE_LIMIT: usize = { 2 * 1024 * 1024 }>(pub T);
 
-impl<B, HE, T, const SIZE_LIMIT: usize> FromRequest<B, RoutingState, HE> for Json<T, SIZE_LIMIT>
+impl<'n, B, HE, T, const SIZE_LIMIT: usize> FromRequest<B, Args<'n, HE>> for Json<T, SIZE_LIMIT>
 where
 	B: HttpBody + Send,
 	B::Data: Send,
@@ -34,7 +34,7 @@ where
 
 	async fn from_request(
 		request: Request<B>,
-		_args: &mut Args<'_, HE>,
+		_args: &mut Args<'n, HE>,
 	) -> Result<Self, Self::Error> {
 		let content_type = content_type(&request)?;
 
@@ -141,7 +141,7 @@ mod test {
 
 		dbg!(&json_data_string);
 
-		let mut args = Args::new(RoutingState::default(), &());
+		let mut args = Args::new();
 
 		// ----------
 

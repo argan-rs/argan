@@ -1,7 +1,8 @@
 use std::{convert::Infallible, future::ready, sync::Arc};
 
 use argan_core::{
-	body::{Body, HttpBody}, extensions::NodeExtensions, BoxedError, BoxedFuture
+	body::{Body, HttpBody},
+	BoxedError, BoxedFuture,
 };
 use bytes::Bytes;
 use http::{Extensions, StatusCode};
@@ -9,6 +10,7 @@ use hyper::service::Service;
 
 use crate::{
 	common::MaybeBoxed,
+	data::extensions::NodeExtensions,
 	handler::{futures::ResponseToResultFuture, Args, BoxedHandler, Handler},
 	host::{Host, HostService},
 	middleware::{layer_targets::LayerTarget, Layer},
@@ -51,8 +53,11 @@ where
 	fn call(&self, mut request: Request<B>) -> Self::Future {
 		let routing_state = RoutingState::new(RouteTraversal::for_route(request.uri().path()));
 
-		let mut args = Args::new(routing_state, &());
-		args.node_extensions = NodeExtensions::Borrowed(&self.extensions);
+		let mut args = Args {
+			routing_state,
+			node_extensions: NodeExtensions::new_borrowed(&self.extensions),
+			handler_extension: &(),
+		};
 
 		match &self.request_passer {
 			MaybeBoxed::Boxed(boxed_request_passer) => InfallibleResponseFuture::from(
@@ -203,7 +208,7 @@ where
 			if let Some(host) = self.some_regex_hosts.as_ref().and_then(|hosts| {
 				hosts.iter().find(|host| {
 					host
-						.is_regex_match(uri_host, &mut args.private_extension_mut().uri_params)
+						.is_regex_match(uri_host, &mut args.routing_state.uri_params)
 						.expect("regex_hosts must keep only the hosts with a static pattern")
 				})
 			}) {

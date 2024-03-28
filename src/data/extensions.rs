@@ -19,9 +19,8 @@ use super::*;
 
 pub struct RequestExtension<T>(pub T);
 
-impl<PE, HE, T> FromRequestHead<PE, HE> for RequestExtension<T>
+impl<'n, HE, T> FromRequestHead<Args<'n, HE>> for RequestExtension<T>
 where
-	PE: Send,
 	HE: Sync,
 	T: Clone + Send + Sync + 'static,
 {
@@ -29,7 +28,7 @@ where
 
 	async fn from_request_head(
 		head: &mut RequestHead,
-		_args: &mut Args<'_, PE, HE>,
+		_args: &mut Args<'n, HE>,
 	) -> Result<Self, Self::Error> {
 		head
 			.extensions
@@ -39,10 +38,9 @@ where
 	}
 }
 
-impl<B, PE, HE, T> FromRequest<B, PE, HE> for RequestExtension<T>
+impl<'n, B, HE, T> FromRequest<B, Args<'n, HE>> for RequestExtension<T>
 where
 	B: Send,
-	PE: Send,
 	HE: Sync,
 	T: Clone + Send + Sync + 'static,
 {
@@ -50,7 +48,7 @@ where
 
 	async fn from_request(
 		request: Request<B>,
-		_args: &mut Args<'_, PE, HE>,
+		_args: &mut Args<'n, HE>,
 	) -> Result<Self, Self::Error> {
 		let (mut head, _) = request.into_parts();
 
@@ -64,9 +62,8 @@ where
 #[derive(Clone)]
 pub struct HandlerExtension<HE>(pub HE);
 
-impl<PE, HE> FromRequestHead<PE, HE> for HandlerExtension<HE>
+impl<'n, HE> FromRequestHead<Args<'n, HE>> for HandlerExtension<HE>
 where
-	PE: Send,
 	HE: Clone + Sync + 'static,
 {
 	type Error = Infallible;
@@ -74,16 +71,15 @@ where
 	#[inline]
 	async fn from_request_head(
 		_head: &mut RequestHead,
-		args: &mut Args<'_, PE, HE>,
+		args: &mut Args<'n, HE>,
 	) -> Result<Self, Self::Error> {
-		Ok(HandlerExtension(args.handler_extension.clone()))
+		Ok(Self(args.handler_extension.clone()))
 	}
 }
 
-impl<B, PE, HE> FromRequest<B, PE, HE> for HandlerExtension<HE>
+impl<'n, B, HE> FromRequest<B, Args<'n, HE>> for HandlerExtension<HE>
 where
 	B: Send,
-	PE: Send,
 	HE: Clone + Sync + 'static,
 {
 	type Error = Infallible;
@@ -91,7 +87,7 @@ where
 	#[inline]
 	async fn from_request(
 		_request: Request<B>,
-		args: &mut Args<'_, PE, HE>,
+		args: &mut Args<'n, HE>,
 	) -> Result<Self, Self::Error> {
 		Ok(HandlerExtension(args.handler_extension.clone()))
 	}
@@ -103,9 +99,8 @@ where
 #[derive(Clone)]
 pub struct NodeExtension<NE>(pub NE);
 
-impl<PE, HE, NE> FromRequestHead<PE, HE> for NodeExtension<NE>
+impl<'n, HE, NE> FromRequestHead<Args<'n, HE>> for NodeExtension<NE>
 where
-	PE: Send,
 	HE: Sync,
 	NE: Clone + Send + Sync + 'static,
 {
@@ -114,7 +109,7 @@ where
 	#[inline]
 	async fn from_request_head(
 		_head: &mut RequestHead,
-		args: &mut Args<'_, PE, HE>,
+		args: &mut Args<'n, HE>,
 	) -> Result<Self, Self::Error> {
 		args
 			.node_extensions
@@ -124,10 +119,9 @@ where
 	}
 }
 
-impl<B, PE, HE, NE> FromRequest<B, PE, HE> for NodeExtension<NE>
+impl<'n, B, HE, NE> FromRequest<B, Args<'n, HE>> for NodeExtension<NE>
 where
 	B: Send,
-	PE: Send,
 	HE: Sync,
 	NE: Clone + Send + Sync + 'static,
 {
@@ -136,7 +130,7 @@ where
 	#[inline]
 	async fn from_request(
 		_request: Request<B>,
-		args: &mut Args<'_, PE, HE>,
+		args: &mut Args<'n, HE>,
 	) -> Result<Self, Self::Error> {
 		args
 			.node_extensions
@@ -181,25 +175,42 @@ impl<T> IntoResponse for ExtensionExtractorError<T> {
 // NodeExtensions
 
 #[derive(Clone)]
-pub enum NodeExtensions<'n> {
+pub struct NodeExtensions<'n>(NodeExtensionsValue<'n>);
+
+#[derive(Clone)]
+pub enum NodeExtensionsValue<'n> {
 	Borrowed(&'n Extensions),
 	Owned(Extensions),
 }
 
 impl<'n> NodeExtensions<'n> {
 	#[inline(always)]
+	pub(crate) fn new_borrowed(extensions: &'n Extensions) -> Self {
+		Self(NodeExtensionsValue::Borrowed(extensions))
+	}
+
+	#[inline(always)]
+	pub(crate) fn new_owned(extensions: Extensions) -> Self {
+		Self(NodeExtensionsValue::Owned(extensions))
+	}
+
+	#[inline(always)]
 	pub fn get_ref<T: Send + Sync + 'static>(&self) -> Option<&T> {
-		match self {
-			Self::Borrowed(extensions) => extensions.get::<T>(),
-			Self::Owned(extensions) => extensions.get::<T>(),
+		match self.0 {
+			NodeExtensionsValue::Borrowed(extensions) => extensions.get::<T>(),
+			NodeExtensionsValue::Owned(ref extensions) => extensions.get::<T>(),
 		}
 	}
 
 	#[inline(always)]
-	pub fn into_owned(self) -> NodeExtensions<'static> {
-		match self {
-			Self::Borrowed(extensions) => NodeExtensions::Owned(extensions.clone()),
-			Self::Owned(extensions) => NodeExtensions::Owned(extensions),
+	pub(crate) fn into_owned(self) -> NodeExtensions<'static> {
+		match self.0 {
+			NodeExtensionsValue::Borrowed(extensions) => {
+				NodeExtensions(NodeExtensionsValue::Owned(extensions.clone()))
+			}
+			NodeExtensionsValue::Owned(extensions) => {
+				NodeExtensions(NodeExtensionsValue::Owned(extensions))
+			}
 		}
 	}
 }

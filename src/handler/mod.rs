@@ -9,13 +9,14 @@ use std::{
 	task::{Context, Poll},
 };
 
-use argan_core::{body::Body, extensions::{NodeExtension, NodeExtensions}, Args as CoreArgs, BoxedFuture};
+use argan_core::{body::Body, BoxedFuture};
 use bytes::Bytes;
 use http::{Extensions, StatusCode};
 use tower_service::Service;
 
 use crate::{
 	common::{BoxedAny, Uncloneable},
+	data::extensions::NodeExtensions,
 	middleware::Layer,
 	request::{FromRequest, FromRequestHead, Request, RequestHead},
 	response::{BoxedErrorResponse, IntoResponse, Response},
@@ -59,7 +60,7 @@ where
 	type Future = S::Future;
 
 	fn handle(&self, mut request: Request<B>, args: &mut Args) -> Self::Future {
-		let args = args.into_owned_without_handler_extensions();
+		let args = args.move_to_owned_without_handler_extension();
 
 		request.extensions_mut().insert(Uncloneable::from(args));
 
@@ -187,11 +188,14 @@ where
 
 	#[inline]
 	fn handle(&self, mut request: Request<B>, args: &mut Args) -> Self::Future {
-		let routing_state = args.take_private_extension();
+		let routing_state = args.take_routing_state();
 		let node_extensions = args.take_node_extensions();
 
-		let mut args = Args::new(routing_state, &self.extension);
-		args.node_extensions = node_extensions;
+		let mut args = Args {
+			routing_state,
+			node_extensions,
+			handler_extension: &self.extension,
+		};
 
 		self.inner.handle(request, &mut args)
 	}
@@ -430,53 +434,55 @@ impl Handler for DummyHandler<BoxedFuture<Result<Response, BoxedErrorResponse>>>
 // 	}
 // }
 
-// --------------------------------------------------------------------------------
+// --------------------------------------------------
 // Args
 
-pub type Args<'n, HandlerExt = ()> = CoreArgs<'n, RoutingState, HandlerExt>;
-
-pub(crate) trait ArgsExt<'n, HandlerExt = ()>: Sized {
-	fn take_private_extension(&mut self) -> RoutingState;
-	fn take_node_extensions(&mut self) -> NodeExtensions<'n>;
-	fn replace_node_and_handler_extensions<'new_n, NewHandlerExt>(
-		&mut self,
-		new_node_extensions: NodeExtensions<'new_n>,
-		new_handler_extension: &'new_n NewHandlerExt,
-	) -> Args<'new_n, NewHandlerExt>;
-
-	fn into_owned_without_handler_extensions(&mut self) -> Args<'static, ()>;
+#[non_exhaustive]
+pub struct Args<'n, HandlerExt = ()> {
+	pub(crate) routing_state: RoutingState,
+	pub node_extensions: NodeExtensions<'n>,
+	pub handler_extension: &'n HandlerExt,
 }
 
-impl<'n, HandlerExt> ArgsExt<'n, HandlerExt> for Args<'n, HandlerExt> {
-	fn take_private_extension(&mut self) -> RoutingState {
-		std::mem::take(self.private_extension_mut())
+impl<'n> Args<'n, ()> {
+	pub(crate) fn new() -> Args<'static, ()> {
+		Args {
+			routing_state: RoutingState::default(),
+			node_extensions: NodeExtensions::new_owned(Extensions::new()),
+			handler_extension: &(),
+		}
 	}
 
-	fn take_node_extensions(&mut self) -> NodeExtensions<'n> {
+	fn move_to_owned_without_handler_extension(&mut self) -> Args<'static, ()> {
+		Args {
+			routing_state: self.take_routing_state(),
+			node_extensions: self.take_node_extensions().into_owned(),
+			handler_extension: &(),
+		}
+	}
+}
+
+impl<'n, HandlerExt> Args<'n, HandlerExt> {
+	pub(crate) fn take_routing_state(&mut self) -> RoutingState {
+		std::mem::take(&mut self.routing_state)
+	}
+
+	pub(crate) fn take_node_extensions(&mut self) -> NodeExtensions<'n> {
 		std::mem::replace(
 			&mut self.node_extensions,
-			NodeExtensions::Owned(Extensions::new()),
+			NodeExtensions::new_owned(Extensions::new()),
 		)
 	}
 
-	fn replace_node_and_handler_extensions<'new_n, NewHandlerExt>(
+	pub(crate) fn extensions_replaced<'new_n, NewHandlerExt>(
 		&mut self,
 		new_node_extensions: NodeExtensions<'new_n>,
 		new_handler_extension: &'new_n NewHandlerExt,
 	) -> Args<'new_n, NewHandlerExt> {
-		let routing_state = self.take_private_extension();
-
-		let mut args = Args::new(routing_state, new_handler_extension);
-		args.node_extensions = new_node_extensions;
-
-		args
-	}
-
-	fn into_owned_without_handler_extensions(&mut self) -> Args<'static, ()> {
-		let routing_state = self.take_private_extension();
-		let mut args = Args::new(routing_state, &());
-		args.node_extensions = self.take_node_extensions().into_owned();
-
-		args
+		Args {
+			routing_state: self.take_routing_state(),
+			node_extensions: new_node_extensions,
+			handler_extension: new_handler_extension,
+		}
 	}
 }

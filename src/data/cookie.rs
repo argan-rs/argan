@@ -143,7 +143,7 @@ where
 	}
 }
 
-impl<HE, K> FromRequestHead<RoutingState, HE> for CookieJar<K>
+impl<'n, HE, K> FromRequestHead<Args<'n, HE>> for CookieJar<K>
 where
 	HE: Sync,
 	K: for<'k> TryFrom<&'k [u8]> + Into<Key>,
@@ -152,7 +152,7 @@ where
 
 	async fn from_request_head(
 		head: &mut RequestHead,
-		_args: &mut Args<'_, HE>,
+		_args: &mut Args<'n, HE>,
 	) -> Result<Self, Self::Error> {
 		let cookie_jar = head
 			.headers
@@ -173,7 +173,7 @@ where
 	}
 }
 
-impl<B, HE, K> FromRequest<B, RoutingState, HE> for CookieJar<K>
+impl<'n, B, HE, K> FromRequest<B, Args<'n, HE>> for CookieJar<K>
 where
 	B: Send,
 	HE: Sync,
@@ -183,11 +183,11 @@ where
 
 	async fn from_request(
 		request: Request<B>,
-		_args: &mut Args<'_, HE>,
+		_args: &mut Args<'n, HE>,
 	) -> Result<Self, Self::Error> {
 		let (mut head, _) = request.into_parts();
 
-		<CookieJar<K> as FromRequestHead<RoutingState, HE>>::from_request_head(&mut head, _args).await
+		<CookieJar<K> as FromRequestHead<Args<'_, HE>>>::from_request_head(&mut head, _args).await
 	}
 }
 
@@ -254,7 +254,7 @@ impl<K> PrivateCookieJar<K> {
 	}
 }
 
-impl<HE, K> FromRequestHead<RoutingState, HE> for PrivateCookieJar<K>
+impl<'n, HE, K> FromRequestHead<Args<'n, HE>> for PrivateCookieJar<K>
 where
 	HE: Sync,
 	K: for<'k> TryFrom<&'k [u8]> + Into<Key>,
@@ -263,15 +263,15 @@ where
 
 	async fn from_request_head(
 		head: &mut RequestHead,
-		_args: &mut Args<'_, HE>,
+		_args: &mut Args<'n, HE>,
 	) -> Result<Self, Self::Error> {
-		<CookieJar<K> as FromRequestHead<RoutingState, HE>>::from_request_head(head, _args)
+		<CookieJar<K> as FromRequestHead<Args<'_, HE>>>::from_request_head(head, _args)
 			.await
 			.map(|jar| jar.into_private_jar())
 	}
 }
 
-impl<B, HE, K> FromRequest<B, RoutingState, HE> for PrivateCookieJar<K>
+impl<'n, B, HE, K> FromRequest<B, Args<'n, HE>> for PrivateCookieJar<K>
 where
 	B: Send,
 	HE: Sync,
@@ -281,11 +281,11 @@ where
 
 	async fn from_request(
 		request: Request<B>,
-		_args: &mut Args<'_, HE>,
+		_args: &mut Args<'n, HE>,
 	) -> Result<Self, Self::Error> {
 		let (mut head, _) = request.into_parts();
 
-		<PrivateCookieJar<K> as FromRequestHead<RoutingState, HE>>::from_request_head(&mut head, _args)
+		<PrivateCookieJar<K> as FromRequestHead<Args<'_, HE>>>::from_request_head(&mut head, _args)
 			.await
 	}
 }
@@ -346,7 +346,7 @@ impl<K> SignedCookieJar<K> {
 	}
 }
 
-impl<HE, K> FromRequestHead<RoutingState, HE> for SignedCookieJar<K>
+impl<'n, HE, K> FromRequestHead<Args<'n, HE>> for SignedCookieJar<K>
 where
 	HE: Sync,
 	K: for<'k> TryFrom<&'k [u8]> + Into<Key>,
@@ -355,15 +355,15 @@ where
 
 	async fn from_request_head(
 		head: &mut RequestHead,
-		_args: &mut Args<'_, HE>,
+		_args: &mut Args<'n, HE>,
 	) -> Result<Self, Self::Error> {
-		<CookieJar<K> as FromRequestHead<RoutingState, HE>>::from_request_head(head, _args)
+		<CookieJar<K> as FromRequestHead<Args<'_, HE>>>::from_request_head(head, _args)
 			.await
 			.map(|jar| jar.into_signed_jar())
 	}
 }
 
-impl<B, HE, K> FromRequest<B, RoutingState, HE> for SignedCookieJar<K>
+impl<'n, B, HE, K> FromRequest<B, Args<'n, HE>> for SignedCookieJar<K>
 where
 	B: Send,
 	HE: Sync,
@@ -373,12 +373,11 @@ where
 
 	async fn from_request(
 		request: Request<B>,
-		_args: &mut Args<'_, HE>,
+		_args: &mut Args<'n, HE>,
 	) -> Result<Self, Self::Error> {
 		let (mut head, _) = request.into_parts();
 
-		<SignedCookieJar<K> as FromRequestHead<RoutingState, HE>>::from_request_head(&mut head, _args)
-			.await
+		<SignedCookieJar<K> as FromRequestHead<Args<'_, HE>>>::from_request_head(&mut head, _args).await
 	}
 }
 
