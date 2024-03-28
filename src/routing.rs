@@ -1,6 +1,5 @@
 use std::{borrow::Cow, str::Utf8Error};
 
-use argan_core::PrivateType;
 use percent_encoding::percent_decode_str;
 
 use crate::{pattern::ParamsList, request::Request, resource::ResourceService};
@@ -9,7 +8,7 @@ use crate::{pattern::ParamsList, request::Request, resource::ResourceService};
 // --------------------------------------------------------------------------------
 
 #[derive(Default)]
-pub(crate) struct RoutingState {
+pub struct RoutingState {
 	pub(crate) route_traversal: RouteTraversal,
 	pub(crate) uri_params: ParamsList,
 	pub(crate) subtree_handler_exists: bool,
@@ -24,8 +23,6 @@ impl RoutingState {
 		}
 	}
 }
-
-impl PrivateType for RoutingState {}
 
 // --------------------------------------------------
 

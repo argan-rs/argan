@@ -1,6 +1,6 @@
 use std::{any::type_name, convert::Infallible, fmt::Debug, fmt::Display, marker::PhantomData};
 
-use http::StatusCode;
+use http::{Extensions, StatusCode};
 
 use crate::{
 	request::{FromRequest, FromRequestHead, Request, RequestHead},
@@ -19,17 +19,17 @@ use super::*;
 
 pub struct RequestExtension<T>(pub T);
 
-impl<Args, Ext, T> FromRequestHead<Args, Ext> for RequestExtension<T>
+impl<PE, HE, T> FromRequestHead<PE, HE> for RequestExtension<T>
 where
-	Args: for<'n> Arguments<'n, Ext> + Send,
-	Ext: Sync,
+	PE: Send,
+	HE: Sync,
 	T: Clone + Send + Sync + 'static,
 {
 	type Error = ExtensionExtractorError<T>;
 
 	async fn from_request_head(
 		head: &mut RequestHead,
-		_args: &mut Args,
+		_args: &mut Args<'_, PE, HE>,
 	) -> Result<Self, Self::Error> {
 		head
 			.extensions
@@ -39,16 +39,19 @@ where
 	}
 }
 
-impl<B, Args, Ext, T> FromRequest<B, Args, Ext> for RequestExtension<T>
+impl<B, PE, HE, T> FromRequest<B, PE, HE> for RequestExtension<T>
 where
 	B: Send,
-	Args: for<'n> Arguments<'n, Ext> + Send,
-	Ext: Sync,
+	PE: Send,
+	HE: Sync,
 	T: Clone + Send + Sync + 'static,
 {
 	type Error = ExtensionExtractorError<T>;
 
-	async fn from_request(request: Request<B>, _args: &mut Args) -> Result<Self, Self::Error> {
+	async fn from_request(
+		request: Request<B>,
+		_args: &mut Args<'_, PE, HE>,
+	) -> Result<Self, Self::Error> {
 		let (mut head, _) = request.into_parts();
 
 		Self::from_request_head(&mut head, _args).await
@@ -59,35 +62,38 @@ where
 // HandlerExtension
 
 #[derive(Clone)]
-pub struct HandlerExtension<Ext>(pub Ext);
+pub struct HandlerExtension<HE>(pub HE);
 
-impl<Args, Ext> FromRequestHead<Args, Ext> for HandlerExtension<Ext>
+impl<PE, HE> FromRequestHead<PE, HE> for HandlerExtension<HE>
 where
-	Args: for<'n> Arguments<'n, Ext> + Send,
-	Ext: Clone + Sync + 'static,
+	PE: Send,
+	HE: Clone + Sync + 'static,
 {
 	type Error = Infallible;
 
 	#[inline]
 	async fn from_request_head(
 		_head: &mut RequestHead,
-		args: &mut Args,
+		args: &mut Args<'_, PE, HE>,
 	) -> Result<Self, Self::Error> {
-		Ok(HandlerExtension(args.handler_extension().clone()))
+		Ok(HandlerExtension(args.handler_extension.clone()))
 	}
 }
 
-impl<B, Args, Ext> FromRequest<B, Args, Ext> for HandlerExtension<Ext>
+impl<B, PE, HE> FromRequest<B, PE, HE> for HandlerExtension<HE>
 where
 	B: Send,
-	Args: for<'n> Arguments<'n, Ext> + Send,
-	Ext: Clone + Sync + 'static,
+	PE: Send,
+	HE: Clone + Sync + 'static,
 {
 	type Error = Infallible;
 
 	#[inline]
-	async fn from_request(_request: Request<B>, args: &mut Args) -> Result<Self, Self::Error> {
-		Ok(HandlerExtension(args.handler_extension().clone()))
+	async fn from_request(
+		_request: Request<B>,
+		args: &mut Args<'_, PE, HE>,
+	) -> Result<Self, Self::Error> {
+		Ok(HandlerExtension(args.handler_extension.clone()))
 	}
 }
 
@@ -95,40 +101,47 @@ where
 // NodeExtension
 
 #[derive(Clone)]
-pub struct NodeExtension<Ext>(pub Ext);
+pub struct NodeExtension<NE>(pub NE);
 
-impl<Args, Ext> FromRequestHead<Args, Ext> for NodeExtension<Ext>
+impl<PE, HE, NE> FromRequestHead<PE, HE> for NodeExtension<NE>
 where
-	Args: for<'n> Arguments<'n, Ext> + Send,
-	Ext: Clone + Send + Sync + 'static,
+	PE: Send,
+	HE: Sync,
+	NE: Clone + Send + Sync + 'static,
 {
-	type Error = ExtensionExtractorError<Ext>;
+	type Error = ExtensionExtractorError<NE>;
 
 	#[inline]
 	async fn from_request_head(
 		_head: &mut RequestHead,
-		args: &mut Args,
+		args: &mut Args<'_, PE, HE>,
 	) -> Result<Self, Self::Error> {
 		args
-			.node_extension::<Ext>()
-			.ok_or(ExtensionExtractorError::<Ext>::new())
+			.node_extensions
+			.get_ref::<NE>()
+			.ok_or(ExtensionExtractorError::<NE>::new())
 			.map(|node_extension| NodeExtension(node_extension.clone()))
 	}
 }
 
-impl<B, Args, Ext> FromRequest<B, Args, Ext> for NodeExtension<Ext>
+impl<B, PE, HE, NE> FromRequest<B, PE, HE> for NodeExtension<NE>
 where
 	B: Send,
-	Args: for<'n> Arguments<'n, Ext> + Send,
-	Ext: Clone + Send + Sync + 'static,
+	PE: Send,
+	HE: Sync,
+	NE: Clone + Send + Sync + 'static,
 {
-	type Error = ExtensionExtractorError<Ext>;
+	type Error = ExtensionExtractorError<NE>;
 
 	#[inline]
-	async fn from_request(_request: Request<B>, args: &mut Args) -> Result<Self, Self::Error> {
+	async fn from_request(
+		_request: Request<B>,
+		args: &mut Args<'_, PE, HE>,
+	) -> Result<Self, Self::Error> {
 		args
-			.node_extension::<Ext>()
-			.ok_or(ExtensionExtractorError::<Ext>::new())
+			.node_extensions
+			.get_ref::<NE>()
+			.ok_or(ExtensionExtractorError::<NE>::new())
 			.map(|node_extension| NodeExtension(node_extension.clone()))
 	}
 }
@@ -161,6 +174,33 @@ impl<T> crate::StdError for ExtensionExtractorError<T> {}
 impl<T> IntoResponse for ExtensionExtractorError<T> {
 	fn into_response(self) -> Response {
 		StatusCode::INTERNAL_SERVER_ERROR.into_response()
+	}
+}
+
+// --------------------------------------------------
+// NodeExtensions
+
+#[derive(Clone)]
+pub enum NodeExtensions<'n> {
+	Borrowed(&'n Extensions),
+	Owned(Extensions),
+}
+
+impl<'n> NodeExtensions<'n> {
+	#[inline(always)]
+	pub fn get_ref<T: Send + Sync + 'static>(&self) -> Option<&T> {
+		match self {
+			Self::Borrowed(extensions) => extensions.get::<T>(),
+			Self::Owned(extensions) => extensions.get::<T>(),
+		}
+	}
+
+	#[inline(always)]
+	pub fn into_owned(self) -> NodeExtensions<'static> {
+		match self {
+			Self::Borrowed(extensions) => NodeExtensions::Owned(extensions.clone()),
+			Self::Owned(extensions) => NodeExtensions::Owned(extensions),
+		}
 	}
 }
 

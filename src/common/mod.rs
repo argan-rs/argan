@@ -257,35 +257,35 @@ pub(crate) fn normalize_path(path: &str) -> String {
 // --------------------------------------------------
 // NodeExtensions
 
-#[derive(Clone)]
-pub struct NodeExtensions<'r>(Cow<'r, Extensions>);
-
-impl<'r> NodeExtensions<'r> {
-	#[inline(always)]
-	pub(crate) fn new_borrowed(extensions: &'r Extensions) -> Self {
-		Self(Cow::Borrowed(extensions))
-	}
-
-	#[inline(always)]
-	pub(crate) fn new_owned(extensions: Extensions) -> NodeExtensions<'static> {
-		NodeExtensions(Cow::Owned(extensions))
-	}
-
-	#[inline(always)]
-	pub fn get_ref<T: Send + Sync + 'static>(&self) -> Option<&T> {
-		self.0.get::<T>()
-	}
-
-	#[inline(always)]
-	pub(crate) fn take(&mut self) -> NodeExtensions<'_> {
-		NodeExtensions(std::mem::take(&mut self.0))
-	}
-
-	#[inline(always)]
-	pub(crate) fn into_owned(self) -> NodeExtensions<'static> {
-		NodeExtensions(Cow::<'static, _>::Owned(self.0.into_owned()))
-	}
-}
+// #[derive(Clone)]
+// pub struct NodeExtensions<'r>(Cow<'r, Extensions>);
+//
+// impl<'r> NodeExtensions<'r> {
+// 	#[inline(always)]
+// 	pub(crate) fn new_borrowed(extensions: &'r Extensions) -> Self {
+// 		Self(Cow::Borrowed(extensions))
+// 	}
+//
+// 	#[inline(always)]
+// 	pub(crate) fn new_owned(extensions: Extensions) -> NodeExtensions<'static> {
+// 		NodeExtensions(Cow::Owned(extensions))
+// 	}
+//
+// 	#[inline(always)]
+// 	pub fn get_ref<T: Send + Sync + 'static>(&self) -> Option<&T> {
+// 		self.0.get::<T>()
+// 	}
+//
+// 	#[inline(always)]
+// 	pub(crate) fn take(&mut self) -> NodeExtensions<'_> {
+// 		NodeExtensions(std::mem::take(&mut self.0))
+// 	}
+//
+// 	#[inline(always)]
+// 	pub(crate) fn into_owned(self) -> NodeExtensions<'static> {
+// 		NodeExtensions(Cow::<'static, _>::Owned(self.0.into_owned()))
+// 	}
+// }
 
 // --------------------------------------------------
 // BoxedAny
@@ -329,21 +329,21 @@ impl<A: Any + Clone + Send + Sync> AnyCloneable for A {
 // --------------------------------------------------
 // NodeExtensions
 
-pub(crate) enum OptionCow<'a, T> {
-	None,
-	Borrowed(&'a T),
-	Owned(T),
-}
-
-impl<T: Clone + 'static> Clone for OptionCow<'_, T> {
-	fn clone(&self) -> OptionCow<'static, T> {
-		match self {
-			Self::None => Self::None,
-			Self::Borrowed(value) => Self::Owned((*value).clone()),
-			Self::Owned(value) => Self::Owned(value.clone()),
-		}
-	}
-}
+// pub(crate) enum OptionCow<'a, T> {
+// 	None,
+// 	Borrowed(&'a T),
+// 	Owned(T),
+// }
+//
+// impl<T: Clone + 'static> Clone for OptionCow<'_, T> {
+// 	fn clone(&self) -> OptionCow<'static, T> {
+// 		match self {
+// 			Self::None => Self::None,
+// 			Self::Borrowed(value) => Self::Owned((*value).clone()),
+// 			Self::Owned(value) => Self::Owned(value.clone()),
+// 		}
+// 	}
+// }
 
 // --------------------------------------------------------------------------------
 // --------------------------------------------------------------------------------
