@@ -84,7 +84,7 @@ impl ResourceService {
 	pub(crate) fn handle<B>(
 		&self,
 		request: Request<B>,
-		args: &mut Args<'_, ()>,
+		mut args: Args<'_, ()>,
 	) -> BoxedFuture<Result<Response, BoxedErrorResponse>>
 	where
 		B: HttpBody<Data = Bytes> + Send + Sync + 'static,
@@ -94,10 +94,8 @@ impl ResourceService {
 		let mut args = args.extensions_replaced(NodeExtensions::new_borrowed(&self.extensions), &());
 
 		match &self.request_receiver {
-			MaybeBoxed::Boxed(boxed_request_receiver) => {
-				boxed_request_receiver.handle(request, &mut args)
-			}
-			MaybeBoxed::Unboxed(request_receiver) => request_receiver.handle(request, &mut args),
+			MaybeBoxed::Boxed(boxed_request_receiver) => boxed_request_receiver.handle(request, args),
+			MaybeBoxed::Unboxed(request_receiver) => request_receiver.handle(request, args),
 		}
 	}
 }
@@ -165,20 +163,17 @@ where
 		if matched {
 			match &self.request_receiver {
 				MaybeBoxed::Boxed(boxed_request_receiver) => {
-					InfallibleResponseFuture::from(boxed_request_receiver.handle(request, &mut args))
+					InfallibleResponseFuture::from(boxed_request_receiver.handle(request, args))
 				}
 				MaybeBoxed::Unboxed(request_receiver) => {
-					InfallibleResponseFuture::from(request_receiver.handle(request, &mut args))
+					InfallibleResponseFuture::from(request_receiver.handle(request, args))
 				}
 			}
 		} else {
 			InfallibleResponseFuture::from(handle_mistargeted_request(
 				request,
-				args.take_routing_state(),
-				self
-					.some_mistargeted_request_handler
-					.as_ref()
-					.map(|handler| (handler, args.node_extensions)),
+				args,
+				self.some_mistargeted_request_handler.as_ref(),
 			))
 		}
 	}
@@ -305,7 +300,7 @@ impl Handler for RequestReceiver {
 	type Future = BoxedFuture<Result<Self::Response, Self::Error>>;
 
 	#[inline]
-	fn handle(&self, mut request: Request, args: &mut Args) -> Self::Future {
+	fn handle(&self, mut request: Request, mut args: Args) -> Self::Future {
 		if args
 			.routing_state
 			.route_traversal
@@ -334,8 +329,6 @@ impl Handler for RequestReceiver {
 					.clone()
 					.expect("subtree handler must have a request handler");
 
-				let node_extensions = args.node_extensions.clone().into_owned();
-
 				return Box::pin(async move {
 					let mut response = response_future.await?;
 					if response.status() != StatusCode::NOT_FOUND {
@@ -355,45 +348,32 @@ impl Handler for RequestReceiver {
 						.expect("unused request should always exist in Uncloneable")
 						.into_request();
 
-					let mut routing_state = response
+					let mut args = response
 						.extensions_mut()
-						.remove::<Uncloneable<RoutingState>>()
-						.expect("Uncloneable<RoutingState> should always exist when unused request is returned")
+						.remove::<Uncloneable<Args>>()
+						.expect("Uncloneable<Args> should always exist when unused request is returned")
 						.into_inner()
-						.expect("RoutingState should always exist in Uncloneable");
+						.expect("Args should always exist in Uncloneable");
 
-					routing_state
+					args
+						.routing_state
 						.route_traversal
 						.revert_to_segment(next_segment_index);
 
-					let mut args = Args {
-						routing_state,
-						node_extensions,
-						handler_extension: &(),
-					};
-
 					match request_handler_clone.as_ref() {
 						MaybeBoxed::Boxed(boxed_request_handler) => {
-							boxed_request_handler.handle(request, &mut args).await
+							boxed_request_handler.handle(request, args).await
 						}
-						MaybeBoxed::Unboxed(request_handler) => {
-							request_handler.handle(request, &mut args).await
-						}
+						MaybeBoxed::Unboxed(request_handler) => request_handler.handle(request, args).await,
 					}
 				});
 			}
 
 			if !resource_is_subtree_handler {
-				let routing_state = args.take_routing_state();
-				let node_extensions = args.take_node_extensions();
-
 				return handle_mistargeted_request(
 					request,
-					routing_state,
-					self
-						.some_mistargeted_request_handler
-						.as_ref()
-						.map(|handler| (handler, node_extensions)),
+					args,
+					self.some_mistargeted_request_handler.as_ref(),
 				);
 			}
 		}
@@ -450,16 +430,10 @@ impl Handler for RequestReceiver {
 			}
 		}
 
-		let routing_state = args.take_routing_state();
-		let node_extensions = args.take_node_extensions();
-
 		handle_mistargeted_request(
 			request,
-			routing_state,
-			self
-				.some_mistargeted_request_handler
-				.as_ref()
-				.map(|handler| (handler, node_extensions)),
+			args,
+			self.some_mistargeted_request_handler.as_ref(),
 		)
 	}
 }
@@ -526,7 +500,7 @@ impl Handler for RequestPasser {
 	type Future = BoxedFuture<Result<Self::Response, Self::Error>>;
 
 	#[inline]
-	fn handle(&self, mut request: Request, args: &mut Args) -> Self::Future {
+	fn handle(&self, mut request: Request, mut args: Args) -> Self::Future {
 		let some_next_resource = 'some_next_resource: {
 			let (next_segment, _) = args
 				.routing_state
@@ -583,24 +557,18 @@ impl Handler for RequestPasser {
 
 			match &next_resource.request_receiver {
 				MaybeBoxed::Boxed(boxed_request_receiver) => {
-					return boxed_request_receiver.handle(request, &mut args);
+					return boxed_request_receiver.handle(request, args);
 				}
 				MaybeBoxed::Unboxed(request_receiver) => {
-					return request_receiver.handle(request, &mut args);
+					return request_receiver.handle(request, args);
 				}
 			}
 		}
 
-		let routing_state = args.take_routing_state();
-		let node_extensions = args.take_node_extensions();
-
 		handle_mistargeted_request(
 			request,
-			routing_state,
-			self
-				.some_mistargeted_request_handler
-				.as_ref()
-				.map(|handler| (handler, node_extensions)),
+			args,
+			self.some_mistargeted_request_handler.as_ref(),
 		)
 	}
 }
@@ -698,7 +666,7 @@ impl Handler for RequestHandler {
 	type Error = BoxedErrorResponse;
 	type Future = BoxedFuture<Result<Self::Response, Self::Error>>;
 
-	fn handle(&self, request: Request, args: &mut Args) -> Self::Future {
+	fn handle(&self, request: Request, args: Args) -> Self::Future {
 		let method = request.method();
 		let some_method_handler = self.method_handlers.iter().find(|(m, _)| m == method);
 
@@ -935,7 +903,7 @@ mod test {
 		type Error = BoxedErrorResponse;
 		type Future = BoxedFuture<Result<Self::Response, Self::Error>>;
 
-		fn handle(&self, request: Request<B>, args: &mut Args<'_, ()>) -> Self::Future {
+		fn handle(&self, request: Request<B>, args: Args<'_, ()>) -> Self::Future {
 			Box::pin(ready(Ok("Hello from Middleware!".into_response())))
 		}
 	}

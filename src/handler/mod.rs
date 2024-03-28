@@ -44,7 +44,7 @@ pub trait Handler<B = Body, Ext = ()> {
 	type Error;
 	type Future: Future<Output = Result<Self::Response, Self::Error>>;
 
-	fn handle(&self, request: Request<B>, args: &mut Args<'_, Ext>) -> Self::Future;
+	fn handle(&self, request: Request<B>, args: Args<'_, Ext>) -> Self::Future;
 }
 
 // -------------------------
@@ -59,7 +59,7 @@ where
 	type Error = S::Error;
 	type Future = S::Future;
 
-	fn handle(&self, mut request: Request<B>, args: &mut Args) -> Self::Future {
+	fn handle(&self, mut request: Request<B>, mut args: Args) -> Self::Future {
 		let args = args.move_to_owned_without_handler_extension();
 
 		request.extensions_mut().insert(Uncloneable::from(args));
@@ -158,7 +158,7 @@ where
 			.into_inner()
 			.expect("Uncloneable must always have a valid value");
 
-		self.handler.handle(request, &mut args)
+		self.handler.handle(request, args)
 	}
 }
 
@@ -187,7 +187,7 @@ where
 	type Future = H::Future;
 
 	#[inline]
-	fn handle(&self, mut request: Request<B>, args: &mut Args) -> Self::Future {
+	fn handle(&self, mut request: Request<B>, mut args: Args) -> Self::Future {
 		let routing_state = args.take_routing_state();
 		let node_extensions = args.take_node_extensions();
 
@@ -197,7 +197,7 @@ where
 			handler_extension: &self.extension,
 		};
 
-		self.inner.handle(request, &mut args)
+		self.inner.handle(request, args)
 	}
 }
 
@@ -271,7 +271,7 @@ impl Handler for BoxedHandler {
 	type Future = BoxedFuture<Result<Self::Response, Self::Error>>;
 
 	#[inline(always)]
-	fn handle(&self, request: Request, args: &mut Args) -> Self::Future {
+	fn handle(&self, request: Request, args: Args) -> Self::Future {
 		self.0.handle(request, args)
 	}
 }
@@ -311,7 +311,7 @@ impl Handler for ArcHandler {
 	type Future = BoxedFuture<Result<Self::Response, Self::Error>>;
 
 	#[inline(always)]
-	fn handle(&self, request: Request, args: &mut Args) -> Self::Future {
+	fn handle(&self, request: Request, args: Args) -> Self::Future {
 		self.0.handle(request, args)
 	}
 }
@@ -345,7 +345,7 @@ impl Handler for DummyHandler<DefaultResponseFuture> {
 	type Future = DefaultResponseFuture;
 
 	#[inline(always)]
-	fn handle(&self, _req: Request, _args: &mut Args) -> Self::Future {
+	fn handle(&self, _req: Request, _args: Args) -> Self::Future {
 		DefaultResponseFuture::new()
 	}
 }
@@ -372,7 +372,7 @@ impl Handler for DummyHandler<BoxedFuture<Result<Response, BoxedErrorResponse>>>
 	type Future = BoxedFuture<Result<Self::Response, Self::Error>>;
 
 	#[inline(always)]
-	fn handle(&self, _req: Request, _args: &mut Args) -> Self::Future {
+	fn handle(&self, _req: Request, _args: Args) -> Self::Future {
 		Box::pin(DefaultResponseFuture::new())
 	}
 }

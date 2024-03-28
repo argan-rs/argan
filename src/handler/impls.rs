@@ -42,7 +42,7 @@ where
 	type Future = BoxedFuture<Result<Self::Response, Self::Error>>;
 
 	#[inline(always)]
-	fn handle(&self, request: Request<B>, args: &mut Args<'_, ()>) -> Self::Future {
+	fn handle(&self, request: Request<B>, args: Args<'_, ()>) -> Self::Future {
 		self.0.handle(request.map(Body::new), args)
 	}
 }
@@ -107,7 +107,7 @@ where
 	type Future = BoxedFuture<Result<Self::Response, Self::Error>>;
 
 	#[inline(always)]
-	fn handle(&self, request: Request, _args: &mut Args<'_, Ext>) -> Self::Future {
+	fn handle(&self, request: Request, _args: Args<'_, Ext>) -> Self::Future {
 		(self.func)(request)
 	}
 }
@@ -116,7 +116,7 @@ where
 
 impl<'r, Func, Ext> IntoHandler<(Request, Args<'r>, Ext)> for Func
 where
-	Func: Fn(Request, &mut Args<'_, Ext>) -> BoxedFuture<Result<Response, BoxedError>>,
+	Func: Fn(Request, Args<'_, Ext>) -> BoxedFuture<Result<Response, BoxedError>>,
 	HandlerFn<Func, (Request, Args<'r>, Ext)>: Handler,
 {
 	type Handler = HandlerFn<Func, (Request, Args<'r>, Ext)>;
@@ -128,14 +128,14 @@ where
 
 impl<'r, Func, Ext> Handler<Body, Ext> for HandlerFn<Func, (Request, Args<'r>, Ext)>
 where
-	Func: Fn(Request, &mut Args<'_, Ext>) -> BoxedFuture<Result<Response, BoxedErrorResponse>>,
+	Func: Fn(Request, Args<'_, Ext>) -> BoxedFuture<Result<Response, BoxedErrorResponse>>,
 {
 	type Response = Response;
 	type Error = BoxedErrorResponse;
 	type Future = BoxedFuture<Result<Self::Response, Self::Error>>;
 
 	#[inline(always)]
-	fn handle(&self, request: Request, args: &mut Args<'_, Ext>) -> Self::Future {
+	fn handle(&self, request: Request, args: Args<'_, Ext>) -> Self::Future {
 		(self.func)(request, args)
 	}
 }
@@ -178,7 +178,7 @@ macro_rules! impl_handler_fn {
 			type Error = BoxedErrorResponse;
 			type Future = HandlerFnFuture<Func, (Private, $($($ps,)*)? $($lp)?), B, Ext>;
 
-			fn handle(&self, request: Request<B>, args: &mut Args<'_, Ext>) -> Self::Future {
+			fn handle(&self, request: Request<B>, mut args: Args<'_, Ext>) -> Self::Future {
 				let func_clone = self.func.clone();
 				let routing_state = args.take_routing_state();
 				let node_extensions = args.take_node_extensions().into_owned();
