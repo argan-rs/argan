@@ -1,15 +1,9 @@
-#![allow(dead_code)]
-
-// ----------
-
 use std::{future::Future, pin::Pin};
 
 // ----------
 
 pub use std::error::Error as StdError;
 
-use extensions::NodeExtensions;
-use http::Extensions;
 pub(crate) use thiserror::Error as ImplError;
 
 // --------------------------------------------------------------------------------
@@ -19,7 +13,6 @@ pub(crate) use thiserror::Error as ImplError;
 pub(crate) mod macros;
 
 pub mod body;
-pub mod extensions;
 pub mod request;
 pub mod response;
 
@@ -30,45 +23,6 @@ pub type BoxedError = Box<dyn StdError + Send + Sync>;
 pub type BoxedFuture<T> = Pin<Box<dyn Future<Output = T> + Send>>;
 
 // --------------------------------------------------------------------------------
-
-// --------------------------------------------------
-// Args
-
-#[non_exhaustive]
-pub struct Args<'n, PrivateExt, HandlerExt> {
-	pub(crate) private_extension: PrivateExt,
-	pub node_extensions: NodeExtensions<'n>,
-	pub handler_extension: &'n HandlerExt,
-}
-
-impl<'n, PrivateExt, HandlerExt> Args<'n, PrivateExt, HandlerExt> {
-	pub fn new(private_extension: PrivateExt, handler_extension: &'n HandlerExt) -> Self {
-		Self {
-			private_extension,
-			node_extensions: NodeExtensions::Owned(Extensions::new()),
-			handler_extension,
-		}
-	}
-
-	#[inline(always)]
-	pub fn private_extension_mut(&mut self) -> &mut PrivateExt {
-		&mut self.private_extension
-	}
-}
-
-// --------------------------------------------------
-// Arguments
-
-// pub trait Arguments<'n, HandlerExt = ()>: Sized {
-// 	fn private_extension(&mut self) -> &mut impl PrivateType;
-// 	fn node_extension<Ext: Send + Sync + 'static>(&self) -> Option<&'n Ext>;
-// 	fn handler_extension(&self) -> &'n HandlerExt;
-// }
-
-// --------------------------------------------------
-// PrivateType marker
-
-// pub trait PrivateType {}
 
 // --------------------------------------------------
 // IntoArray trait

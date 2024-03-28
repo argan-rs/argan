@@ -10,7 +10,8 @@ use std::{
 };
 
 use argan_core::{
-	body::{Body, HttpBody}, extensions::NodeExtensions, BoxedError, BoxedFuture
+	body::{Body, HttpBody},
+	BoxedError, BoxedFuture,
 };
 use bytes::Bytes;
 use http::{Extensions, Method, StatusCode, Uri};
@@ -20,11 +21,14 @@ use percent_encoding::percent_decode_str;
 
 use crate::{
 	common::{marker::Private, MaybeBoxed, Uncloneable, SCOPE_VALIDITY},
+	data::extensions::NodeExtensions,
 	handler::{
-		futures::ResponseToResultFuture, request_handlers::{
+		futures::ResponseToResultFuture,
+		request_handlers::{
 			self, handle_mistargeted_request, handle_unimplemented_method, MethodHandlers,
 			MistargetedRequestHandler, UnimplementedMethodHandler, WildcardMethodHandler,
-		}, ArcHandler, Args, ArgsExt, BoxedHandler, Handler, IntoHandler
+		},
+		ArcHandler, Args, BoxedHandler, Handler, IntoHandler,
 	},
 	middleware::{layer_targets::LayerTarget, BoxedLayer, Layer, ResponseResultFutureBoxer},
 	pattern::{ParamsList, Pattern},
@@ -80,14 +84,14 @@ impl ResourceService {
 	pub(crate) fn handle<B>(
 		&self,
 		request: Request<B>,
-		args: &mut Args,
+		args: &mut Args<'_, ()>,
 	) -> BoxedFuture<Result<Response, BoxedErrorResponse>>
 	where
 		B: HttpBody<Data = Bytes> + Send + Sync + 'static,
 		B::Error: Into<BoxedError>,
 	{
 		let mut request = request.map(Body::new);
-		let mut args = args.replace_node_and_handler_extensions(NodeExtensions::Borrowed(&self.extensions), &());
+		let mut args = args.extensions_replaced(NodeExtensions::new_borrowed(&self.extensions), &());
 
 		match &self.request_receiver {
 			MaybeBoxed::Boxed(boxed_request_receiver) => {
@@ -152,8 +156,11 @@ where
 		let mut routing_state = RoutingState::new(route_traversal);
 		routing_state.uri_params = path_params;
 
-		let mut args = Args::new(routing_state, &());
-		args.node_extensions = NodeExtensions::Borrowed(&self.extensions);
+		let mut args = Args {
+			routing_state,
+			node_extensions: NodeExtensions::new_borrowed(&self.extensions),
+			handler_extension: &(),
+		};
 
 		if matched {
 			match &self.request_receiver {
@@ -167,7 +174,7 @@ where
 		} else {
 			InfallibleResponseFuture::from(handle_mistargeted_request(
 				request,
-				args.take_private_extension(),
+				args.take_routing_state(),
 				self
 					.some_mistargeted_request_handler
 					.as_ref()
@@ -300,7 +307,7 @@ impl Handler for RequestReceiver {
 	#[inline]
 	fn handle(&self, mut request: Request, args: &mut Args) -> Self::Future {
 		if args
-			.private_extension_mut()
+			.routing_state
 			.route_traversal
 			.has_remaining_segments(request.uri().path())
 		{
@@ -308,10 +315,10 @@ impl Handler for RequestReceiver {
 
 			if let Some(request_passer) = self.some_request_passer.as_ref() {
 				if resource_is_subtree_handler {
-					args.private_extension_mut().subtree_handler_exists = true;
+					args.routing_state.subtree_handler_exists = true;
 				}
 
-				let next_segment_index = args.private_extension_mut().route_traversal.next_segment_index();
+				let next_segment_index = args.routing_state.route_traversal.next_segment_index();
 
 				let response_future = match request_passer {
 					MaybeBoxed::Boxed(boxed_request_passer) => boxed_request_passer.handle(request, args),
@@ -359,8 +366,11 @@ impl Handler for RequestReceiver {
 						.route_traversal
 						.revert_to_segment(next_segment_index);
 
-					let mut args = Args::new(routing_state, &());
-					args.node_extensions = node_extensions;
+					let mut args = Args {
+						routing_state,
+						node_extensions,
+						handler_extension: &(),
+					};
 
 					match request_handler_clone.as_ref() {
 						MaybeBoxed::Boxed(boxed_request_handler) => {
@@ -374,7 +384,7 @@ impl Handler for RequestReceiver {
 			}
 
 			if !resource_is_subtree_handler {
-				let routing_state = args.take_private_extension();
+				let routing_state = args.take_routing_state();
 				let node_extensions = args.take_node_extensions();
 
 				return handle_mistargeted_request(
@@ -390,7 +400,7 @@ impl Handler for RequestReceiver {
 
 		if let Some(request_handler) = self.some_request_handler.as_ref() {
 			let request_path_ends_with_slash = args
-				.private_extension_mut()
+				.routing_state
 				.route_traversal
 				.ends_with_slash(request.uri().path());
 
@@ -440,7 +450,7 @@ impl Handler for RequestReceiver {
 			}
 		}
 
-		let routing_state = args.take_private_extension();
+		let routing_state = args.take_routing_state();
 		let node_extensions = args.take_node_extensions();
 
 		handle_mistargeted_request(
@@ -519,7 +529,7 @@ impl Handler for RequestPasser {
 	fn handle(&self, mut request: Request, args: &mut Args) -> Self::Future {
 		let some_next_resource = 'some_next_resource: {
 			let (next_segment, _) = args
-				.private_extension_mut()
+				.routing_state
 				.route_traversal
 				.next_segment(request.uri().path())
 				.expect("request passer shouldn't be called when there is no next path segment");
@@ -547,7 +557,7 @@ impl Handler for RequestPasser {
 				resources.iter().find(|resource| {
 					resource
 						.pattern
-						.is_regex_match(decoded_segment.as_ref(), &mut args.private_extension_mut().uri_params)
+						.is_regex_match(decoded_segment.as_ref(), &mut args.routing_state.uri_params)
 						.expect("regex_resources must keep only the resources with a regex pattern")
 				})
 			}) {
@@ -560,7 +570,7 @@ impl Handler for RequestPasser {
 				.is_some_and(|resource| {
 					resource
 						.pattern
-						.is_wildcard_match(decoded_segment, &mut args.private_extension_mut().uri_params)
+						.is_wildcard_match(decoded_segment, &mut args.routing_state.uri_params)
 						.expect("wildcard_resource must keep only a resource with a wilcard pattern")
 				});
 
@@ -568,7 +578,8 @@ impl Handler for RequestPasser {
 		};
 
 		if let Some(next_resource) = some_next_resource {
-			let mut args = args.replace_node_and_handler_extensions(NodeExtensions::Borrowed(&next_resource.extensions), &());
+			let mut args =
+				args.extensions_replaced(NodeExtensions::new_borrowed(&next_resource.extensions), &());
 
 			match &next_resource.request_receiver {
 				MaybeBoxed::Boxed(boxed_request_receiver) => {
@@ -580,7 +591,7 @@ impl Handler for RequestPasser {
 			}
 		}
 
-		let routing_state = args.take_private_extension();
+		let routing_state = args.take_routing_state();
 		let node_extensions = args.take_node_extensions();
 
 		handle_mistargeted_request(

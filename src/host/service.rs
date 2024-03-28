@@ -1,11 +1,12 @@
 use std::{convert::Infallible, future::ready, sync::Arc};
 
-use argan_core::{body::HttpBody, extensions::NodeExtensions, BoxedError, BoxedFuture};
+use argan_core::{body::HttpBody, BoxedError, BoxedFuture};
 use bytes::Bytes;
 use http::{Extensions, StatusCode};
 use hyper::service::Service;
 
 use crate::{
+	data::extensions::NodeExtensions,
 	handler::{futures::ResponseToResultFuture, request_handlers::handle_mistargeted_request, Args},
 	pattern::ParamsList,
 	request::Request,
@@ -77,8 +78,11 @@ where
 		};
 
 		let routing_state = RoutingState::new(RouteTraversal::for_route(request.uri().path()));
-		let mut args = Args::new(routing_state, &());
-		args.node_extensions = NodeExtensions::Owned(Extensions::new());
+		let mut args = Args {
+			routing_state,
+			node_extensions: NodeExtensions::new_owned(Extensions::new()),
+			handler_extension: &(),
+		};
 
 		if let Some(result) = self.pattern.is_static_match(host) {
 			return InfallibleResponseFuture::from(self.root_resource.handle(request, &mut args));
@@ -86,7 +90,7 @@ where
 
 		if let Some(result) = self
 			.pattern
-			.is_regex_match(host, &mut args.private_extension_mut().uri_params)
+			.is_regex_match(host, &mut args.routing_state.uri_params)
 		{
 			return InfallibleResponseFuture::from(self.root_resource.handle(request, &mut args));
 		}

@@ -8,7 +8,7 @@ use crate::{pattern::ParamsList, request::Request, resource::ResourceService};
 // --------------------------------------------------------------------------------
 
 #[derive(Default)]
-pub struct RoutingState {
+pub(crate) struct RoutingState {
 	pub(crate) route_traversal: RouteTraversal,
 	pub(crate) uri_params: ParamsList,
 	pub(crate) subtree_handler_exists: bool,

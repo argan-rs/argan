@@ -52,7 +52,7 @@ where
 	}
 }
 
-impl<HE, T> FromRequestHead<RoutingState, HE> for PathParams<T>
+impl<'n, HE, T> FromRequestHead<Args<'n, HE>> for PathParams<T>
 where
 	HE: Sync,
 	T: DeserializeOwned,
@@ -61,9 +61,9 @@ where
 
 	async fn from_request_head(
 		head: &mut RequestHead,
-		args: &mut Args<'_, HE>,
+		args: &mut Args<'n, HE>,
 	) -> Result<Self, Self::Error> {
-		let mut from_params_list = args.private_extension_mut().uri_params.deserializer();
+		let mut from_params_list = args.routing_state.uri_params.deserializer();
 
 		T::deserialize(&mut from_params_list)
 			.map(|value| Self(value))
@@ -71,7 +71,7 @@ where
 	}
 }
 
-impl<B, HE, T> FromRequest<B, RoutingState, HE> for PathParams<T>
+impl<'n, B, HE, T> FromRequest<B, Args<'n, HE>> for PathParams<T>
 where
 	B: Send,
 	HE: Sync,
@@ -81,7 +81,7 @@ where
 
 	async fn from_request(
 		request: Request<B>,
-		_args: &mut Args<'_, HE>,
+		_args: &mut Args<'n, HE>,
 	) -> Result<Self, Self::Error> {
 		let (mut head, _) = request.into_parts();
 
@@ -118,7 +118,7 @@ impl IntoResponse for PathParamsError {
 
 pub struct QueryParams<T>(pub T);
 
-impl<HE, T> FromRequestHead<RoutingState, HE> for QueryParams<T>
+impl<'n, HE, T> FromRequestHead<Args<'n, HE>> for QueryParams<T>
 where
 	HE: Sync,
 	T: DeserializeOwned,
@@ -127,7 +127,7 @@ where
 
 	async fn from_request_head(
 		head: &mut RequestHead,
-		_args: &mut Args<'_, HE>,
+		_args: &mut Args<'n, HE>,
 	) -> Result<Self, Self::Error> {
 		let query_string = head
 			.uri
@@ -140,7 +140,7 @@ where
 	}
 }
 
-impl<B, HE, T> FromRequest<B, RoutingState, HE> for QueryParams<T>
+impl<'n, B, HE, T> FromRequest<B, Args<'n, HE>> for QueryParams<T>
 where
 	B: Send,
 	HE: Sync,
@@ -150,7 +150,7 @@ where
 
 	async fn from_request(
 		request: Request<B>,
-		_args: &mut Args<'_, HE>,
+		_args: &mut Args<'n, HE>,
 	) -> Result<Self, Self::Error> {
 		let (mut head, _) = request.into_parts();
 
@@ -184,7 +184,7 @@ pub enum RemainingPath {
 	None,
 }
 
-impl<HE> FromRequestHead<RoutingState, HE> for RemainingPath
+impl<'n, HE> FromRequestHead<Args<'n, HE>> for RemainingPath
 where
 	HE: Sync,
 {
@@ -192,10 +192,10 @@ where
 
 	async fn from_request_head(
 		head: &mut RequestHead,
-		args: &mut Args<'_, HE>,
+		args: &mut Args<'n, HE>,
 	) -> Result<Self, Self::Error> {
 		args
-			.private_extension_mut()
+			.routing_state
 			.route_traversal
 			.remaining_segments(head.uri.path())
 			.map_or(Ok(RemainingPath::None), |remaining_path| {
@@ -204,16 +204,16 @@ where
 	}
 }
 
-impl<B, HE> FromRequest<B, RoutingState, HE> for RemainingPath
+impl<'n, B, HE> FromRequest<B, Args<'n, HE>> for RemainingPath
 where
 	B: Send,
 	HE: Sync,
 {
 	type Error = Infallible;
 
-	async fn from_request(request: Request<B>, args: &mut Args<'_, HE>) -> Result<Self, Self::Error> {
+	async fn from_request(request: Request<B>, args: &mut Args<'n, HE>) -> Result<Self, Self::Error> {
 		args
-			.private_extension_mut()
+			.routing_state
 			.route_traversal
 			.remaining_segments(request.uri().path())
 			.map_or(Ok(RemainingPath::None), |remaining_path| {

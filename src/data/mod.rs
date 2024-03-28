@@ -35,6 +35,7 @@ use crate::{
 // --------------------------------------------------
 
 pub mod cookie;
+pub mod extensions;
 pub mod form;
 pub mod header;
 pub mod json;
@@ -50,7 +51,7 @@ use header::content_type;
 #[derive(Debug)]
 pub struct Text<const SIZE_LIMIT: usize = { 2 * 1024 * 1024 }>(String);
 
-impl<B, HE, const SIZE_LIMIT: usize> FromRequest<B, RoutingState, HE> for Text<SIZE_LIMIT>
+impl<'n, B, HE, const SIZE_LIMIT: usize> FromRequest<B, Args<'n, HE>> for Text<SIZE_LIMIT>
 where
 	B: HttpBody + Send,
 	B::Data: Send,
@@ -61,7 +62,7 @@ where
 
 	async fn from_request(
 		request: Request<B>,
-		_args: &mut Args<'_, HE>,
+		_args: &mut Args<'n, HE>,
 	) -> Result<Self, Self::Error> {
 		let content_type = content_type(&request)?;
 
@@ -100,7 +101,7 @@ data_extractor_error! {
 #[derive(Debug)]
 pub struct Binary<const SIZE_LIMIT: usize = { 16 * 1024 * 1024 }>(Bytes);
 
-impl<B, HE, const SIZE_LIMIT: usize> FromRequest<B, RoutingState, HE> for Binary<SIZE_LIMIT>
+impl<'n, B, HE, const SIZE_LIMIT: usize> FromRequest<B, Args<'n, HE>> for Binary<SIZE_LIMIT>
 where
 	B: HttpBody + Send,
 	B::Data: Send,
@@ -111,7 +112,7 @@ where
 
 	async fn from_request(
 		request: Request<B>,
-		_args: &mut Args<'_, HE>,
+		_args: &mut Args<'n, HE>,
 	) -> Result<Self, Self::Error> {
 		let content_type = content_type(&request)?;
 
@@ -145,7 +146,7 @@ data_extractor_error! {
 #[derive(Debug)]
 pub struct RawBody<const SIZE_LIMIT: usize = { 16 * 1024 * 1024 }>(Bytes);
 
-impl<B, HE, const SIZE_LIMIT: usize> FromRequest<B, RoutingState, HE> for RawBody<SIZE_LIMIT>
+impl<'n, B, HE, const SIZE_LIMIT: usize> FromRequest<B, Args<'n, HE>> for RawBody<SIZE_LIMIT>
 where
 	B: HttpBody + Send,
 	B::Data: Send,
@@ -156,7 +157,7 @@ where
 
 	async fn from_request(
 		request: Request<B>,
-		_args: &mut Args<'_, HE>,
+		_args: &mut Args<'n, HE>,
 	) -> Result<Self, Self::Error> {
 		match Limited::new(request, SIZE_LIMIT).collect().await {
 			Ok(body) => Ok(RawBody(body.to_bytes())),
@@ -218,7 +219,7 @@ mod test {
 			.body(body.clone())
 			.unwrap();
 
-		let mut args = Args::new(RoutingState::default(), &());
+		let mut args = Args::new();
 
 		let Text(data) = Text::<1024>::from_request(request, &mut args)
 			.await
@@ -290,7 +291,7 @@ mod test {
 			.body(full_body.clone())
 			.unwrap();
 
-		let mut args = Args::new(RoutingState::default(), &());
+		let mut args = Args::new();
 
 		let Binary(data) = Binary::<1024>::from_request(request, &mut args)
 			.await
@@ -365,7 +366,7 @@ mod test {
 			.body(full_body.clone())
 			.unwrap();
 
-		let mut args = Args::new(RoutingState::default(), &());
+		let mut args = Args::new();
 
 		let RawBody(data) = RawBody::<1024>::from_request(request, &mut args)
 			.await
@@ -383,7 +384,7 @@ mod test {
 			.body(full_body.clone())
 			.unwrap();
 
-		let mut args = Args::new(RoutingState::default(), &());
+		let mut args = Args::new();
 
 		let RawBody(data) = RawBody::<1024>::from_request(request, &mut args)
 			.await
