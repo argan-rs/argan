@@ -2,7 +2,7 @@ use std::{convert::Infallible, future::Future};
 
 use http::request::Parts;
 
-use crate::{body::Body, response::BoxedErrorResponse, Arguments};
+use crate::{body::Body, response::BoxedErrorResponse, Args};
 
 // ----------
 
@@ -23,36 +23,39 @@ pub type RequestHead = Parts;
 // --------------------------------------------------
 // FromRequestHead trait
 
-pub trait FromRequestHead<Args, Ext>: Sized {
+pub trait FromRequestHead<PE, HE>: Sized {
 	type Error: Into<BoxedErrorResponse>;
 
 	fn from_request_head(
 		head: &mut RequestHead,
-		args: &mut Args,
+		args: &mut Args<'_, PE, HE>,
 	) -> impl Future<Output = Result<Self, Self::Error>> + Send;
 }
 
 // --------------------------------------------------
 // FromRequest<B> trait
 
-pub trait FromRequest<B, Args, Ext>: Sized {
+pub trait FromRequest<B, PE, HE>: Sized {
 	type Error: Into<BoxedErrorResponse>;
 
 	fn from_request(
 		request: Request<B>,
-		args: &mut Args,
+		args: &mut Args<'_, PE, HE>,
 	) -> impl Future<Output = Result<Self, Self::Error>> + Send;
 }
 
-impl<B, Args, Ext> FromRequest<B, Args, Ext> for Request<B>
+impl<B, PE, HE> FromRequest<B, PE, HE> for Request<B>
 where
 	B: Send,
-	Args: for<'n> Arguments<'n, Ext> + Send,
-	Ext: Sync,
+	PE: Send,
+	HE: Sync,
 {
 	type Error = Infallible;
 
-	async fn from_request(request: Request<B>, _args: &mut Args) -> Result<Self, Self::Error> {
+	async fn from_request(
+		request: Request<B>,
+		_args: &mut Args<'_, PE, HE>,
+	) -> Result<Self, Self::Error> {
 		Ok(request)
 	}
 }

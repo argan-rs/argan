@@ -28,6 +28,7 @@ use crate::{
 	handler::Args,
 	request::{FromRequest, FromRequestHead, Request, RequestHead},
 	response::{IntoResponse, IntoResponseHead, Response, ResponseError, ResponseHead},
+	routing::RoutingState,
 	ImplError,
 };
 
@@ -49,19 +50,18 @@ use header::content_type;
 #[derive(Debug)]
 pub struct Text<const SIZE_LIMIT: usize = { 2 * 1024 * 1024 }>(String);
 
-impl<'n, B, HandlerExt, const SIZE_LIMIT: usize> FromRequest<B, Args<'n, HandlerExt>, HandlerExt>
-	for Text<SIZE_LIMIT>
+impl<B, HE, const SIZE_LIMIT: usize> FromRequest<B, RoutingState, HE> for Text<SIZE_LIMIT>
 where
 	B: HttpBody + Send,
 	B::Data: Send,
 	B::Error: Into<BoxedError>,
-	HandlerExt: Sync,
+	HE: Sync,
 {
 	type Error = TextExtractorError;
 
 	async fn from_request(
 		request: Request<B>,
-		_args: &mut Args<'n, HandlerExt>,
+		_args: &mut Args<'_, HE>,
 	) -> Result<Self, Self::Error> {
 		let content_type = content_type(&request)?;
 
@@ -100,19 +100,18 @@ data_extractor_error! {
 #[derive(Debug)]
 pub struct Binary<const SIZE_LIMIT: usize = { 16 * 1024 * 1024 }>(Bytes);
 
-impl<'n, B, HandlerExt, const SIZE_LIMIT: usize> FromRequest<B, Args<'n, HandlerExt>, HandlerExt>
-	for Binary<SIZE_LIMIT>
+impl<B, HE, const SIZE_LIMIT: usize> FromRequest<B, RoutingState, HE> for Binary<SIZE_LIMIT>
 where
 	B: HttpBody + Send,
 	B::Data: Send,
 	B::Error: Into<BoxedError>,
-	HandlerExt: Sync,
+	HE: Sync,
 {
 	type Error = BinaryExtractorError;
 
 	async fn from_request(
 		request: Request<B>,
-		_args: &mut Args<'n, HandlerExt>,
+		_args: &mut Args<'_, HE>,
 	) -> Result<Self, Self::Error> {
 		let content_type = content_type(&request)?;
 
@@ -146,19 +145,18 @@ data_extractor_error! {
 #[derive(Debug)]
 pub struct RawBody<const SIZE_LIMIT: usize = { 16 * 1024 * 1024 }>(Bytes);
 
-impl<'n, B, HandlerExt, const SIZE_LIMIT: usize> FromRequest<B, Args<'n, HandlerExt>, HandlerExt>
-	for RawBody<SIZE_LIMIT>
+impl<B, HE, const SIZE_LIMIT: usize> FromRequest<B, RoutingState, HE> for RawBody<SIZE_LIMIT>
 where
 	B: HttpBody + Send,
 	B::Data: Send,
 	B::Error: Into<BoxedError>,
-	HandlerExt: Sync,
+	HE: Sync,
 {
 	type Error = RawBodyExtractorError;
 
 	async fn from_request(
 		request: Request<B>,
-		_args: &mut Args<'n, HandlerExt>,
+		_args: &mut Args<'_, HE>,
 	) -> Result<Self, Self::Error> {
 		match Limited::new(request, SIZE_LIMIT).collect().await {
 			Ok(body) => Ok(RawBody(body.to_bytes())),
@@ -220,7 +218,7 @@ mod test {
 			.body(body.clone())
 			.unwrap();
 
-		let mut args = Args::new();
+		let mut args = Args::new(RoutingState::default(), &());
 
 		let Text(data) = Text::<1024>::from_request(request, &mut args)
 			.await
@@ -292,7 +290,7 @@ mod test {
 			.body(full_body.clone())
 			.unwrap();
 
-		let mut args = Args::new();
+		let mut args = Args::new(RoutingState::default(), &());
 
 		let Binary(data) = Binary::<1024>::from_request(request, &mut args)
 			.await
@@ -367,7 +365,7 @@ mod test {
 			.body(full_body.clone())
 			.unwrap();
 
-		let mut args = Args::new();
+		let mut args = Args::new(RoutingState::default(), &());
 
 		let RawBody(data) = RawBody::<1024>::from_request(request, &mut args)
 			.await
@@ -385,7 +383,7 @@ mod test {
 			.body(full_body.clone())
 			.unwrap();
 
-		let mut args = Args::new();
+		let mut args = Args::new(RoutingState::default(), &());
 
 		let RawBody(data) = RawBody::<1024>::from_request(request, &mut args)
 			.await

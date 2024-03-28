@@ -8,19 +8,20 @@ use std::{
 
 use argan_core::{
 	body::{Body, HttpBody},
-	Arguments, BoxedError, BoxedFuture,
+	BoxedError, BoxedFuture,
+	extensions::NodeExtensions,
 };
 use bytes::Bytes;
 use pin_project::pin_project;
 
 use crate::{
-	common::{marker::Private, NodeExtensions},
+	common::marker::Private,
 	request::{FromRequest, FromRequestHead, Request},
 	response::{BoxedErrorResponse, IntoResponse, IntoResponseResult, Response},
 	routing::RoutingState,
 };
 
-use super::{Args, BoxedHandler, Handler, IntoHandler};
+use super::{Args, ArgsExt, BoxedHandler, Handler, IntoHandler};
 
 // --------------------------------------------------------------------------------
 // --------------------------------------------------------------------------------
@@ -166,12 +167,12 @@ macro_rules! impl_handler_fn {
 			for HandlerFn<Func, (Private, $($($ps,)*)? $($lp)?)>
 		where
 			Func: Fn($($($ps,)*)? $($lp)?) -> Fut + Clone + 'static,
-			$($($ps: for <'n> FromRequestHead<Args<'n, Ext>, Ext>,)*)?
-			$($lp: for <'n> FromRequest<B, Args<'n, Ext>, Ext>,)?
+			$($($ps: FromRequestHead<RoutingState, Ext>,)*)?
+			$($lp: FromRequest<B, RoutingState, Ext>,)?
 			Fut: Future<Output = O>,
 			O: IntoResponseResult,
 			B: 'static,
-			Ext: Clone + Sync,
+			Ext: Clone + Sync + 'static,
 		{
 			type Response = Response;
 			type Error = BoxedErrorResponse;
@@ -179,8 +180,8 @@ macro_rules! impl_handler_fn {
 
 			fn handle(&self, request: Request<B>, args: &mut Args<'_, Ext>) -> Self::Future {
 				let func_clone = self.func.clone();
-				let routing_state = std::mem::take(&mut args.routing_state);
-				let node_extensions = args.node_extensions.clone().into_owned();
+				let routing_state = args.take_private_extension();
+				let node_extensions = args.take_node_extensions().into_owned();
 				let handler_extension_clone = args.handler_extension.clone();
 
 				HandlerFnFuture::new(
@@ -198,8 +199,8 @@ macro_rules! impl_handler_fn {
 			for HandlerFnFuture<Func, (Private, $($($ps,)*)? $($lp)?), B, Ext>
 		where
 			Func: Fn($($($ps,)*)? $($lp)?) -> Fut + Clone + 'static,
-			$($($ps: for <'n> FromRequestHead<Args<'n, Ext>, Ext>,)*)?
-			$($lp: for <'n> FromRequest<B, Args<'n, Ext>, Ext>,)?
+			$($($ps: FromRequestHead<RoutingState, Ext>,)*)?
+			$($lp: FromRequest<B, RoutingState, Ext>,)?
 			Fut: Future<Output = O>,
 			O: IntoResponseResult,
 			B: 'static,
@@ -222,12 +223,9 @@ macro_rules! impl_handler_fn {
 					"HandlerFnFuture should be created with a handler extension",
 				);
 
-				let mut args = Args {
-					routing_state,
-					node_extensions,
-					handler_extension: &handler_extension
-				};
-
+				let mut args = Args::new(routing_state, &handler_extension);
+				args.node_extensions = node_extensions;
+			
 				$(
 					let (mut head, body) = self_projection.some_request.take().expect(
 						"HandlerFnFuture should be created with a request",
@@ -300,7 +298,7 @@ impl_handler_fn!((P1, P2, P3, P4, P5, P6, P7, P8, P9, P10, P11, P12, P13, P14, P
 // --------------------------------------------------
 
 #[pin_project]
-pub struct HandlerFnFuture<Func, Mark, B, E> {
+pub struct HandlerFnFuture<Func, Mark, B, E: 'static> {
 	func: Func,
 	some_request: Option<Request<B>>,
 	some_routing_state: Option<RoutingState>,

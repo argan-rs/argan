@@ -10,6 +10,7 @@ use crate::{
 	common::SCOPE_VALIDITY,
 	handler::Args,
 	response::{BoxedErrorResponse, IntoResponseResult},
+	routing::RoutingState,
 	StdError,
 };
 
@@ -23,20 +24,19 @@ use super::*;
 
 pub struct Form<T, const SIZE_LIMIT: usize = { 2 * 1024 * 1024 }>(pub T);
 
-impl<'n, B, HandlerExt, T, const SIZE_LIMIT: usize> FromRequest<B, Args<'n, HandlerExt>, HandlerExt>
-	for Form<T, SIZE_LIMIT>
+impl<B, HE, T, const SIZE_LIMIT: usize> FromRequest<B, RoutingState, HE> for Form<T, SIZE_LIMIT>
 where
 	B: HttpBody + Send,
 	B::Data: Send,
 	B::Error: Into<BoxedError>,
-	HandlerExt: Sync,
+	HE: Sync,
 	T: DeserializeOwned,
 {
 	type Error = FormError;
 
 	async fn from_request(
 		request: Request<B>,
-		_args: &mut Args<'n, HandlerExt>,
+		_args: &mut Args<'_, HE>,
 	) -> Result<Self, Self::Error> {
 		let content_type_str = content_type(&request).map_err(Into::<FormError>::into)?;
 
@@ -146,18 +146,17 @@ impl<const SIZE_LIMIT: usize> Multipart<SIZE_LIMIT> {
 	}
 }
 
-impl<'n, B, HandlerExt, const SIZE_LIMIT: usize> FromRequest<B, Args<'n, HandlerExt>, HandlerExt>
-	for Multipart<SIZE_LIMIT>
+impl<B, HE, const SIZE_LIMIT: usize> FromRequest<B, RoutingState, HE> for Multipart<SIZE_LIMIT>
 where
 	B: HttpBody<Data = Bytes> + Send + Sync + 'static,
 	B::Error: Into<BoxedError>,
-	HandlerExt: Sync,
+	HE: Sync,
 {
 	type Error = MultipartFormError;
 
 	async fn from_request(
 		request: Request<B>,
-		_args: &mut Args<'n, HandlerExt>,
+		_args: &mut Args<'_, HE>,
 	) -> Result<Self, Self::Error> {
 		let content_type_str = content_type(&request).map_err(Into::<MultipartFormError>::into)?;
 
@@ -446,7 +445,7 @@ mod test {
 
 		dbg!(&form_data_string);
 
-		let mut args = Args::new();
+		let mut args = Args::new(RoutingState::default(), &());
 
 		// ----------
 

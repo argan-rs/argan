@@ -156,12 +156,12 @@ impl WebSocketUpgrade {
 	}
 }
 
-impl<'n, HandlerExt> FromRequestHead<Args<'n, HandlerExt>, HandlerExt> for WebSocketUpgrade {
+impl<HE> FromRequestHead<RoutingState, HE> for WebSocketUpgrade {
 	type Error = WebSocketUpgradeError;
 
 	fn from_request_head(
 		head: &mut RequestHead,
-		_args: &mut Args<'n, HandlerExt>,
+		_args: &mut Args<'_, HE>,
 	) -> impl Future<Output = Result<Self, Self::Error>> + Send {
 		if head.method != Method::GET {
 			panic!("WebSocket is not supported with methods other than GET")

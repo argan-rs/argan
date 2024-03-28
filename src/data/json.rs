@@ -9,6 +9,7 @@ use crate::{
 	handler::Args,
 	request::{FromRequest, Request},
 	response::{BoxedErrorResponse, IntoResponse, IntoResponseResult, Response},
+	routing::RoutingState,
 };
 
 use super::*;
@@ -21,20 +22,19 @@ use super::*;
 
 pub struct Json<T, const SIZE_LIMIT: usize = { 2 * 1024 * 1024 }>(pub T);
 
-impl<'n, B, HandlerExt, T, const SIZE_LIMIT: usize> FromRequest<B, Args<'n, HandlerExt>, HandlerExt>
-	for Json<T, SIZE_LIMIT>
+impl<B, HE, T, const SIZE_LIMIT: usize> FromRequest<B, RoutingState, HE> for Json<T, SIZE_LIMIT>
 where
 	B: HttpBody + Send,
 	B::Data: Send,
 	B::Error: Into<BoxedError>,
-	HandlerExt: Sync,
+	HE: Sync,
 	T: DeserializeOwned,
 {
 	type Error = JsonError;
 
 	async fn from_request(
 		request: Request<B>,
-		_args: &mut Args<'n, HandlerExt>,
+		_args: &mut Args<'_, HE>,
 	) -> Result<Self, Self::Error> {
 		let content_type = content_type(&request)?;
 
@@ -141,7 +141,7 @@ mod test {
 
 		dbg!(&json_data_string);
 
-		let mut args = Args::new();
+		let mut args = Args::new(RoutingState::default(), &());
 
 		// ----------
 

@@ -122,12 +122,12 @@ mod test {
 	use argan_core::{
 		request::{FromRequest, FromRequestHead, Request},
 		response::Response,
-		Arguments, BoxedFuture,
+		BoxedFuture,
 	};
 	use http::{Extensions, Uri};
 
 	use crate::{
-		common::{marker::Private, NodeExtensions},
+		common::marker::Private,
 		handler::Args,
 		request::{PathParams, RemainingPath},
 		routing::{RouteTraversal, RoutingState},
@@ -138,8 +138,8 @@ mod test {
 	// --------------------------------------------------------------------------------
 	// --------------------------------------------------------------------------------
 
-	struct H<A, T1>(PhantomData<(T1, A)>);
-	impl<'n, A: Arguments<'n>, T1: FromRequest<Body, A, ()>> Handler for H<A, T1> {
+	struct H<T1>(PhantomData<T1>);
+	impl<T1: FromRequest<Body, RoutingState, ()>> Handler for H<T1> {
 		type Response = Response;
 		type Error = Infallible;
 		type Future = BoxedFuture<Result<Self::Response, Self::Error>>;
@@ -151,37 +151,27 @@ mod test {
 
 	struct Boo<T1>(PhantomData<T1>);
 
-	impl<'n, A: Arguments<'n>, T1> IntoHandler<(Private, &'n A)> for Boo<T1>
+	impl<T1> IntoHandler<Private> for Boo<T1>
 	where
-		H<A, T1>: Handler,
+		H<T1>: Handler,
 	{
-		type Handler = H<A, T1>;
+		type Handler = H<T1>;
 
 		fn into_handler(self) -> Self::Handler {
-			H::<A, T1>(PhantomData)
+			H::<T1>(PhantomData)
 		}
 	}
 
 	fn is_from_request<
 		'a,
-		F2: FromRequestHead<Args<'a, ()>, ()>,
-		F1: FromRequest<Body, Args<'a, ()>, ()>,
+		F2: FromRequestHead<RoutingState, ()>,
+		F1: FromRequest<Body, RoutingState, ()>,
 	>() {
 	}
-
-	fn is_arguments<'a, A: Arguments<'a, ()>>(_: A) {}
 
 	fn is_into_handler<Mark, I: IntoHandler<Mark>>(_: I) {}
 
 	fn test() {
-		let args = Args {
-			routing_state: RoutingState::new(RouteTraversal::default()),
-			node_extensions: NodeExtensions::new_owned(Extensions::new()),
-			handler_extension: &(),
-		};
-
-		is_arguments(args);
-
 		is_from_request::<RemainingPath, PathParams<String>>();
 		is_from_request::<Method, Uri>();
 		is_from_request::<Method, RemainingPath>();
@@ -190,10 +180,13 @@ mod test {
 		let boo = Boo::<RemainingPath>(PhantomData);
 		is_into_handler(boo);
 
-		let boo = Boo::<PathParams<String>>(PhantomData);
+		let boo = Boo::<Method>(PhantomData);
+		is_into_handler(boo);
+
+		let boo = Boo::<Request>(PhantomData);
 		is_into_handler(boo);
 
 		let h = |_: PathParams<String>, _: RemainingPath, _: Request| async {};
-		// is_into_handler(h);
+		is_into_handler(h);
 	}
 }

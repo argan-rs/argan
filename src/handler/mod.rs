@@ -9,13 +9,13 @@ use std::{
 	task::{Context, Poll},
 };
 
-use argan_core::{body::Body, Arguments, BoxedFuture};
+use argan_core::{body::Body, extensions::{NodeExtension, NodeExtensions}, Args as CoreArgs, BoxedFuture};
 use bytes::Bytes;
 use http::{Extensions, StatusCode};
 use tower_service::Service;
 
 use crate::{
-	common::{BoxedAny, NodeExtensions, OptionCow, Uncloneable},
+	common::{BoxedAny, Uncloneable},
 	middleware::Layer,
 	request::{FromRequest, FromRequestHead, Request, RequestHead},
 	response::{BoxedErrorResponse, IntoResponse, Response},
@@ -59,11 +59,7 @@ where
 	type Future = S::Future;
 
 	fn handle(&self, mut request: Request<B>, args: &mut Args) -> Self::Future {
-		let mut args = Args {
-			routing_state: std::mem::take(&mut args.routing_state),
-			node_extensions: args.node_extensions.take().into_owned(),
-			handler_extension: &(),
-		};
+		let args = args.into_owned_without_handler_extensions();
 
 		request.extensions_mut().insert(Uncloneable::from(args));
 
@@ -191,14 +187,11 @@ where
 
 	#[inline]
 	fn handle(&self, mut request: Request<B>, args: &mut Args) -> Self::Future {
-		let routing_state = std::mem::take(&mut args.routing_state);
-		let node_extensions = args.node_extensions.take();
+		let routing_state = args.take_private_extension();
+		let node_extensions = args.take_node_extensions();
 
-		let mut args = Args {
-			routing_state,
-			node_extensions,
-			handler_extension: &self.extension,
-		};
+		let mut args = Args::new(routing_state, &self.extension);
+		args.node_extensions = node_extensions;
 
 		self.inner.handle(request, &mut args)
 	}
@@ -383,59 +376,107 @@ impl Handler for DummyHandler<BoxedFuture<Result<Response, BoxedErrorResponse>>>
 // --------------------------------------------------------------------------------
 // Args
 
-pub struct Args<'n, HandlerExt = ()> {
-	pub(crate) routing_state: RoutingState,
-	pub(crate) node_extensions: NodeExtensions<'n>,
-	pub(crate) handler_extension: &'n HandlerExt,
+// pub struct Args<'n, HandlerExt = ()> {
+// 	pub(crate) routing_state: RoutingState,
+// 	pub(crate) node_extensions: NodeExtensions<'n>,
+// 	pub(crate) handler_extension: &'n HandlerExt,
+// }
+//
+// impl Args<'_, ()> {
+// 	pub(crate) fn new() -> Args<'static> {
+// 		Args {
+// 			routing_state: RoutingState::default(),
+// 			node_extensions: NodeExtensions::new_owned(Extensions::new()),
+// 			handler_extension: &(),
+// 		}
+// 	}
+//
+// 	#[inline]
+// 	pub(crate) fn node_extension_replaced<'e>(
+// 		&mut self,
+// 		node_extensions: &'e Extensions,
+// 	) -> Args<'e> {
+// 		let Args {
+// 			routing_state,
+// 			handler_extension,
+// 			..
+// 		} = self;
+//
+// 		let mut args = Args {
+// 			routing_state: std::mem::take(routing_state),
+// 			node_extensions: NodeExtensions::new_borrowed(node_extensions),
+// 			handler_extension: &(),
+// 		};
+//
+// 		args
+// 	}
+// }
+//
+// impl<'n, HandlerExt> Arguments<'n, HandlerExt> for Args<'n, HandlerExt> {
+// 	#[allow(refining_impl_trait)]
+// 	#[inline(always)]
+// 	fn private_extension(&mut self) -> &mut RoutingState {
+// 		&mut self.routing_state
+// 	}
+//
+// 	#[inline(always)]
+// 	fn node_extension<Ext: Send + Sync + 'static>(&self) -> Option<&'n Ext> {
+// 		self.node_extensions.get_ref::<Ext>()
+// 	}
+//
+// 	#[inline(always)]
+// 	fn handler_extension(&self) -> &'n HandlerExt {
+// 		self.handler_extension
+// 	}
+// }
+
+// --------------------------------------------------------------------------------
+// Args
+
+pub type Args<'n, HandlerExt = ()> = CoreArgs<'n, RoutingState, HandlerExt>;
+
+pub(crate) trait ArgsExt<'n, HandlerExt = ()>: Sized {
+	fn take_private_extension(&mut self) -> RoutingState;
+	fn take_node_extensions(&mut self) -> NodeExtensions<'n>;
+	fn replace_node_and_handler_extensions<'new_n, NewHandlerExt>(
+		&mut self,
+		new_node_extensions: NodeExtensions<'new_n>,
+		new_handler_extension: &'new_n NewHandlerExt,
+	) -> Args<'new_n, NewHandlerExt>;
+
+	fn into_owned_without_handler_extensions(&mut self) -> Args<'static, ()>;
 }
 
-impl Args<'_, ()> {
-	pub(crate) fn new() -> Args<'static> {
-		Args {
-			routing_state: RoutingState::default(),
-			node_extensions: NodeExtensions::new_owned(Extensions::new()),
-			handler_extension: &(),
-		}
+impl<'n, HandlerExt> ArgsExt<'n, HandlerExt> for Args<'n, HandlerExt> {
+	fn take_private_extension(&mut self) -> RoutingState {
+		std::mem::take(self.private_extension_mut())
 	}
 
-	#[inline]
-	pub(crate) fn node_extension_replaced<'e>(
-		&mut self,
-		node_extensions: &'e Extensions,
-	) -> Args<'e> {
-		let Args {
-			routing_state,
-			handler_extension,
-			..
-		} = self;
+	fn take_node_extensions(&mut self) -> NodeExtensions<'n> {
+		std::mem::replace(
+			&mut self.node_extensions,
+			NodeExtensions::Owned(Extensions::new()),
+		)
+	}
 
-		let mut args = Args {
-			routing_state: std::mem::take(routing_state),
-			node_extensions: NodeExtensions::new_borrowed(node_extensions),
-			handler_extension: &(),
-		};
+	fn replace_node_and_handler_extensions<'new_n, NewHandlerExt>(
+		&mut self,
+		new_node_extensions: NodeExtensions<'new_n>,
+		new_handler_extension: &'new_n NewHandlerExt,
+	) -> Args<'new_n, NewHandlerExt> {
+		let routing_state = self.take_private_extension();
+
+		let mut args = Args::new(routing_state, new_handler_extension);
+		args.node_extensions = new_node_extensions;
+
+		args
+	}
+
+	fn into_owned_without_handler_extensions(&mut self) -> Args<'static, ()> {
+		let routing_state = self.take_private_extension();
+		let mut args = Args::new(routing_state, &());
+		args.node_extensions = self.take_node_extensions().into_owned();
 
 		args
 	}
 }
-
-impl<'n, HandlerExt> Arguments<'n, HandlerExt> for Args<'n, HandlerExt> {
-
-	#[allow(refining_impl_trait)]
-	#[inline(always)]
-	fn private_extension(&mut self) -> &mut RoutingState {
-		&mut self.routing_state
-	}
-
-	#[inline(always)]
-	fn node_extension<Ext: Send + Sync + 'static>(&self) -> Option<&'n Ext> {
-		self.node_extensions.get_ref::<Ext>()
-	}
-
-	#[inline(always)]
-	fn handler_extension(&self) -> &'n HandlerExt {
-		self.handler_extension
-	}
-}
-
-// --------------------------------------------------------------------------------
