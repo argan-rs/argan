@@ -161,7 +161,7 @@ impl<'n, HE> FromRequestHead<Args<'n, HE>> for WebSocketUpgrade {
 
 	fn from_request_head(
 		head: &mut RequestHead,
-		_args: &mut Args<'n, HE>,
+		_args: &Args<'n, HE>,
 	) -> impl Future<Output = Result<Self, Self::Error>> + Send {
 		if head.method != Method::GET {
 			panic!("WebSocket is not supported with methods other than GET")

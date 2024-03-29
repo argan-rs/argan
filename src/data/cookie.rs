@@ -152,7 +152,7 @@ where
 
 	async fn from_request_head(
 		head: &mut RequestHead,
-		_args: &mut Args<'n, HE>,
+		_args: &Args<'n, HE>,
 	) -> Result<Self, Self::Error> {
 		let cookie_jar = head
 			.headers
@@ -181,13 +181,10 @@ where
 {
 	type Error = Infallible;
 
-	async fn from_request(
-		request: Request<B>,
-		_args: &mut Args<'n, HE>,
-	) -> Result<Self, Self::Error> {
+	async fn from_request(request: Request<B>, _args: Args<'n, HE>) -> Result<Self, Self::Error> {
 		let (mut head, _) = request.into_parts();
 
-		<CookieJar<K> as FromRequestHead<Args<'_, HE>>>::from_request_head(&mut head, _args).await
+		<CookieJar<K> as FromRequestHead<Args<'_, HE>>>::from_request_head(&mut head, &_args).await
 	}
 }
 
@@ -263,7 +260,7 @@ where
 
 	async fn from_request_head(
 		head: &mut RequestHead,
-		_args: &mut Args<'n, HE>,
+		_args: &Args<'n, HE>,
 	) -> Result<Self, Self::Error> {
 		<CookieJar<K> as FromRequestHead<Args<'_, HE>>>::from_request_head(head, _args)
 			.await
@@ -279,13 +276,10 @@ where
 {
 	type Error = Infallible;
 
-	async fn from_request(
-		request: Request<B>,
-		_args: &mut Args<'n, HE>,
-	) -> Result<Self, Self::Error> {
+	async fn from_request(request: Request<B>, _args: Args<'n, HE>) -> Result<Self, Self::Error> {
 		let (mut head, _) = request.into_parts();
 
-		<PrivateCookieJar<K> as FromRequestHead<Args<'_, HE>>>::from_request_head(&mut head, _args)
+		<PrivateCookieJar<K> as FromRequestHead<Args<'_, HE>>>::from_request_head(&mut head, &_args)
 			.await
 	}
 }
@@ -355,7 +349,7 @@ where
 
 	async fn from_request_head(
 		head: &mut RequestHead,
-		_args: &mut Args<'n, HE>,
+		_args: &Args<'n, HE>,
 	) -> Result<Self, Self::Error> {
 		<CookieJar<K> as FromRequestHead<Args<'_, HE>>>::from_request_head(head, _args)
 			.await
@@ -371,13 +365,11 @@ where
 {
 	type Error = Infallible;
 
-	async fn from_request(
-		request: Request<B>,
-		_args: &mut Args<'n, HE>,
-	) -> Result<Self, Self::Error> {
+	async fn from_request(request: Request<B>, _args: Args<'n, HE>) -> Result<Self, Self::Error> {
 		let (mut head, _) = request.into_parts();
 
-		<SignedCookieJar<K> as FromRequestHead<Args<'_, HE>>>::from_request_head(&mut head, _args).await
+		<SignedCookieJar<K> as FromRequestHead<Args<'_, HE>>>::from_request_head(&mut head, &_args)
+			.await
 	}
 }
 

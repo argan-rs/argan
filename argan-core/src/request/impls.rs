@@ -1,3 +1,4 @@
+use futures_util::FutureExt;
 use http::{HeaderMap, Method, Uri, Version};
 
 use crate::IntoArray;
@@ -12,61 +13,56 @@ use super::*;
 
 impl<Args, T, E> FromRequestHead<Args> for Result<T, E>
 where
-	Args: Send,
 	T: FromRequestHead<Args, Error = E>,
 {
 	type Error = Infallible;
 
-	async fn from_request_head(head: &mut RequestHead, args: &mut Args) -> Result<Self, Self::Error> {
-		let result = T::from_request_head(head, args).await;
-
-		Ok(result)
+	fn from_request_head(
+		head: &mut RequestHead,
+		args: &Args,
+	) -> impl Future<Output = Result<Self, Self::Error>> {
+		T::from_request_head(head, args).map(|result| Ok(result))
 	}
 }
 
 impl<B, Args, T, E> FromRequest<B, Args> for Result<T, E>
 where
-	B: Send,
-	Args: Send,
 	T: FromRequest<B, Args, Error = E>,
 {
 	type Error = Infallible;
 
-	async fn from_request(request: Request<B>, args: &mut Args) -> Result<Self, Self::Error> {
-		let result = T::from_request(request, args).await;
-
-		Ok(result)
+	fn from_request(
+		request: Request<B>,
+		args: Args,
+	) -> impl Future<Output = Result<Self, Self::Error>> {
+		T::from_request(request, args).map(|result| Ok(result))
 	}
 }
 
 // --------------------------------------------------
 // Method
 
-impl<Args> FromRequestHead<Args> for Method
-where
-	Args: Send,
-{
+impl<Args> FromRequestHead<Args> for Method {
 	type Error = Infallible;
 
-	async fn from_request_head(
+	fn from_request_head(
 		head: &mut RequestHead,
-		_args: &mut Args,
-	) -> Result<Self, Self::Error> {
-		Ok(head.method.clone())
+		_args: &Args,
+	) -> impl Future<Output = Result<Self, Self::Error>> {
+		ready(Ok(head.method.clone()))
 	}
 }
 
-impl<B, Args> FromRequest<B, Args> for Method
-where
-	B: Send,
-	Args: Send,
-{
+impl<B, Args> FromRequest<B, Args> for Method {
 	type Error = Infallible;
 
-	async fn from_request(request: Request<B>, _args: &mut Args) -> Result<Self, Self::Error> {
+	fn from_request(
+		request: Request<B>,
+		_args: Args,
+	) -> impl Future<Output = Result<Self, Self::Error>> {
 		let (head, _) = request.into_parts();
 
-		Ok(head.method)
+		ready(Ok(head.method))
 	}
 }
 
@@ -81,91 +77,81 @@ impl IntoArray<Method, 1> for Method {
 // --------------------------------------------------
 // Uri
 
-impl<Args> FromRequestHead<Args> for Uri
-where
-	Args: Send,
-{
+impl<Args> FromRequestHead<Args> for Uri {
 	type Error = Infallible;
 
-	async fn from_request_head(
+	fn from_request_head(
 		head: &mut RequestHead,
-		_args: &mut Args,
-	) -> Result<Self, Self::Error> {
-		Ok(head.uri.clone())
+		_args: &Args,
+	) -> impl Future<Output = Result<Self, Self::Error>> {
+		ready(Ok(head.uri.clone()))
 	}
 }
 
-impl<B, Args> FromRequest<B, Args> for Uri
-where
-	B: Send,
-	Args: Send,
-{
+impl<B, Args> FromRequest<B, Args> for Uri {
 	type Error = Infallible;
 
-	async fn from_request(request: Request<B>, _args: &mut Args) -> Result<Self, Self::Error> {
+	fn from_request(
+		request: Request<B>,
+		_args: Args,
+	) -> impl Future<Output = Result<Self, Self::Error>> {
 		let (head, _) = request.into_parts();
 
-		Ok(head.uri)
+		ready(Ok(head.uri))
 	}
 }
 
 // --------------------------------------------------
 // Version
 
-impl<Args> FromRequestHead<Args> for Version
-where
-	Args: Send,
-{
+impl<Args> FromRequestHead<Args> for Version {
 	type Error = Infallible;
 
-	async fn from_request_head(
+	fn from_request_head(
 		head: &mut RequestHead,
-		_args: &mut Args,
-	) -> Result<Self, Self::Error> {
-		Ok(head.version)
+		_args: &Args,
+	) -> impl Future<Output = Result<Self, Self::Error>> {
+		ready(Ok(head.version))
 	}
 }
 
-impl<B, Args> FromRequest<B, Args> for Version
-where
-	B: Send,
-	Args: Send,
-{
+impl<B, Args> FromRequest<B, Args> for Version {
 	type Error = Infallible;
 
-	async fn from_request(request: Request<B>, _args: &mut Args) -> Result<Self, Self::Error> {
-		Ok(request.version())
+	fn from_request(
+		request: Request<B>,
+		_args: Args,
+	) -> impl Future<Output = Result<Self, Self::Error>> {
+		let (head, _) = request.into_parts();
+
+		ready(Ok(head.version))
 	}
 }
 
 // --------------------------------------------------
 // HeaderMap
 
-impl<Args> FromRequestHead<Args> for HeaderMap
-where
-	Args: Send,
-{
+impl<Args> FromRequestHead<Args> for HeaderMap {
 	type Error = Infallible;
 
-	async fn from_request_head(
+	fn from_request_head(
 		head: &mut RequestHead,
-		_args: &mut Args,
-	) -> Result<Self, Self::Error> {
-		Ok(head.headers.clone())
+		_args: &Args,
+	) -> impl Future<Output = Result<Self, Self::Error>> {
+		ready(Ok(head.headers.clone()))
 	}
 }
 
-impl<B, Args> FromRequest<B, Args> for HeaderMap
-where
-	B: Send,
-	Args: Send,
-{
+impl<B, Args> FromRequest<B, Args> for HeaderMap {
 	type Error = Infallible;
 
-	async fn from_request(request: Request<B>, _args: &mut Args) -> Result<Self, Self::Error> {
+	fn from_request(
+		request: Request<B>,
+		_args: Args,
+	) -> impl Future<Output = Result<Self, Self::Error>> {
 		let (RequestHead { headers, .. }, _) = request.into_parts();
 
-		Ok(headers)
+		ready(Ok(headers))
 	}
 }
 
@@ -180,13 +166,13 @@ macro_rules! impl_extractions_for_tuples {
 			$t1: FromRequestHead<Args> + Send,
 			$($($t: FromRequestHead<Args> + Send,)*)?
 			$tl: FromRequestHead<Args> + Send,
-			Args: Send,
+			Args: Sync,
 		{
 			type Error = BoxedErrorResponse;
 
 			async fn from_request_head(
 				head: &mut RequestHead,
-				args: &mut Args,
+				args: &Args,
 			) -> Result<Self, Self::Error> {
 				let $t1 = $t1::from_request_head(head, args).await.map_err(Into::into)?;
 
@@ -216,14 +202,14 @@ macro_rules! impl_extractions_for_tuples {
 
 			async fn from_request(
 				request: Request<B>,
-				args: &mut Args,
+				args: Args,
 			) -> Result<Self, Self::Error> {
 				let (mut head, body) = request.into_parts();
 
-				let $t1 = $t1::from_request_head(&mut head, args).await.map_err(Into::into)?;
+				let $t1 = $t1::from_request_head(&mut head, &args).await.map_err(Into::into)?;
 
 				$($(
-					let $t = $t::from_request_head(&mut head, args).await.map_err(Into::into)?;
+					let $t = $t::from_request_head(&mut head, &args).await.map_err(Into::into)?;
 				)*)?
 
 				let request = Request::from_parts(head, body);

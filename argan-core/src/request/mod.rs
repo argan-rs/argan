@@ -1,4 +1,7 @@
-use std::{convert::Infallible, future::Future};
+use std::{
+	convert::Infallible,
+	future::{ready, Future},
+};
 
 use http::request::Parts;
 
@@ -28,7 +31,7 @@ pub trait FromRequestHead<Args>: Sized {
 
 	fn from_request_head(
 		head: &mut RequestHead,
-		args: &mut Args,
+		args: &Args,
 	) -> impl Future<Output = Result<Self, Self::Error>> + Send;
 }
 
@@ -40,19 +43,21 @@ pub trait FromRequest<B, Args>: Sized {
 
 	fn from_request(
 		request: Request<B>,
-		args: &mut Args,
+		args: Args,
 	) -> impl Future<Output = Result<Self, Self::Error>> + Send;
 }
 
 impl<B, Args> FromRequest<B, Args> for Request<B>
 where
 	B: Send,
-	Args: Send,
 {
 	type Error = Infallible;
 
-	async fn from_request(request: Request<B>, _args: &mut Args) -> Result<Self, Self::Error> {
-		Ok(request)
+	fn from_request(
+		request: Request<B>,
+		_args: Args,
+	) -> impl Future<Output = Result<Self, Self::Error>> {
+		ready(Ok(request))
 	}
 }
 

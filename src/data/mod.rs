@@ -60,10 +60,7 @@ where
 {
 	type Error = TextExtractorError;
 
-	async fn from_request(
-		request: Request<B>,
-		_args: &mut Args<'n, HE>,
-	) -> Result<Self, Self::Error> {
+	async fn from_request(request: Request<B>, _args: Args<'n, HE>) -> Result<Self, Self::Error> {
 		let content_type = content_type(&request)?;
 
 		if content_type == mime::TEXT_PLAIN_UTF_8 || content_type == mime::TEXT_PLAIN {
@@ -110,10 +107,7 @@ where
 {
 	type Error = BinaryExtractorError;
 
-	async fn from_request(
-		request: Request<B>,
-		_args: &mut Args<'n, HE>,
-	) -> Result<Self, Self::Error> {
+	async fn from_request(request: Request<B>, _args: Args<'n, HE>) -> Result<Self, Self::Error> {
 		let content_type = content_type(&request)?;
 
 		if content_type == mime::APPLICATION_OCTET_STREAM || content_type == mime::OCTET_STREAM {
@@ -155,10 +149,7 @@ where
 {
 	type Error = RawBodyExtractorError;
 
-	async fn from_request(
-		request: Request<B>,
-		_args: &mut Args<'n, HE>,
-	) -> Result<Self, Self::Error> {
+	async fn from_request(request: Request<B>, _args: Args<'n, HE>) -> Result<Self, Self::Error> {
 		match Limited::new(request, SIZE_LIMIT).collect().await {
 			Ok(body) => Ok(RawBody(body.to_bytes())),
 			Err(error) => Err(
@@ -219,9 +210,7 @@ mod test {
 			.body(body.clone())
 			.unwrap();
 
-		let mut args = Args::new();
-
-		let Text(data) = Text::<1024>::from_request(request, &mut args)
+		let Text(data) = Text::<1024>::from_request(request, Args::new())
 			.await
 			.unwrap();
 
@@ -231,7 +220,7 @@ mod test {
 
 		let request = Request::new(body.clone());
 
-		let error = Text::<1024>::from_request(request, &mut args)
+		let error = Text::<1024>::from_request(request, Args::new())
 			.await
 			.unwrap_err();
 
@@ -250,7 +239,7 @@ mod test {
 			.body(body.clone())
 			.unwrap();
 
-		let error = Text::<1024>::from_request(request, &mut args)
+		let error = Text::<1024>::from_request(request, Args::new())
 			.await
 			.unwrap_err();
 
@@ -269,7 +258,7 @@ mod test {
 			.body(body.clone())
 			.unwrap();
 
-		let error = Text::<8>::from_request(request, &mut args)
+		let error = Text::<8>::from_request(request, Args::new())
 			.await
 			.unwrap_err();
 
@@ -291,9 +280,7 @@ mod test {
 			.body(full_body.clone())
 			.unwrap();
 
-		let mut args = Args::new();
-
-		let Binary(data) = Binary::<1024>::from_request(request, &mut args)
+		let Binary(data) = Binary::<1024>::from_request(request, Args::new())
 			.await
 			.unwrap();
 
@@ -303,7 +290,7 @@ mod test {
 
 		let request = Request::new(full_body.clone());
 
-		let error = Binary::<1024>::from_request(request, &mut args)
+		let error = Binary::<1024>::from_request(request, Args::new())
 			.await
 			.unwrap_err();
 
@@ -323,7 +310,7 @@ mod test {
 			.body(full_body.clone())
 			.unwrap();
 
-		let error = Binary::<1024>::from_request(request, &mut args)
+		let error = Binary::<1024>::from_request(request, Args::new())
 			.await
 			.unwrap_err();
 
@@ -343,7 +330,7 @@ mod test {
 			.body(full_body.clone())
 			.unwrap();
 
-		let error = Binary::<8>::from_request(request, &mut args)
+		let error = Binary::<8>::from_request(request, Args::new())
 			.await
 			.unwrap_err();
 
@@ -366,9 +353,7 @@ mod test {
 			.body(full_body.clone())
 			.unwrap();
 
-		let mut args = Args::new();
-
-		let RawBody(data) = RawBody::<1024>::from_request(request, &mut args)
+		let RawBody(data) = RawBody::<1024>::from_request(request, Args::new())
 			.await
 			.unwrap();
 
@@ -384,9 +369,7 @@ mod test {
 			.body(full_body.clone())
 			.unwrap();
 
-		let mut args = Args::new();
-
-		let RawBody(data) = RawBody::<1024>::from_request(request, &mut args)
+		let RawBody(data) = RawBody::<1024>::from_request(request, Args::new())
 			.await
 			.unwrap();
 
@@ -396,7 +379,7 @@ mod test {
 
 		let request = Request::new(full_body.clone());
 
-		let RawBody(data) = RawBody::<1024>::from_request(request, &mut args)
+		let RawBody(data) = RawBody::<1024>::from_request(request, Args::new())
 			.await
 			.unwrap();
 
@@ -413,7 +396,7 @@ mod test {
 			.body(full_body.clone())
 			.unwrap();
 
-		let error = RawBody::<8>::from_request(request, &mut args)
+		let error = RawBody::<8>::from_request(request, Args::new())
 			.await
 			.unwrap_err();
 
@@ -426,7 +409,7 @@ mod test {
 
 		let request = Request::new(full_body.clone());
 
-		let error = RawBody::<8>::from_request(request, &mut args)
+		let error = RawBody::<8>::from_request(request, Args::new())
 			.await
 			.unwrap_err();
 
