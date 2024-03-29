@@ -256,7 +256,7 @@ macro_rules! impl_handler_fn {
 								self_projection.some_request.take().expect(
 									"the constructor of the HandlerFnFuture or the local scope should set the request"
 								),
-								&mut args,
+								args,
 							)
 						).poll(cx) {
 							Poll::Ready(result) => {

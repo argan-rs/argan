@@ -61,7 +61,7 @@ where
 
 	async fn from_request_head(
 		head: &mut RequestHead,
-		args: &mut Args<'n, HE>,
+		args: &Args<'n, HE>,
 	) -> Result<Self, Self::Error> {
 		let mut from_params_list = args.routing_state.uri_params.deserializer();
 
@@ -79,13 +79,10 @@ where
 {
 	type Error = PathParamsError;
 
-	async fn from_request(
-		request: Request<B>,
-		_args: &mut Args<'n, HE>,
-	) -> Result<Self, Self::Error> {
+	async fn from_request(request: Request<B>, args: Args<'n, HE>) -> Result<Self, Self::Error> {
 		let (mut head, _) = request.into_parts();
 
-		Self::from_request_head(&mut head, _args).await
+		Self::from_request_head(&mut head, &args).await
 	}
 }
 
@@ -127,7 +124,7 @@ where
 
 	async fn from_request_head(
 		head: &mut RequestHead,
-		_args: &mut Args<'n, HE>,
+		_args: &Args<'n, HE>,
 	) -> Result<Self, Self::Error> {
 		let query_string = head
 			.uri
@@ -148,13 +145,10 @@ where
 {
 	type Error = QueryParamsError;
 
-	async fn from_request(
-		request: Request<B>,
-		_args: &mut Args<'n, HE>,
-	) -> Result<Self, Self::Error> {
+	async fn from_request(request: Request<B>, _args: Args<'n, HE>) -> Result<Self, Self::Error> {
 		let (mut head, _) = request.into_parts();
 
-		Self::from_request_head(&mut head, _args).await
+		Self::from_request_head(&mut head, &_args).await
 	}
 }
 
@@ -192,7 +186,7 @@ where
 
 	async fn from_request_head(
 		head: &mut RequestHead,
-		args: &mut Args<'n, HE>,
+		args: &Args<'n, HE>,
 	) -> Result<Self, Self::Error> {
 		args
 			.routing_state
@@ -211,7 +205,7 @@ where
 {
 	type Error = Infallible;
 
-	async fn from_request(request: Request<B>, args: &mut Args<'n, HE>) -> Result<Self, Self::Error> {
+	async fn from_request(request: Request<B>, args: Args<'n, HE>) -> Result<Self, Self::Error> {
 		args
 			.routing_state
 			.route_traversal

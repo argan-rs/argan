@@ -28,7 +28,7 @@ where
 
 	async fn from_request_head(
 		head: &mut RequestHead,
-		_args: &mut Args<'n, HE>,
+		_args: &Args<'n, HE>,
 	) -> Result<Self, Self::Error> {
 		head
 			.extensions
@@ -46,13 +46,10 @@ where
 {
 	type Error = ExtensionExtractorError<T>;
 
-	async fn from_request(
-		request: Request<B>,
-		_args: &mut Args<'n, HE>,
-	) -> Result<Self, Self::Error> {
+	async fn from_request(request: Request<B>, _args: Args<'n, HE>) -> Result<Self, Self::Error> {
 		let (mut head, _) = request.into_parts();
 
-		Self::from_request_head(&mut head, _args).await
+		Self::from_request_head(&mut head, &_args).await
 	}
 }
 
@@ -71,7 +68,7 @@ where
 	#[inline]
 	async fn from_request_head(
 		_head: &mut RequestHead,
-		args: &mut Args<'n, HE>,
+		args: &Args<'n, HE>,
 	) -> Result<Self, Self::Error> {
 		Ok(Self(args.handler_extension.clone()))
 	}
@@ -85,11 +82,8 @@ where
 	type Error = Infallible;
 
 	#[inline]
-	async fn from_request(
-		_request: Request<B>,
-		args: &mut Args<'n, HE>,
-	) -> Result<Self, Self::Error> {
-		Ok(HandlerExtension(args.handler_extension.clone()))
+	async fn from_request(_request: Request<B>, args: Args<'n, HE>) -> Result<Self, Self::Error> {
+		Ok(Self(args.handler_extension.clone()))
 	}
 }
 
@@ -109,13 +103,13 @@ where
 	#[inline]
 	async fn from_request_head(
 		_head: &mut RequestHead,
-		args: &mut Args<'n, HE>,
+		args: &Args<'n, HE>,
 	) -> Result<Self, Self::Error> {
 		args
 			.node_extensions
 			.get_ref::<NE>()
 			.ok_or(ExtensionExtractorError::<NE>::new())
-			.map(|node_extension| NodeExtension(node_extension.clone()))
+			.map(|node_extension| Self(node_extension.clone()))
 	}
 }
 
@@ -128,15 +122,12 @@ where
 	type Error = ExtensionExtractorError<NE>;
 
 	#[inline]
-	async fn from_request(
-		_request: Request<B>,
-		args: &mut Args<'n, HE>,
-	) -> Result<Self, Self::Error> {
+	async fn from_request(_request: Request<B>, args: Args<'n, HE>) -> Result<Self, Self::Error> {
 		args
 			.node_extensions
 			.get_ref::<NE>()
 			.ok_or(ExtensionExtractorError::<NE>::new())
-			.map(|node_extension| NodeExtension(node_extension.clone()))
+			.map(|node_extension| Self(node_extension.clone()))
 	}
 }
 

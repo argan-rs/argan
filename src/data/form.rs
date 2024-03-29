@@ -34,10 +34,7 @@ where
 {
 	type Error = FormError;
 
-	async fn from_request(
-		request: Request<B>,
-		_args: &mut Args<'n, HE>,
-	) -> Result<Self, Self::Error> {
+	async fn from_request(request: Request<B>, _args: Args<'n, HE>) -> Result<Self, Self::Error> {
 		let content_type_str = content_type(&request).map_err(Into::<FormError>::into)?;
 
 		if content_type_str == mime::APPLICATION_WWW_FORM_URLENCODED {
@@ -154,10 +151,7 @@ where
 {
 	type Error = MultipartFormError;
 
-	async fn from_request(
-		request: Request<B>,
-		_args: &mut Args<'n, HE>,
-	) -> Result<Self, Self::Error> {
+	async fn from_request(request: Request<B>, _args: Args<'n, HE>) -> Result<Self, Self::Error> {
 		let content_type_str = content_type(&request).map_err(Into::<MultipartFormError>::into)?;
 
 		parse_boundary(content_type_str)
@@ -445,8 +439,6 @@ mod test {
 
 		dbg!(&form_data_string);
 
-		let mut args = Args::new();
-
 		// ----------
 
 		let request = Request::builder()
@@ -457,7 +449,7 @@ mod test {
 			.body(form_data_string)
 			.unwrap();
 
-		let Form(mut form_data) = Form::<Data>::from_request(request, &mut args)
+		let Form(mut form_data) = Form::<Data>::from_request(request, Args::new())
 			.await
 			.unwrap();
 
@@ -480,7 +472,7 @@ mod test {
 			.body(form_body)
 			.unwrap();
 
-		let Form(form_data) = Form::<Data>::from_request(request, &mut args)
+		let Form(form_data) = Form::<Data>::from_request(request, Args::new())
 			.await
 			.unwrap();
 

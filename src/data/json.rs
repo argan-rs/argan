@@ -32,10 +32,7 @@ where
 {
 	type Error = JsonError;
 
-	async fn from_request(
-		request: Request<B>,
-		_args: &mut Args<'n, HE>,
-	) -> Result<Self, Self::Error> {
+	async fn from_request(request: Request<B>, _args: Args<'n, HE>) -> Result<Self, Self::Error> {
 		let content_type = content_type(&request)?;
 
 		if content_type == mime::APPLICATION_JSON {
@@ -141,8 +138,6 @@ mod test {
 
 		dbg!(&json_data_string);
 
-		let mut args = Args::new();
-
 		// ----------
 
 		let request = Request::builder()
@@ -153,7 +148,7 @@ mod test {
 			.body(json_data_string)
 			.unwrap();
 
-		let Json(mut json_data) = Json::<Data>::from_request(request, &mut args)
+		let Json(mut json_data) = Json::<Data>::from_request(request, Args::new())
 			.await
 			.unwrap();
 
@@ -176,7 +171,7 @@ mod test {
 			.body(json_body)
 			.unwrap();
 
-		let Json(json_data) = Json::<Data>::from_request(request, &mut args)
+		let Json(json_data) = Json::<Data>::from_request(request, Args::new())
 			.await
 			.unwrap();
 
