@@ -86,9 +86,11 @@ where
 
 // --------------------------------------------------
 
-impl<Func> IntoHandler<Request> for Func
+impl<Func, Fut, O> IntoHandler<Request> for Func
 where
-	Func: Fn(Request) -> BoxedFuture<Result<Response, BoxedError>>,
+	Func: Fn(Request) -> Fut,
+	Fut: Future<Output = O>,
+	O: IntoResponseResult,
 	HandlerFn<Func, Request>: Handler,
 {
 	type Handler = HandlerFn<Func, Request>;
@@ -98,45 +100,150 @@ where
 	}
 }
 
-impl<Func, Ext> Handler<Body, Ext> for HandlerFn<Func, Request>
+impl<Ext, Func, Fut, O> Handler<Body, Ext> for HandlerFn<Func, Request>
 where
-	Func: Fn(Request) -> BoxedFuture<Result<Response, BoxedErrorResponse>>,
+	Func: Fn(Request) -> Fut + Clone + 'static,
+	Fut: Future<Output = O>,
+	O: IntoResponseResult,
+	Ext: Sync + 'static,
 {
 	type Response = Response;
 	type Error = BoxedErrorResponse;
-	type Future = BoxedFuture<Result<Self::Response, Self::Error>>;
+	type Future = HandlerFnRequestFuture<Func>;
 
 	#[inline(always)]
 	fn handle(&self, request: Request, _args: Args<'_, Ext>) -> Self::Future {
-		(self.func)(request)
+		let func_clone = self.func.clone();
+
+		HandlerFnRequestFuture {
+			func: func_clone,
+			some_request: Some(request),
+		}
+	}
+}
+
+#[pin_project]
+pub struct HandlerFnRequestFuture<Func> {
+	func: Func,
+	some_request: Option<Request>,
+}
+
+impl<Func, Fut, O> Future for HandlerFnRequestFuture<Func>
+where
+	Func: Fn(Request) -> Fut + 'static,
+	Fut: Future<Output = O>,
+	O: IntoResponseResult,
+{
+	type Output = Result<Response, BoxedErrorResponse>;
+
+	fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+		let self_projection = self.project();
+
+		let request = self_projection
+			.some_request
+			.take()
+			.expect("HandlerFnRequestFuture shouldn't be created without a request");
+
+		match pin!((self_projection.func)(request)).poll(cx) {
+			Poll::Ready(value) => Poll::Ready(value.into_response_result()),
+			Poll::Pending => Poll::Pending,
+		}
 	}
 }
 
 // -------------------------
 
-impl<'r, Func, Ext> IntoHandler<(Request, Args<'r>, Ext)> for Func
+impl<'a, Ext, Func, Fut, O> IntoHandler<(Request, Args<'a, Ext>)> for Func
 where
-	Func: Fn(Request, Args<'_, Ext>) -> BoxedFuture<Result<Response, BoxedError>>,
-	HandlerFn<Func, (Request, Args<'r>, Ext)>: Handler,
+	Func: for <'n> Fn(Request, Args<'n, Ext>) -> Fut,
+	Fut: Future<Output = O>,
+	O: IntoResponseResult,
+	HandlerFn<Func, (Request, Args<'a, Ext>)>: Handler,
 {
-	type Handler = HandlerFn<Func, (Request, Args<'r>, Ext)>;
+	type Handler = HandlerFn<Func, (Request, Args<'a, Ext>)>;
 
 	fn into_handler(self) -> Self::Handler {
 		HandlerFn::from(self)
 	}
 }
 
-impl<'r, Func, Ext> Handler<Body, Ext> for HandlerFn<Func, (Request, Args<'r>, Ext)>
+impl<'a, Ext, Func, Fut, O> Handler<Body, Ext> for HandlerFn<Func, (Request, Args<'a, Ext>)>
 where
-	Func: Fn(Request, Args<'_, Ext>) -> BoxedFuture<Result<Response, BoxedErrorResponse>>,
+	Ext: Clone,
+	Func: for <'n> Fn(Request, Args<'n, Ext>) -> Fut + Clone,
+	Fut: Future<Output = O>,
+	O: IntoResponseResult,
 {
 	type Response = Response;
 	type Error = BoxedErrorResponse;
-	type Future = BoxedFuture<Result<Self::Response, Self::Error>>;
+	type Future = HandlerFnRequestArgsFuture<Func, Ext>;
 
 	#[inline(always)]
-	fn handle(&self, request: Request, args: Args<'_, Ext>) -> Self::Future {
-		(self.func)(request, args)
+	fn handle(&self, request: Request, mut args: Args<'_, Ext>) -> Self::Future {
+		let func_clone = self.func.clone();
+
+		let routing_state = args.take_routing_state();
+		let node_extensions = args.take_node_extensions().into_owned();
+		let handler_extension = args.handler_extension.clone();
+
+		HandlerFnRequestArgsFuture {
+			func: func_clone,
+			some_request: Some(request),
+			some_routing_state: Some(routing_state),
+			some_node_extensions: Some(node_extensions),
+			some_handler_extension: Some(handler_extension), 
+		}
+	}
+}
+
+#[pin_project]
+pub struct HandlerFnRequestArgsFuture<Func, Ext> {
+	func: Func,
+	some_request: Option<Request>,
+	some_routing_state: Option<RoutingState>,
+	some_node_extensions: Option<NodeExtensions<'static>>,
+	some_handler_extension: Option<Ext>,
+}
+
+impl<Ext, Func, Fut, O> Future for HandlerFnRequestArgsFuture<Func, Ext>
+where
+	Func: for <'n> Fn(Request, Args<'n, Ext>) -> Fut,
+	Fut: Future<Output = O>,
+	O: IntoResponseResult,
+{
+	type Output = Result<Response, BoxedErrorResponse>;
+
+	fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+		let self_projection = self.project();
+
+		let request = self_projection
+			.some_request
+			.take()
+			.expect("HandlerFnRequestArgsFuture shouldn't be created without a request");
+
+		let routing_state = self_projection.some_routing_state.take().expect(
+			"HandlerFnFuture should be created with a routing state",
+		);
+
+		let node_extensions = self_projection.some_node_extensions.take().expect(
+			"HandlerFnFuture should be created with the node extensions",
+		);
+
+		let handler_extension = self_projection.some_handler_extension.take().expect(
+			"HandlerFnFuture should be created with a handler extension",
+		);
+
+		let mut args = Args {
+			routing_state,
+			node_extensions,
+			handler_extension: &handler_extension,
+		};
+			
+
+		match pin!((self_projection.func)(request, args)).poll(cx) {
+			Poll::Ready(value) => Poll::Ready(value.into_response_result()),
+			Poll::Pending => Poll::Pending,
+		}
 	}
 }
 
