@@ -453,7 +453,7 @@ impl<'n> Args<'n, ()> {
 		}
 	}
 
-	fn move_to_owned_without_handler_extension(&mut self) -> Args<'static, ()> {
+	pub(crate) fn move_to_owned_without_handler_extension(&mut self) -> Args<'static, ()> {
 		Args {
 			routing_state: self.take_routing_state(),
 			node_extensions: self.take_node_extensions().into_owned(),
@@ -486,3 +486,5 @@ impl<'n, HandlerExt> Args<'n, HandlerExt> {
 		}
 	}
 }
+
+// --------------------------------------------------------------------------------

@@ -613,7 +613,7 @@ mod test {
 
 		router
 			.resource_mut("/st_0_0/st_1_0")
-			.set_handler_for(_get(|request: Request| async move {
+			.set_handler_for(_get::<_, Request>(|request: Request| async move {
 				request.extensions().get::<String>().unwrap().clone()
 			}));
 

@@ -128,6 +128,7 @@ where
 //
 // 	use crate::{
 // 		common::marker::Private,
+// 		data::{extensions::NodeExtension, form::Multipart},
 // 		handler::Args,
 // 		request::{PathParams, RemainingPath},
 // 		routing::{RouteTraversal, RoutingState},
@@ -138,13 +139,14 @@ where
 // 	// --------------------------------------------------------------------------------
 // 	// --------------------------------------------------------------------------------
 //
+// 	#[derive(Clone)]
 // 	struct H<T1>(PhantomData<T1>);
 // 	impl<'n, T1: FromRequest<Body, Args<'n, ()>>> Handler for H<T1> {
 // 		type Response = Response;
 // 		type Error = Infallible;
 // 		type Future = BoxedFuture<Result<Self::Response, Self::Error>>;
 //
-// 		fn handle(&self, request: Request<Body>, args: &mut Args<'_, ()>) -> Self::Future {
+// 		fn handle(&self, request: Request<Body>, args: Args<'_, ()>) -> Self::Future {
 // 			Box::pin(ready(Ok(Response::default())))
 // 		}
 // 	}
@@ -165,24 +167,37 @@ where
 // 	fn is_from_request<'a, F2: FromRequestHead<Args<'a, ()>>, F1: FromRequest<Body, Args<'a, ()>>>() {
 // 	}
 //
-// 	fn is_into_handler<Mark, I: IntoHandler<Mark>>(_: I) {}
+// 	fn is_into_handler<H, Mark>(h: H)
+// 	where
+// 		H: IntoHandler<Mark, Body>,
+// 		H::Handler: Handler + Clone + Send + Sync + 'static,
+// 		<H::Handler as Handler>::Response: IntoResponse,
+// 		<H::Handler as Handler>::Error: Into<BoxedErrorResponse>,
+// 		<H::Handler as Handler>::Future: Send,
+// 	{
+// 		let _ = h.into_handler();
+// 	}
 //
-// 	fn test() {
+// 	#[test]
+// 	fn ttt_test() {
 // 		is_from_request::<RemainingPath, PathParams<String>>();
 // 		is_from_request::<Method, Uri>();
 // 		is_from_request::<Method, RemainingPath>();
 // 		is_from_request::<PathParams<String>, Request>();
 //
-// 		let boo = Boo::<RemainingPath>(PhantomData);
-// 		is_into_handler(boo);
+// 		// let boo = Boo::<RemainingPath>(PhantomData);
+// 		// is_into_handler(boo);
 //
 // 		let boo = Boo::<Method>(PhantomData);
 // 		is_into_handler(boo);
 //
-// 		let boo = Boo::<Request>(PhantomData);
-// 		is_into_handler(boo);
+// 		// let boo = Boo::<Request>(PhantomData);
+// 		// is_into_handler(boo);
 //
-// 		let h = |_: PathParams<String>, _: RemainingPath, _: Request| async {};
-// 		is_into_handler(h);
+// 		is_into_handler(|_: PathParams<String>, _: RemainingPath, _: Request| async {});
+// 		is_into_handler(|_: NodeExtension<String>, _: Request| async {});
+// 		is_into_handler(|_: NodeExtension<String>, _: Multipart| async {});
+// 		is_into_handler(|_: Multipart| async {});
+// 		is_into_handler::<_, Request>(|_: Request| async {});
 // 	}
 // }
