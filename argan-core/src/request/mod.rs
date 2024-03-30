@@ -26,7 +26,7 @@ pub type RequestHead = Parts;
 // --------------------------------------------------
 // FromRequestHead trait
 
-pub trait FromRequestHead<Args = ()>: Sized {
+pub trait FromRequestHead<Args>: Sized {
 	type Error: Into<BoxedErrorResponse>;
 
 	fn from_request_head(
@@ -36,18 +36,21 @@ pub trait FromRequestHead<Args = ()>: Sized {
 }
 
 // --------------------------------------------------
-// RefFromRequest trait
+// FromRequestRef trait
 
-pub trait FromRequestRef<'r, B, Args = ()>: 'r + Sized {
+pub trait FromRequestRef<'r, B, Args>: 'r + Sized {
 	type Error: Into<BoxedErrorResponse>;
 
-	fn from_request_ref(request: &'r Request<B>, args: &'r Args) -> Result<Self, Self::Error>;
+	fn from_request_ref(
+		request: &'r Request<B>,
+		some_args: Option<&'r Args>,
+	) -> Result<Self, Self::Error>;
 }
 
 // --------------------------------------------------
 // FromRequest<B> trait
 
-pub trait FromRequest<B, Args = ()>: Sized {
+pub trait FromRequest<B, Args>: Sized {
 	type Error: Into<BoxedErrorResponse>;
 
 	fn from_request(

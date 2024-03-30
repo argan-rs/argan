@@ -29,7 +29,7 @@ where
 	B: HttpBody + Send,
 	B::Data: Send,
 	B::Error: Into<BoxedError>,
-	HE: Sync,
+	HE: Clone + Send + Sync,
 	T: DeserializeOwned,
 {
 	type Error = FormError;
@@ -147,7 +147,7 @@ impl<'n, B, HE, const SIZE_LIMIT: usize> FromRequest<B, Args<'n, HE>> for Multip
 where
 	B: HttpBody<Data = Bytes> + Send + Sync + 'static,
 	B::Error: Into<BoxedError>,
-	HE: Sync,
+	HE: Clone + Send + Sync,
 {
 	type Error = MultipartFormError;
 

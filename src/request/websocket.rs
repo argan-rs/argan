@@ -156,7 +156,7 @@ impl WebSocketUpgrade {
 	}
 }
 
-impl<'n, HE> FromRequestHead<Args<'n, HE>> for WebSocketUpgrade {
+impl<'n, HE: Clone> FromRequestHead<Args<'n, HE>> for WebSocketUpgrade {
 	type Error = WebSocketUpgradeError;
 
 	fn from_request_head(

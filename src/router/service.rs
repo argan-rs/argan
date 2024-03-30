@@ -1,4 +1,4 @@
-use std::{convert::Infallible, future::ready, sync::Arc};
+use std::{borrow::Cow, convert::Infallible, future::ready, sync::Arc};
 
 use argan_core::{
 	body::{Body, HttpBody},
@@ -56,7 +56,7 @@ where
 		let mut args = Args {
 			routing_state,
 			node_extensions: NodeExtensions::new_borrowed(&self.extensions),
-			handler_extension: &(),
+			handler_extension: Cow::Borrowed(&()),
 		};
 
 		match &self.request_passer {

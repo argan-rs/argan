@@ -1,5 +1,6 @@
 use std::{
 	any::Any,
+	borrow::Cow,
 	convert::Infallible,
 	fmt::Debug,
 	future::Future,
@@ -39,7 +40,7 @@ pub(crate) mod request_handlers;
 // --------------------------------------------------------------------------------
 // --------------------------------------------------------------------------------
 
-pub trait Handler<B = Body, Ext = ()> {
+pub trait Handler<B = Body, Ext: Clone = ()> {
 	type Response;
 	type Error;
 	type Future: Future<Output = Result<Self::Response, Self::Error>>;
@@ -60,7 +61,7 @@ where
 	type Future = S::Future;
 
 	fn handle(&self, mut request: Request<B>, mut args: Args) -> Self::Future {
-		let args = args.move_to_owned_without_handler_extension();
+		let args = args.to_owned();
 
 		request.extensions_mut().insert(Uncloneable::from(args));
 
@@ -70,7 +71,7 @@ where
 
 // -------------------------
 
-pub trait IntoHandler<Mark, B = Body, Ext = ()>: Sized {
+pub trait IntoHandler<Mark, B = Body, Ext: Clone = ()>: Sized {
 	type Handler: Handler<B, Ext>;
 
 	fn into_handler(self) -> Self::Handler;
@@ -79,6 +80,7 @@ pub trait IntoHandler<Mark, B = Body, Ext = ()>: Sized {
 impl<H, B, Ext> IntoHandler<(), B, Ext> for H
 where
 	H: Handler<B, Ext>,
+	Ext: Clone,
 {
 	type Handler = Self;
 
@@ -107,7 +109,7 @@ where
 
 // --------------------------------------------------
 
-pub trait IntoExtendedHandler<Mark, Ext>: IntoHandler<Mark, Body, Ext> + Sized {
+pub trait IntoExtendedHandler<Mark, Ext: Clone>: IntoHandler<Mark, Body, Ext> + Sized {
 	fn with_extension(self, handler_extension: Ext) -> ExtendedHandler<Self::Handler, Ext>;
 }
 
@@ -117,6 +119,7 @@ where
 	H::Handler: Handler + Clone + Send + Sync + 'static,
 	<H::Handler as Handler>::Response: IntoResponse,
 	<H::Handler as Handler>::Error: Into<BoxedErrorResponse>,
+	Ext: Clone,
 {
 	fn with_extension(self, handler_extension: Ext) -> ExtendedHandler<Self::Handler, Ext> {
 		ExtendedHandler::new(self.into_handler(), handler_extension)
@@ -194,7 +197,7 @@ where
 		let mut args = Args {
 			routing_state,
 			node_extensions,
-			handler_extension: &self.extension,
+			handler_extension: Cow::Borrowed(&self.extension),
 		};
 
 		self.inner.handle(request, args)
@@ -377,71 +380,14 @@ impl Handler for DummyHandler<BoxedFuture<Result<Response, BoxedErrorResponse>>>
 	}
 }
 
-// --------------------------------------------------------------------------------
-// Args
-
-// pub struct Args<'n, HandlerExt = ()> {
-// 	pub(crate) routing_state: RoutingState,
-// 	pub(crate) node_extensions: NodeExtensions<'n>,
-// 	pub(crate) handler_extension: &'n HandlerExt,
-// }
-//
-// impl Args<'_, ()> {
-// 	pub(crate) fn new() -> Args<'static> {
-// 		Args {
-// 			routing_state: RoutingState::default(),
-// 			node_extensions: NodeExtensions::new_owned(Extensions::new()),
-// 			handler_extension: &(),
-// 		}
-// 	}
-//
-// 	#[inline]
-// 	pub(crate) fn node_extension_replaced<'e>(
-// 		&mut self,
-// 		node_extensions: &'e Extensions,
-// 	) -> Args<'e> {
-// 		let Args {
-// 			routing_state,
-// 			handler_extension,
-// 			..
-// 		} = self;
-//
-// 		let mut args = Args {
-// 			routing_state: std::mem::take(routing_state),
-// 			node_extensions: NodeExtensions::new_borrowed(node_extensions),
-// 			handler_extension: &(),
-// 		};
-//
-// 		args
-// 	}
-// }
-//
-// impl<'n, HandlerExt> Arguments<'n, HandlerExt> for Args<'n, HandlerExt> {
-// 	#[allow(refining_impl_trait)]
-// 	#[inline(always)]
-// 	fn private_extension(&mut self) -> &mut RoutingState {
-// 		&mut self.routing_state
-// 	}
-//
-// 	#[inline(always)]
-// 	fn node_extension<Ext: Send + Sync + 'static>(&self) -> Option<&'n Ext> {
-// 		self.node_extensions.get_ref::<Ext>()
-// 	}
-//
-// 	#[inline(always)]
-// 	fn handler_extension(&self) -> &'n HandlerExt {
-// 		self.handler_extension
-// 	}
-// }
-
 // --------------------------------------------------
 // Args
 
 #[non_exhaustive]
-pub struct Args<'n, HandlerExt = ()> {
+pub struct Args<'n, HandlerExt: Clone = ()> {
 	pub(crate) routing_state: RoutingState,
 	pub node_extensions: NodeExtensions<'n>,
-	pub handler_extension: &'n HandlerExt,
+	pub handler_extension: Cow<'n, HandlerExt>,
 }
 
 impl<'n> Args<'n, ()> {
@@ -449,20 +395,20 @@ impl<'n> Args<'n, ()> {
 		Args {
 			routing_state: RoutingState::default(),
 			node_extensions: NodeExtensions::new_owned(Extensions::new()),
-			handler_extension: &(),
-		}
-	}
-
-	pub(crate) fn move_to_owned_without_handler_extension(&mut self) -> Args<'static, ()> {
-		Args {
-			routing_state: self.take_routing_state(),
-			node_extensions: self.take_node_extensions().into_owned(),
-			handler_extension: &(),
+			handler_extension: Cow::Borrowed(&()),
 		}
 	}
 }
 
-impl<'n, HandlerExt> Args<'n, HandlerExt> {
+impl<'n, HandlerExt: Clone> Args<'n, HandlerExt> {
+	pub(crate) fn to_owned(&mut self) -> Args<'static, HandlerExt> {
+		Args {
+			routing_state: self.take_routing_state(),
+			node_extensions: self.take_node_extensions().to_owned(),
+			handler_extension: Cow::Owned(self.handler_extension.clone().into_owned()),
+		}
+	}
+
 	pub(crate) fn take_routing_state(&mut self) -> RoutingState {
 		std::mem::take(&mut self.routing_state)
 	}
@@ -474,7 +420,7 @@ impl<'n, HandlerExt> Args<'n, HandlerExt> {
 		)
 	}
 
-	pub(crate) fn extensions_replaced<'new_n, NewHandlerExt>(
+	pub(crate) fn extensions_replaced<'new_n, NewHandlerExt: Clone>(
 		&mut self,
 		new_node_extensions: NodeExtensions<'new_n>,
 		new_handler_extension: &'new_n NewHandlerExt,
@@ -482,7 +428,7 @@ impl<'n, HandlerExt> Args<'n, HandlerExt> {
 		Args {
 			routing_state: self.take_routing_state(),
 			node_extensions: new_node_extensions,
-			handler_extension: new_handler_extension,
+			handler_extension: Cow::Borrowed(new_handler_extension),
 		}
 	}
 }

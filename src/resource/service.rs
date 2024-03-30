@@ -157,7 +157,7 @@ where
 		let mut args = Args {
 			routing_state,
 			node_extensions: NodeExtensions::new_borrowed(&self.extensions),
-			handler_extension: &(),
+			handler_extension: Cow::Borrowed(&()),
 		};
 
 		if matched {

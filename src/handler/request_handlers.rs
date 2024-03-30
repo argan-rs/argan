@@ -321,7 +321,7 @@ pub(crate) fn handle_mistargeted_request(
 			.extensions_mut()
 			.insert(Uncloneable::from(UnusedRequest::from(request)));
 
-		let args = args.move_to_owned_without_handler_extension();
+		let args = args.to_owned();
 
 		response.extensions_mut().insert(Uncloneable::from(args));
 	}
