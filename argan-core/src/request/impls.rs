@@ -35,8 +35,8 @@ where
 	fn from_request_ref(
 		request: &'r Request<B>,
 		args: Option<&'r Args>,
-	) -> Result<Self, Self::Error> {
-		Ok(T::from_request_ref(request, args))
+	) -> impl Future<Output = Result<Self, Self::Error>> {
+		T::from_request_ref(request, args).map(|result| Ok(result))
 	}
 }
 

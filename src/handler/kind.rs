@@ -181,15 +181,15 @@ where
 // 	#[test]
 // 	fn ttt_test() {
 // 		is_from_request::<RemainingPath, PathParams<String>>();
-// 		is_from_request::<Method, Uri>();
-// 		is_from_request::<Method, RemainingPath>();
+// 		// is_from_request::<Method, Uri>();
+// 		// is_from_request::<Method, RemainingPath>();
 // 		is_from_request::<PathParams<String>, Request>();
 //
 // 		// let boo = Boo::<RemainingPath>(PhantomData);
 // 		// is_into_handler(boo);
 //
-// 		let boo = Boo::<Method>(PhantomData);
-// 		is_into_handler(boo);
+// 		// let boo = Boo::<Method>(PhantomData);
+// 		// is_into_handler(boo);
 //
 // 		// let boo = Boo::<Request>(PhantomData);
 // 		// is_into_handler(boo);
@@ -200,23 +200,24 @@ where
 // 		is_into_handler(|_: Multipart| async {});
 // 		is_into_handler::<_, Request>(|_: Request| async {});
 //
-// 		is_into_handler::<_, Request>(|request: Request| async move {
-// 			let remaining_path = request.extract_ref::<RemainingPathRef>();
+// 		is_into_handler::<_, Request>(|mut request: Request| async move {
+// 			let remaining_path = request.extract_ref::<RemainingPathRef>().await;
 // 			// let json = request.extract::<Json<String>>().await;
 // 			let multipart = request.extract::<Multipart>().await;
 // 		});
 //
 // 		is_into_handler::<_, Request>(foo1);
 //
-// 		is_into_handler(|path_params: PathParams<String>, request: Request| async move {
-// 			let remaining_path = request.extract_ref::<RemainingPathRef>();
-// 			// let json = request.extract::<Json<String>>().await;
-// 			let multipart = request.extract::<Multipart>().await;
+// 		is_into_handler(|path_params: PathParams<String>, mut request: Request| async move {
+// 			let remaining_path = request.extract_ref::<RemainingPathRef>().await;
+// 			let json = request.extract::<Json<String>>().await;
+// 			// let multipart = request.extract::<Multipart>().await;
 // 		});
 //
 // 		is_into_handler(|request: Request, args: Args<'static, ()>| async move {
-// 			let path_params = request.extract_ref_with_args::<_, PathParams<&str>>(&args);
-// 			let remaining_path = request.extract_ref_with_args::<_, RemainingPathRef>(&args);
+// 			let remaining_path = request.extract_ref::<PathParams<&str>>().await;
+// 			let path_params = request.extract_ref_with_args::<_, PathParams<&str>>(&args).await;
+// 			let remaining_path = request.extract_ref_with_args::<_, RemainingPathRef>(&args).await;
 // 			let json = request.extract_with_args::<_, Json<String>>(args).await;
 // 		});
 //
@@ -224,11 +225,11 @@ where
 // 	}
 //
 // 	async fn foo1(request: Request) {
-// 		let remaining_path = request.extract_ref::<RemainingPathRef>();
+// 		let remaining_path = request.extract_ref::<RemainingPathRef>().await;
 // 		let json = request.extract::<Json<String>>().await;
 // 	}
 //
 // 	async fn foo2(request: Request, args: Args<'static, ()>) {
-// 		let remaining_path = request.extract_ref_with_args::<_, RemainingPathRef>(&args);
+// 		let remaining_path = request.extract_ref_with_args::<_, RemainingPathRef>(&args).await;
 // 	}
 // }
