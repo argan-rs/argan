@@ -105,7 +105,7 @@ where
 	Func: Fn(Request) -> Fut + Clone + 'static,
 	Fut: Future<Output = O>,
 	O: IntoResponseResult,
-	Ext: Sync + 'static,
+	Ext: Clone + Sync + 'static,
 {
 	type Response = Response;
 	type Error = BoxedErrorResponse;
@@ -153,24 +153,25 @@ where
 
 // -------------------------
 
-impl<'a, Ext, Func, Fut, O> IntoHandler<(Request, Args<'a, Ext>)> for Func
+impl<Ext, Func, Fut, O> IntoHandler<(Request, Args<'static, Ext>)> for Func
 where
-	Func: for <'n> Fn(Request, Args<'n, Ext>) -> Fut,
+	Ext: Clone,
+	Func: Fn(Request, Args<'static, Ext>) -> Fut,
 	Fut: Future<Output = O>,
 	O: IntoResponseResult,
-	HandlerFn<Func, (Request, Args<'a, Ext>)>: Handler,
+	HandlerFn<Func, (Request, Args<'static, Ext>)>: Handler,
 {
-	type Handler = HandlerFn<Func, (Request, Args<'a, Ext>)>;
+	type Handler = HandlerFn<Func, (Request, Args<'static, Ext>)>;
 
 	fn into_handler(self) -> Self::Handler {
 		HandlerFn::from(self)
 	}
 }
 
-impl<'a, Ext, Func, Fut, O> Handler<Body, Ext> for HandlerFn<Func, (Request, Args<'a, Ext>)>
+impl<Ext, Func, Fut, O> Handler<Body, Ext> for HandlerFn<Func, (Request, Args<'static, Ext>)>
 where
 	Ext: Clone,
-	Func: for <'n> Fn(Request, Args<'n, Ext>) -> Fut + Clone,
+	Func: Fn(Request, Args<'static, Ext>) -> Fut + Clone,
 	Fut: Future<Output = O>,
 	O: IntoResponseResult,
 {
@@ -182,32 +183,25 @@ where
 	fn handle(&self, request: Request, mut args: Args<'_, Ext>) -> Self::Future {
 		let func_clone = self.func.clone();
 
-		let routing_state = args.take_routing_state();
-		let node_extensions = args.take_node_extensions().into_owned();
-		let handler_extension = args.handler_extension.clone();
-
 		HandlerFnRequestArgsFuture {
 			func: func_clone,
 			some_request: Some(request),
-			some_routing_state: Some(routing_state),
-			some_node_extensions: Some(node_extensions),
-			some_handler_extension: Some(handler_extension), 
+			some_args: Some(args.to_owned()),
 		}
 	}
 }
 
 #[pin_project]
-pub struct HandlerFnRequestArgsFuture<Func, Ext> {
+pub struct HandlerFnRequestArgsFuture<Func, Ext: Clone + 'static> {
 	func: Func,
 	some_request: Option<Request>,
-	some_routing_state: Option<RoutingState>,
-	some_node_extensions: Option<NodeExtensions<'static>>,
-	some_handler_extension: Option<Ext>,
+	some_args: Option<Args<'static, Ext>>,
 }
 
 impl<Ext, Func, Fut, O> Future for HandlerFnRequestArgsFuture<Func, Ext>
 where
-	Func: for <'n> Fn(Request, Args<'n, Ext>) -> Fut,
+	Ext: Clone + 'static,
+	Func: Fn(Request, Args<'static, Ext>) -> Fut,
 	Fut: Future<Output = O>,
 	O: IntoResponseResult,
 {
@@ -221,24 +215,10 @@ where
 			.take()
 			.expect("HandlerFnRequestArgsFuture shouldn't be created without a request");
 
-		let routing_state = self_projection.some_routing_state.take().expect(
-			"HandlerFnFuture should be created with a routing state",
-		);
-
-		let node_extensions = self_projection.some_node_extensions.take().expect(
-			"HandlerFnFuture should be created with the node extensions",
-		);
-
-		let handler_extension = self_projection.some_handler_extension.take().expect(
-			"HandlerFnFuture should be created with a handler extension",
-		);
-
-		let mut args = Args {
-			routing_state,
-			node_extensions,
-			handler_extension: &handler_extension,
-		};
-			
+		let args = self_projection
+			.some_args
+			.take()
+			.expect("HandlerFnFuture should be created with args");
 
 		match pin!((self_projection.func)(request, args)).poll(cx) {
 			Poll::Ready(value) => Poll::Ready(value.into_response_result()),
@@ -260,6 +240,7 @@ macro_rules! impl_handler_fn {
 			Func: Fn($($($ps,)*)? $($lp)?) -> Fut,
 			Fut: Future<Output = O>,
 			O: IntoResponseResult,
+			Ext: Clone,
 			HandlerFn<Func, (Private, $($($ps,)*)? $($lp)?)>: Handler<B, Ext>,
 		{
 			type Handler = HandlerFn<Func, (Private, $($($ps,)*)? $($lp)?)>;
@@ -287,22 +268,14 @@ macro_rules! impl_handler_fn {
 
 			fn handle(&self, request: Request<B>, mut args: Args<'_, Ext>) -> Self::Future {
 				let func_clone = self.func.clone();
-				let routing_state = args.take_routing_state();
-				let node_extensions = args.take_node_extensions().into_owned();
-				let handler_extension_clone = args.handler_extension.clone();
+				let args = args.to_owned();
 
-				HandlerFnFuture::new(
-					func_clone,
-					request,
-					routing_state,
-					node_extensions,
-					handler_extension_clone,
-				)
+				HandlerFnFuture::new(func_clone, request, args)
 			}
 		}
 
 		#[allow(non_snake_case)]
-		impl<Func, $($($ps,)*)? $($lp,)? Fut, O, B, Ext> Future
+		impl<Func, $($($ps,)*)? $($lp,)? Fut, O, B, Ext: Clone> Future
 		for HandlerFnFuture<Func, (Private, $($($ps,)*)? $($lp)?), B, Ext>
 		where
 			Func: Fn($($($ps,)*)? $($lp)?) -> Fut + Clone + 'static,
@@ -318,31 +291,17 @@ macro_rules! impl_handler_fn {
 			fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
 				let self_projection = self.project();
 
-				let routing_state = self_projection.some_routing_state.take().expect(
-					"HandlerFnFuture should be created with a routing state",
+				let mut args = self_projection.some_args.take().expect(
+					"HandlerFnFuture should be created with args",
 				);
 
-				let node_extensions = self_projection.some_node_extensions.take().expect(
-					"HandlerFnFuture should be created with the node extensions",
-				);
-
-				let handler_extension = self_projection.some_handler_extension.take().expect(
-					"HandlerFnFuture should be created with a handler extension",
-				);
-
-				let mut args = Args {
-					routing_state,
-					node_extensions,
-					handler_extension: &handler_extension,
-				};
-			
 				$(
 					let (mut head, body) = self_projection.some_request.take().expect(
 						"HandlerFnFuture should be created with a request",
 					).into_parts();
 
 					$(
-						let $ps = match pin!($ps::from_request_head(&mut head, &mut args)).poll(cx) {
+						let $ps = match pin!($ps::from_request_head(&mut head, &args)).poll(cx) {
 							Poll::Ready(result) => {
 								match result {
 									Ok(value) => value,
@@ -408,29 +367,19 @@ impl_handler_fn!((P1, P2, P3, P4, P5, P6, P7, P8, P9, P10, P11, P12, P13, P14, P
 // --------------------------------------------------
 
 #[pin_project]
-pub struct HandlerFnFuture<Func, Mark, B, E: 'static> {
+pub struct HandlerFnFuture<Func, Mark, B, Ext: Clone + 'static> {
 	func: Func,
 	some_request: Option<Request<B>>,
-	some_routing_state: Option<RoutingState>,
-	some_node_extensions: Option<NodeExtensions<'static>>,
-	some_handler_extension: Option<E>,
+	some_args: Option<Args<'static, Ext>>,
 	_mark: PhantomData<fn() -> Mark>,
 }
 
-impl<Func, Mark, B, E> HandlerFnFuture<Func, Mark, B, E> {
-	fn new(
-		func: Func,
-		request: Request<B>,
-		routing_state: RoutingState,
-		node_extensions: NodeExtensions<'static>,
-		handler_extension: E,
-	) -> Self {
+impl<Func, Mark, B, Ext: Clone> HandlerFnFuture<Func, Mark, B, Ext> {
+	fn new(func: Func, request: Request<B>, args: Args<'static, Ext>) -> Self {
 		Self {
 			func,
 			some_request: Some(request),
-			some_routing_state: Some(routing_state),
-			some_node_extensions: Some(node_extensions),
-			some_handler_extension: Some(handler_extension),
+			some_args: Some(args),
 			_mark: PhantomData,
 		}
 	}

@@ -27,7 +27,7 @@ where
 	B: HttpBody + Send,
 	B::Data: Send,
 	B::Error: Into<BoxedError>,
-	HE: Sync,
+	HE: Clone + Send + Sync,
 	T: DeserializeOwned,
 {
 	type Error = JsonError;

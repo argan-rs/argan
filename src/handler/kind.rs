@@ -128,9 +128,9 @@ where
 //
 // 	use crate::{
 // 		common::marker::Private,
-// 		data::{extensions::NodeExtension, form::Multipart},
+// 		data::{extensions::NodeExtension, form::Multipart, json::Json},
 // 		handler::Args,
-// 		request::{PathParams, RemainingPath},
+// 		request::{Extract, PathParams, RemainingPath, RemainingPathRef},
 // 		routing::{RouteTraversal, RoutingState},
 // 	};
 //
@@ -199,5 +199,36 @@ where
 // 		is_into_handler(|_: NodeExtension<String>, _: Multipart| async {});
 // 		is_into_handler(|_: Multipart| async {});
 // 		is_into_handler::<_, Request>(|_: Request| async {});
+//
+// 		is_into_handler::<_, Request>(|request: Request| async move {
+// 			let remaining_path = request.extract_ref::<RemainingPathRef>();
+// 			// let json = request.extract::<Json<String>>().await;
+// 			let multipart = request.extract::<Multipart>().await;
+// 		});
+//
+// 		is_into_handler::<_, Request>(foo1);
+//
+// 		is_into_handler(|path_params: PathParams<String>, request: Request| async move {
+// 			let remaining_path = request.extract_ref::<RemainingPathRef>();
+// 			// let json = request.extract::<Json<String>>().await;
+// 			let multipart = request.extract::<Multipart>().await;
+// 		});
+//
+// 		is_into_handler(|request: Request, args: Args<'static, ()>| async move {
+// 			let path_params = request.extract_ref_with_args::<_, PathParams<&str>>(&args);
+// 			let remaining_path = request.extract_ref_with_args::<_, RemainingPathRef>(&args);
+// 			let json = request.extract_with_args::<_, Json<String>>(args).await;
+// 		});
+//
+// 		is_into_handler(foo2);
+// 	}
+//
+// 	async fn foo1(request: Request) {
+// 		let remaining_path = request.extract_ref::<RemainingPathRef>();
+// 		let json = request.extract::<Json<String>>().await;
+// 	}
+//
+// 	async fn foo2(request: Request, args: Args<'static, ()>) {
+// 		let remaining_path = request.extract_ref_with_args::<_, RemainingPathRef>(&args);
 // 	}
 // }

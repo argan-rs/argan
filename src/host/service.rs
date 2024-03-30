@@ -1,4 +1,4 @@
-use std::{convert::Infallible, future::ready, sync::Arc};
+use std::{borrow::Cow, convert::Infallible, future::ready, sync::Arc};
 
 use argan_core::{body::HttpBody, BoxedError, BoxedFuture};
 use bytes::Bytes;
@@ -81,7 +81,7 @@ where
 		let mut args = Args {
 			routing_state,
 			node_extensions: NodeExtensions::new_owned(Extensions::new()),
-			handler_extension: &(),
+			handler_extension: Cow::Borrowed(&()),
 		};
 
 		if let Some(result) = self.pattern.is_static_match(host) {

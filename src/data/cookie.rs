@@ -145,7 +145,7 @@ where
 
 impl<'n, HE, K> FromRequestHead<Args<'n, HE>> for CookieJar<K>
 where
-	HE: Sync,
+	HE: Clone + Sync,
 	K: for<'k> TryFrom<&'k [u8]> + Into<Key>,
 {
 	type Error = Infallible;
@@ -176,7 +176,7 @@ where
 impl<'n, B, HE, K> FromRequest<B, Args<'n, HE>> for CookieJar<K>
 where
 	B: Send,
-	HE: Sync,
+	HE: Clone + Send + Sync,
 	K: for<'k> TryFrom<&'k [u8]> + Into<Key>,
 {
 	type Error = Infallible;
@@ -253,7 +253,7 @@ impl<K> PrivateCookieJar<K> {
 
 impl<'n, HE, K> FromRequestHead<Args<'n, HE>> for PrivateCookieJar<K>
 where
-	HE: Sync,
+	HE: Clone + Sync,
 	K: for<'k> TryFrom<&'k [u8]> + Into<Key>,
 {
 	type Error = Infallible;
@@ -271,7 +271,7 @@ where
 impl<'n, B, HE, K> FromRequest<B, Args<'n, HE>> for PrivateCookieJar<K>
 where
 	B: Send,
-	HE: Sync,
+	HE: Clone + Send + Sync,
 	K: for<'k> TryFrom<&'k [u8]> + Into<Key>,
 {
 	type Error = Infallible;
@@ -342,7 +342,7 @@ impl<K> SignedCookieJar<K> {
 
 impl<'n, HE, K> FromRequestHead<Args<'n, HE>> for SignedCookieJar<K>
 where
-	HE: Sync,
+	HE: Clone + Sync,
 	K: for<'k> TryFrom<&'k [u8]> + Into<Key>,
 {
 	type Error = Infallible;
@@ -360,7 +360,7 @@ where
 impl<'n, B, HE, K> FromRequest<B, Args<'n, HE>> for SignedCookieJar<K>
 where
 	B: Send,
-	HE: Sync,
+	HE: Clone + Send + Sync,
 	K: for<'k> TryFrom<&'k [u8]> + Into<Key>,
 {
 	type Error = Infallible;
