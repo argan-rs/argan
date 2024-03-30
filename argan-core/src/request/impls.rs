@@ -25,6 +25,18 @@ where
 	}
 }
 
+impl<'r, B, Args, T, E: 'r> FromRequestRef<'r, B, Args> for Result<T, E>
+where
+	T: FromRequestRef<'r, B, Args, Error = E>,
+ {
+	type Error = Infallible;
+
+	#[inline(always)]
+	fn from_request_ref(request: &'r Request<B>, args: &'r Args) -> Result<Self, Self::Error> {
+		Ok(T::from_request_ref(request, args))
+	}
+}
+
 impl<B, Args, T, E> FromRequest<B, Args> for Result<T, E>
 where
 	T: FromRequest<B, Args, Error = E>,
