@@ -44,7 +44,7 @@ pub trait FromRequestRef<'r, B, Args>: 'r + Sized {
 	fn from_request_ref(
 		request: &'r Request<B>,
 		some_args: Option<&'r Args>,
-	) -> Result<Self, Self::Error>;
+	) -> impl Future<Output = Result<Self, Self::Error>> + Send;
 }
 
 // --------------------------------------------------

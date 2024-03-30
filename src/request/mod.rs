@@ -41,14 +41,14 @@ pub mod websocket;
 // RequestExt
 
 pub trait Extract<B>: Sized + Sealed {
-	fn extract_ref<'r, T>(&'r self) -> Result<T, T::Error>
+	fn extract_ref<'r, T>(&'r self) -> impl Future<Output = Result<T, T::Error>> + Send
 	where
 		T: FromRequestRef<'r, B, Args<'static, ()>>;
 
 	fn extract_ref_with_args<'r, Ext: Clone + 'static, T>(
 		&'r self,
 		args: &'r Args<'static, Ext>,
-	) -> Result<T, T::Error>
+	) -> impl Future<Output = Result<T, T::Error>> + Send
 	where
 		T: FromRequestRef<'r, B, Args<'static, Ext>>;
 
@@ -65,7 +65,7 @@ pub trait Extract<B>: Sized + Sealed {
 }
 
 impl<B> Extract<B> for Request<B> {
-	fn extract_ref<'r, T>(&'r self) -> Result<T, T::Error>
+	fn extract_ref<'r, T>(&'r self) -> impl Future<Output = Result<T, T::Error>>
 	where
 		T: FromRequestRef<'r, B, Args<'static, ()>>,
 	{
@@ -75,14 +75,14 @@ impl<B> Extract<B> for Request<B> {
 	fn extract_ref_with_args<'r, Ext: Clone + 'static, T>(
 		&'r self,
 		args: &'r Args<'static, Ext>,
-	) -> Result<T, T::Error>
+	) -> impl Future<Output = Result<T, T::Error>>
 	where
 		T: FromRequestRef<'r, B, Args<'static, Ext>>,
 	{
 		T::from_request_ref(self, Some(args))
 	}
 
-	fn extract<T>(self) -> impl Future<Output = Result<T, T::Error>> + Send
+	fn extract<T>(self) -> impl Future<Output = Result<T, T::Error>>
 	where
 		T: FromRequest<B, Args<'static, ()>>,
 	{
@@ -92,7 +92,7 @@ impl<B> Extract<B> for Request<B> {
 	fn extract_with_args<Ext: Clone + 'static, T>(
 		self,
 		args: Args<'static, Ext>,
-	) -> impl Future<Output = Result<T, T::Error>> + Send
+	) -> impl Future<Output = Result<T, T::Error>>
 	where
 		T: FromRequest<B, Args<'static, Ext>>,
 	{
@@ -121,21 +121,23 @@ where
 impl<'r, B, HE, T> FromRequestRef<'r, B, Args<'static, HE>> for PathParams<T>
 where
 	HE: Clone,
-	T: Deserialize<'r> + 'r,
+	T: Deserialize<'r> + Send + 'r,
 {
 	type Error = PathParamsError;
 
 	fn from_request_ref(
 		request: &'r Request<B>,
 		some_args: Option<&'r Args<'static, HE>>,
-	) -> Result<Self, Self::Error> {
+	) -> impl Future<Output = Result<Self, Self::Error>> {
 		let args = some_args.unwrap(); // TODO
 
 		let mut from_params_list = args.routing_state.uri_params.deserializer();
 
-		T::deserialize(&mut from_params_list)
-			.map(|value| Self(value))
-			.map_err(Into::into)
+		ready(
+			T::deserialize(&mut from_params_list)
+				.map(|value| Self(value))
+				.map_err(Into::into),
+		)
 	}
 }
 
@@ -271,15 +273,17 @@ impl<'r, B, HE: Clone> FromRequestRef<'r, B, Args<'static, HE>> for RemainingPat
 	fn from_request_ref(
 		request: &'r Request<B>,
 		some_args: Option<&'r Args<'static, HE>>,
-	) -> Result<Self, Self::Error> {
-		some_args.map_or(Ok(RemainingPathRef::None), |args| {
-			args
-				.routing_state
-				.route_traversal
-				.remaining_segments(request.uri().path())
-				.map_or(Ok(RemainingPathRef::None), |remaining_path| {
-					Ok(RemainingPathRef::Value(remaining_path))
-				})
+	) -> impl Future<Output = Result<Self, Self::Error>> {
+		some_args.map_or(ready(Ok(RemainingPathRef::None)), |args| {
+			ready(
+				args
+					.routing_state
+					.route_traversal
+					.remaining_segments(request.uri().path())
+					.map_or(Ok(RemainingPathRef::None), |remaining_path| {
+						Ok(RemainingPathRef::Value(remaining_path))
+					}),
+			)
 		})
 	}
 }
