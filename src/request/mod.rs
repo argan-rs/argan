@@ -51,6 +51,8 @@ pub mod websocket;
 mod extractors;
 pub use extractors::*;
 
+use self::websocket::{request_into_websocket_upgrade, WebSocketUpgrade, WebSocketUpgradeError};
+
 // --------------------------------------------------------------------------------
 // --------------------------------------------------------------------------------
 
@@ -253,6 +255,11 @@ impl<B> RequestContext<B> {
 		request_into_multipart_form(self.request)
 	}
 
+	#[inline(always)]
+	pub fn into_websocket_upgrade(self) -> Result<WebSocketUpgrade, WebSocketUpgradeError> {
+		request_into_websocket_upgrade(self.request)
+	}
+
 	pub async fn extract<'r, T>(&'r self) -> Result<T, T::Error>
 	where
 		T: FromRequestRef<'r, B>,
@@ -333,11 +340,6 @@ impl<B> RequestContext<B> {
 	#[inline(always)]
 	pub(crate) fn noted_subtree_handler(&self) -> bool {
 		self.routing_state.subtree_handler_exists
-	}
-
-	#[inline(always)]
-	pub(crate) fn uri_params_mut(&mut self) -> &mut ParamsList {
-		&mut self.routing_state.uri_params
 	}
 }
 
