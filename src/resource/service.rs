@@ -3,6 +3,7 @@ use std::{
 	borrow::Cow,
 	convert::Infallible,
 	fmt::Debug,
+	future::Future,
 	future::{ready, IntoFuture},
 	pin::Pin,
 	process::Output,
@@ -32,7 +33,7 @@ use crate::{
 	},
 	middleware::{layer_targets::LayerTarget, BoxedLayer, Layer, ResponseResultFutureBoxer},
 	pattern::{ParamsList, Pattern},
-	request::Request,
+	request::{Request, RequestContext, RequestRoutingStateExt},
 	response::{BoxedErrorResponse, InfallibleResponseFuture, IntoResponse, Redirect, Response},
 	routing::{self, RouteTraversal, RoutingState, UnusedRequest},
 };
@@ -83,7 +84,7 @@ impl ResourceService {
 	#[inline]
 	pub(crate) fn handle<B>(
 		&self,
-		request: Request<B>,
+		request: RequestContext<B>,
 		mut args: Args<'_, ()>,
 	) -> BoxedFuture<Result<Response, BoxedErrorResponse>>
 	where
@@ -155,10 +156,11 @@ where
 		routing_state.uri_params = path_params;
 
 		let mut args = Args {
-			routing_state,
 			node_extensions: NodeExtensions::new_borrowed(&self.extensions),
 			handler_extension: Cow::Borrowed(&()),
 		};
+
+		let request = RequestContext::new(request, routing_state);
 
 		if matched {
 			match &self.request_receiver {
@@ -300,20 +302,16 @@ impl Handler for RequestReceiver {
 	type Future = BoxedFuture<Result<Self::Response, Self::Error>>;
 
 	#[inline]
-	fn handle(&self, mut request: Request, mut args: Args) -> Self::Future {
-		if args
-			.routing_state
-			.route_traversal
-			.has_remaining_segments(request.uri().path())
-		{
+	fn handle(&self, mut request: RequestContext, mut args: Args) -> Self::Future {
+		if request.routing_has_remaining_segments() {
 			let resource_is_subtree_handler = self.is_subtree_hander();
 
 			if let Some(request_passer) = self.some_request_passer.as_ref() {
 				if resource_is_subtree_handler {
-					args.routing_state.subtree_handler_exists = true;
+					request.note_subtree_handler();
 				}
 
-				let next_segment_index = args.routing_state.route_traversal.next_segment_index();
+				let next_segment_index = request.routing_next_segment_index();
 
 				let response_future = match request_passer {
 					MaybeBoxed::Boxed(boxed_request_passer) => boxed_request_passer.handle(request, args),
@@ -337,28 +335,17 @@ impl Handler for RequestReceiver {
 
 					let Some(uncloneable) = response
 						.extensions_mut()
-						.remove::<Uncloneable<UnusedRequest>>()
+						.remove::<Uncloneable<(RequestContext, Args)>>()
 					else {
 						// Custom 404 Not Found response.
 						return Ok(response);
 					};
 
-					let mut request = uncloneable
+					let (mut request, args) = uncloneable
 						.into_inner()
-						.expect("unused request should always exist in Uncloneable")
-						.into_request();
+						.expect("unused request and args should always exist in Uncloneable");
 
-					let mut args = response
-						.extensions_mut()
-						.remove::<Uncloneable<Args>>()
-						.expect("Uncloneable<Args> should always exist when unused request is returned")
-						.into_inner()
-						.expect("Args should always exist in Uncloneable");
-
-					args
-						.routing_state
-						.route_traversal
-						.revert_to_segment(next_segment_index);
+					request.routing_revert_to_segment(next_segment_index);
 
 					match request_handler_clone.as_ref() {
 						MaybeBoxed::Boxed(boxed_request_handler) => {
@@ -379,11 +366,7 @@ impl Handler for RequestReceiver {
 		}
 
 		if let Some(request_handler) = self.some_request_handler.as_ref() {
-			let request_path_ends_with_slash = args
-				.routing_state
-				.route_traversal
-				.ends_with_slash(request.uri().path());
-
+			let request_path_ends_with_slash = request.path_ends_with_slash();
 			let resource_path_ends_with_slash = self.config_flags.has(ConfigFlags::ENDS_WITH_SLASH);
 
 			let handle = if request_path_ends_with_slash && !resource_path_ends_with_slash {
@@ -391,7 +374,7 @@ impl Handler for RequestReceiver {
 					.config_flags
 					.has(ConfigFlags::REDIRECTS_ON_UNMATCHING_SLASH)
 				{
-					let path = request.uri().path();
+					let path = request.uri_ref().path();
 
 					return Box::pin(ready(Ok(
 						Redirect::permanently(&path[..path.len() - 1]).into_response(),
@@ -406,7 +389,7 @@ impl Handler for RequestReceiver {
 					.config_flags
 					.has(ConfigFlags::REDIRECTS_ON_UNMATCHING_SLASH)
 				{
-					let path = request.uri().path();
+					let path = request.uri_ref().path();
 
 					let mut new_path = String::with_capacity(path.len() + 1);
 					new_path.push_str(path);
@@ -500,12 +483,12 @@ impl Handler for RequestPasser {
 	type Future = BoxedFuture<Result<Self::Response, Self::Error>>;
 
 	#[inline]
-	fn handle(&self, mut request: Request, mut args: Args) -> Self::Future {
+	fn handle(&self, mut request: RequestContext, mut args: Args) -> Self::Future {
 		let some_next_resource = 'some_next_resource: {
-			let (next_segment, _) = args
+			let (next_segment, _) = request
 				.routing_state
 				.route_traversal
-				.next_segment(request.uri().path())
+				.next_segment(request.request.uri().path())
 				.expect("request passer shouldn't be called when there is no next path segment");
 
 			if let Some(next_resource) = self.some_static_resources.as_ref().and_then(|resources| {
@@ -531,7 +514,10 @@ impl Handler for RequestPasser {
 				resources.iter().find(|resource| {
 					resource
 						.pattern
-						.is_regex_match(decoded_segment.as_ref(), &mut args.routing_state.uri_params)
+						.is_regex_match(
+							decoded_segment.as_ref(),
+							&mut request.routing_state.uri_params,
+						)
 						.expect("regex_resources must keep only the resources with a regex pattern")
 				})
 			}) {
@@ -544,7 +530,7 @@ impl Handler for RequestPasser {
 				.is_some_and(|resource| {
 					resource
 						.pattern
-						.is_wildcard_match(decoded_segment, &mut args.routing_state.uri_params)
+						.is_wildcard_match(decoded_segment, &mut request.routing_state.uri_params)
 						.expect("wildcard_resource must keep only a resource with a wilcard pattern")
 				});
 
@@ -666,8 +652,8 @@ impl Handler for RequestHandler {
 	type Error = BoxedErrorResponse;
 	type Future = BoxedFuture<Result<Self::Response, Self::Error>>;
 
-	fn handle(&self, request: Request, args: Args) -> Self::Future {
-		let method = request.method();
+	fn handle(&self, request: RequestContext, args: Args) -> Self::Future {
+		let method = request.method_ref();
 		let some_method_handler = self.method_handlers.iter().find(|(m, _)| m == method);
 
 		if let Some((_, ref handler)) = some_method_handler {
@@ -701,6 +687,7 @@ impl Handler for RequestHandler {
 mod test {
 	use std::future::Ready;
 
+	use argan_core::response::IntoResponseResult;
 	use http_body_util::Empty;
 
 	use crate::{
@@ -903,7 +890,7 @@ mod test {
 		type Error = BoxedErrorResponse;
 		type Future = BoxedFuture<Result<Self::Response, Self::Error>>;
 
-		fn handle(&self, request: Request<B>, args: Args<'_, ()>) -> Self::Future {
+		fn handle(&self, request: RequestContext<B>, args: Args<'_, ()>) -> Self::Future {
 			Box::pin(ready(Ok("Hello from Middleware!".into_response())))
 		}
 	}
@@ -912,7 +899,7 @@ mod test {
 	async fn resource_handler_layer() {
 		let mut root = Resource::new("/");
 		root.subresource_mut("/st_0_0/st_1_0").set_handler_for(_get(
-			(|| async { "Hello from Handler!" })
+			(|_: RequestContext, _: Args<'_, usize>| async { "Hello from Handler!" })
 				.with_extension(42)
 				.wrapped_in(Middleware),
 		));
@@ -1022,11 +1009,9 @@ mod test {
 			extensions.insert("Hello from Handler!".to_string());
 		}));
 
-		root
-			.subresource_mut("/st_0_0/st_1_0")
-			.set_handler_for(_get::<_, Request>(|request: Request| async move {
-				request.extensions().get::<String>().unwrap().clone()
-			}));
+		root.subresource_mut("/st_0_0/st_1_0").set_handler_for(_get(
+			|request: RequestContext| async move { request.extensions_ref().get::<String>().unwrap().clone() },
+		));
 
 		// ----------
 

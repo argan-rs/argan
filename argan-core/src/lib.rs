@@ -13,6 +13,7 @@ pub(crate) use thiserror::Error as ImplError;
 pub(crate) mod macros;
 
 pub mod body;
+pub mod http;
 pub mod request;
 pub mod response;
 

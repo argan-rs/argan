@@ -13,13 +13,13 @@ use std::{
 use argan_core::{body::Body, BoxedFuture};
 use bytes::Bytes;
 use http::{Extensions, StatusCode};
-use tower_service::Service;
+use tower_service::Service as TowerService;
 
 use crate::{
 	common::{BoxedAny, Uncloneable},
 	data::extensions::NodeExtensions,
 	middleware::Layer,
-	request::{FromRequest, FromRequestHead, Request, RequestHead},
+	request::{FromRequest, Request, RequestContext, RequestHead},
 	response::{BoxedErrorResponse, IntoResponse, Response},
 	routing::RoutingState,
 };
@@ -30,7 +30,7 @@ pub(crate) mod futures;
 use futures::{DefaultResponseFuture, ResponseToResultFuture, ResultToResponseFuture};
 
 mod impls;
-pub use impls::*;
+pub(crate) use impls::*;
 
 mod kind;
 pub use kind::*;
@@ -45,14 +45,14 @@ pub trait Handler<B = Body, Ext: Clone = ()> {
 	type Error;
 	type Future: Future<Output = Result<Self::Response, Self::Error>>;
 
-	fn handle(&self, request: Request<B>, args: Args<'_, Ext>) -> Self::Future;
+	fn handle(&self, request: RequestContext<B>, args: Args<'_, Ext>) -> Self::Future;
 }
 
 // -------------------------
 
 impl<S, B> Handler<B> for S
 where
-	S: Service<Request<B>> + Clone,
+	S: TowerService<Request<B>> + Clone,
 	S::Response: IntoResponse,
 	S::Error: Into<BoxedErrorResponse>,
 {
@@ -60,10 +60,16 @@ where
 	type Error = S::Error;
 	type Future = S::Future;
 
-	fn handle(&self, mut request: Request<B>, mut args: Args) -> Self::Future {
+	fn handle(&self, mut request: RequestContext<B>, mut args: Args) -> Self::Future {
+		let RequestContext {
+			mut request,
+			routing_state,
+		} = request;
 		let args = args.to_owned();
 
-		request.extensions_mut().insert(Uncloneable::from(args));
+		request
+			.extensions_mut()
+			.insert(Uncloneable::from((routing_state, args)));
 
 		self.clone().call(request)
 	}
@@ -98,9 +104,6 @@ pub trait IntoWrappedHandler<Mark>: IntoHandler<Mark> + Sized {
 impl<H, Mark> IntoWrappedHandler<Mark> for H
 where
 	H: IntoHandler<Mark>,
-	H::Handler: Handler + Clone + Send + Sync + 'static,
-	<H::Handler as Handler>::Response: IntoResponse,
-	<H::Handler as Handler>::Error: Into<BoxedErrorResponse>,
 {
 	fn wrapped_in<L: Layer<H::Handler>>(self, layer: L) -> L::Handler {
 		layer.wrap(self.into_handler())
@@ -109,59 +112,17 @@ where
 
 // --------------------------------------------------
 
-pub trait IntoExtendedHandler<Mark, Ext: Clone>: IntoHandler<Mark, Body, Ext> + Sized {
+pub trait IntoExtendedHandler<Mark, B, Ext: Clone>: IntoHandler<Mark, B, Ext> + Sized {
 	fn with_extension(self, handler_extension: Ext) -> ExtendedHandler<Self::Handler, Ext>;
 }
 
-impl<H, Mark, Ext> IntoExtendedHandler<Mark, Ext> for H
+impl<H, Mark, B, Ext> IntoExtendedHandler<Mark, B, Ext> for H
 where
-	H: IntoHandler<Mark, Body, Ext>,
-	H::Handler: Handler + Clone + Send + Sync + 'static,
-	<H::Handler as Handler>::Response: IntoResponse,
-	<H::Handler as Handler>::Error: Into<BoxedErrorResponse>,
-	Ext: Clone,
+	H: IntoHandler<Mark, B, Ext>,
+	Ext: Clone + Send + Sync + 'static,
 {
 	fn with_extension(self, handler_extension: Ext) -> ExtendedHandler<Self::Handler, Ext> {
 		ExtendedHandler::new(self.into_handler(), handler_extension)
-	}
-}
-
-// --------------------------------------------------
-// HandlerService
-
-pub struct HandlerService<H> {
-	handler: H,
-}
-
-impl<H> From<H> for HandlerService<H> {
-	#[inline]
-	fn from(handler: H) -> Self {
-		Self { handler }
-	}
-}
-
-impl<H, B> Service<Request<B>> for HandlerService<H>
-where
-	H: Handler<B>,
-{
-	type Response = H::Response;
-	type Error = H::Error;
-	type Future = H::Future;
-
-	fn poll_ready(&mut self, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
-		Poll::Ready(Ok(()))
-	}
-
-	#[inline]
-	fn call(&mut self, mut request: Request<B>) -> Self::Future {
-		let mut args = request
-			.extensions_mut()
-			.remove::<Uncloneable<Args>>()
-			.expect("Uncloneable<Args> should be inserted in the Handler implementation for the Service")
-			.into_inner()
-			.expect("Uncloneable must always have a valid value");
-
-		self.handler.handle(request, args)
 	}
 }
 
@@ -190,17 +151,58 @@ where
 	type Future = H::Future;
 
 	#[inline]
-	fn handle(&self, mut request: Request<B>, mut args: Args) -> Self::Future {
-		let routing_state = args.take_routing_state();
+	fn handle(&self, mut request: RequestContext<B>, mut args: Args) -> Self::Future {
 		let node_extensions = args.take_node_extensions();
 
 		let mut args = Args {
-			routing_state,
 			node_extensions,
 			handler_extension: Cow::Borrowed(&self.extension),
 		};
 
 		self.inner.handle(request, args)
+	}
+}
+
+// --------------------------------------------------
+// HandlerService
+
+pub struct HandlerService<H> {
+	handler: H,
+}
+
+impl<H> From<H> for HandlerService<H> {
+	#[inline]
+	fn from(handler: H) -> Self {
+		Self { handler }
+	}
+}
+
+impl<H, B> TowerService<Request<B>> for HandlerService<H>
+where
+	H: Handler<B>,
+{
+	type Response = H::Response;
+	type Error = H::Error;
+	type Future = H::Future;
+
+	fn poll_ready(&mut self, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
+		Poll::Ready(Ok(()))
+	}
+
+	#[inline]
+	fn call(&mut self, mut request: Request<B>) -> Self::Future {
+		let (routing_state, args) = request
+			.extensions_mut()
+			.remove::<Uncloneable<(RoutingState, Args)>>()
+			.expect(
+				"Uncloneable<(RoutingState, Args)> should be inserted in the Handler implementation for the Service",
+			)
+			.into_inner()
+			.expect("Uncloneable must always have a valid value");
+
+		let request = RequestContext::new(request, routing_state);
+
+		self.handler.handle(request, args)
 	}
 }
 
@@ -274,7 +276,7 @@ impl Handler for BoxedHandler {
 	type Future = BoxedFuture<Result<Self::Response, Self::Error>>;
 
 	#[inline(always)]
-	fn handle(&self, request: Request, args: Args) -> Self::Future {
+	fn handle(&self, request: RequestContext, args: Args) -> Self::Future {
 		self.0.handle(request, args)
 	}
 }
@@ -314,7 +316,7 @@ impl Handler for ArcHandler {
 	type Future = BoxedFuture<Result<Self::Response, Self::Error>>;
 
 	#[inline(always)]
-	fn handle(&self, request: Request, args: Args) -> Self::Future {
+	fn handle(&self, request: RequestContext, args: Args) -> Self::Future {
 		self.0.handle(request, args)
 	}
 }
@@ -348,7 +350,7 @@ impl Handler for DummyHandler<DefaultResponseFuture> {
 	type Future = DefaultResponseFuture;
 
 	#[inline(always)]
-	fn handle(&self, _req: Request, _args: Args) -> Self::Future {
+	fn handle(&self, _req: RequestContext, _args: Args) -> Self::Future {
 		DefaultResponseFuture::new()
 	}
 }
@@ -375,7 +377,7 @@ impl Handler for DummyHandler<BoxedFuture<Result<Response, BoxedErrorResponse>>>
 	type Future = BoxedFuture<Result<Self::Response, Self::Error>>;
 
 	#[inline(always)]
-	fn handle(&self, _req: Request, _args: Args) -> Self::Future {
+	fn handle(&self, _req: RequestContext, _args: Args) -> Self::Future {
 		Box::pin(DefaultResponseFuture::new())
 	}
 }
@@ -385,7 +387,6 @@ impl Handler for DummyHandler<BoxedFuture<Result<Response, BoxedErrorResponse>>>
 
 #[non_exhaustive]
 pub struct Args<'n, HandlerExt: Clone = ()> {
-	pub(crate) routing_state: RoutingState,
 	pub node_extensions: NodeExtensions<'n>,
 	pub handler_extension: Cow<'n, HandlerExt>,
 }
@@ -393,7 +394,6 @@ pub struct Args<'n, HandlerExt: Clone = ()> {
 impl<'n> Args<'n, ()> {
 	pub(crate) fn new() -> Args<'static, ()> {
 		Args {
-			routing_state: RoutingState::default(),
 			node_extensions: NodeExtensions::new_owned(Extensions::new()),
 			handler_extension: Cow::Borrowed(&()),
 		}
@@ -403,14 +403,9 @@ impl<'n> Args<'n, ()> {
 impl<'n, HandlerExt: Clone> Args<'n, HandlerExt> {
 	pub(crate) fn to_owned(&mut self) -> Args<'static, HandlerExt> {
 		Args {
-			routing_state: self.take_routing_state(),
 			node_extensions: self.take_node_extensions().to_owned(),
 			handler_extension: Cow::Owned(self.handler_extension.clone().into_owned()),
 		}
-	}
-
-	pub(crate) fn take_routing_state(&mut self) -> RoutingState {
-		std::mem::take(&mut self.routing_state)
 	}
 
 	pub(crate) fn take_node_extensions(&mut self) -> NodeExtensions<'n> {
@@ -426,7 +421,6 @@ impl<'n, HandlerExt: Clone> Args<'n, HandlerExt> {
 		new_handler_extension: &'new_n NewHandlerExt,
 	) -> Args<'new_n, NewHandlerExt> {
 		Args {
-			routing_state: self.take_routing_state(),
 			node_extensions: new_node_extensions,
 			handler_extension: Cow::Borrowed(new_handler_extension),
 		}

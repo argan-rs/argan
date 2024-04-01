@@ -11,70 +11,69 @@ use super::*;
 // --------------------------------------------------
 // Result<T, E>
 
-impl<Args, T, E> FromRequestHead<Args> for Result<T, E>
-where
-	T: FromRequestHead<Args, Error = E>,
-{
-	type Error = Infallible;
+// impl<T, E> FromMutRequestHead for Result<T, E>
+// where
+// 	T: FromMutRequestHead<Error = E>,
+// {
+// 	type Error = Infallible;
+//
+// 	fn from_request_head(
+// 		head: &mut RequestHead,
+// 	) -> impl Future<Output = Result<Self, Self::Error>> {
+// 		T::from_request_head(head).map(|result| Ok(result))
+// 	}
+// }
 
-	fn from_request_head(
-		head: &mut RequestHead,
-		args: &Args,
-	) -> impl Future<Output = Result<Self, Self::Error>> {
-		T::from_request_head(head, args).map(|result| Ok(result))
-	}
-}
-
-impl<'r, B, Args, T, E: 'r> FromRequestRef<'r, B, Args> for Result<T, E>
+impl<'r, B, T, E: 'r> FromRequestRef<'r, B> for Result<T, E>
 where
-	T: FromRequestRef<'r, B, Args, Error = E>,
+	T: FromRequestRef<'r, B, Error = E>,
 {
 	type Error = Infallible;
 
 	#[inline(always)]
-	fn from_request_ref(
-		request: &'r Request<B>,
-		args: Option<&'r Args>,
-	) -> impl Future<Output = Result<Self, Self::Error>> {
-		T::from_request_ref(request, args).map(|result| Ok(result))
+	fn from_request_ref(request: &'r Request<B>) -> impl Future<Output = Result<Self, Self::Error>> {
+		T::from_request_ref(request).map(|result| Ok(result))
 	}
 }
 
-impl<B, Args, T, E> FromRequest<B, Args> for Result<T, E>
+impl<B, T, E> FromRequest<B> for Result<T, E>
 where
-	T: FromRequest<B, Args, Error = E>,
+	T: FromRequest<B, Error = E>,
 {
 	type Error = Infallible;
 
-	fn from_request(
-		request: Request<B>,
-		args: Args,
-	) -> impl Future<Output = Result<Self, Self::Error>> {
-		T::from_request(request, args).map(|result| Ok(result))
+	fn from_request(request: Request<B>) -> impl Future<Output = Result<Self, Self::Error>> {
+		T::from_request(request).map(|result| Ok(result))
 	}
 }
 
 // --------------------------------------------------
 // Method
 
-impl<Args> FromRequestHead<Args> for Method {
+// impl FromMutRequestHead for Method {
+// 	type Error = Infallible;
+//
+// 	#[inline(always)]
+// 	fn from_request_head(
+// 		head: &mut RequestHead,
+// 	) -> impl Future<Output = Result<Self, Self::Error>> {
+// 		ready(Ok(head.method.clone()))
+// 	}
+// }
+
+impl<'r, B> FromRequestRef<'r, B> for &'r Method {
 	type Error = Infallible;
 
-	fn from_request_head(
-		head: &mut RequestHead,
-		_args: &Args,
-	) -> impl Future<Output = Result<Self, Self::Error>> {
-		ready(Ok(head.method.clone()))
+	#[inline(always)]
+	fn from_request_ref(request: &'r Request<B>) -> impl Future<Output = Result<Self, Self::Error>> {
+		ready(Ok(request.method()))
 	}
 }
 
-impl<B, Args> FromRequest<B, Args> for Method {
+impl<B> FromRequest<B> for Method {
 	type Error = Infallible;
 
-	fn from_request(
-		request: Request<B>,
-		_args: Args,
-	) -> impl Future<Output = Result<Self, Self::Error>> {
+	fn from_request(request: Request<B>) -> impl Future<Output = Result<Self, Self::Error>> {
 		let (head, _) = request.into_parts();
 
 		ready(Ok(head.method))
@@ -92,24 +91,29 @@ impl IntoArray<Method, 1> for Method {
 // --------------------------------------------------
 // Uri
 
-impl<Args> FromRequestHead<Args> for Uri {
+// impl FromMutRequestHead for Uri {
+// 	type Error = Infallible;
+//
+// 	fn from_request_head(
+// 		head: &mut RequestHead,
+// 	) -> impl Future<Output = Result<Self, Self::Error>> {
+// 		ready(Ok(head.uri.clone()))
+// 	}
+// }
+
+impl<'r, B> FromRequestRef<'r, B> for &'r Uri {
 	type Error = Infallible;
 
-	fn from_request_head(
-		head: &mut RequestHead,
-		_args: &Args,
-	) -> impl Future<Output = Result<Self, Self::Error>> {
-		ready(Ok(head.uri.clone()))
+	#[inline(always)]
+	fn from_request_ref(request: &'r Request<B>) -> impl Future<Output = Result<Self, Self::Error>> {
+		ready(Ok(request.uri()))
 	}
 }
 
-impl<B, Args> FromRequest<B, Args> for Uri {
+impl<B> FromRequest<B> for Uri {
 	type Error = Infallible;
 
-	fn from_request(
-		request: Request<B>,
-		_args: Args,
-	) -> impl Future<Output = Result<Self, Self::Error>> {
+	fn from_request(request: Request<B>) -> impl Future<Output = Result<Self, Self::Error>> {
 		let (head, _) = request.into_parts();
 
 		ready(Ok(head.uri))
@@ -119,24 +123,20 @@ impl<B, Args> FromRequest<B, Args> for Uri {
 // --------------------------------------------------
 // Version
 
-impl<Args> FromRequestHead<Args> for Version {
+// impl FromMutRequestHead for Version {
+// 	type Error = Infallible;
+//
+// 	fn from_request_head(
+// 		head: &mut RequestHead,
+// 	) -> impl Future<Output = Result<Self, Self::Error>> {
+// 		ready(Ok(head.version))
+// 	}
+// }
+
+impl<B> FromRequest<B> for Version {
 	type Error = Infallible;
 
-	fn from_request_head(
-		head: &mut RequestHead,
-		_args: &Args,
-	) -> impl Future<Output = Result<Self, Self::Error>> {
-		ready(Ok(head.version))
-	}
-}
-
-impl<B, Args> FromRequest<B, Args> for Version {
-	type Error = Infallible;
-
-	fn from_request(
-		request: Request<B>,
-		_args: Args,
-	) -> impl Future<Output = Result<Self, Self::Error>> {
+	fn from_request(request: Request<B>) -> impl Future<Output = Result<Self, Self::Error>> {
 		let (head, _) = request.into_parts();
 
 		ready(Ok(head.version))
@@ -146,24 +146,29 @@ impl<B, Args> FromRequest<B, Args> for Version {
 // --------------------------------------------------
 // HeaderMap
 
-impl<Args> FromRequestHead<Args> for HeaderMap {
+// impl FromMutRequestHead for HeaderMap {
+// 	type Error = Infallible;
+//
+// 	fn from_request_head(
+// 		head: &mut RequestHead,
+// 	) -> impl Future<Output = Result<Self, Self::Error>> {
+// 		ready(Ok(head.headers.clone()))
+// 	}
+// }
+
+impl<'r, B> FromRequestRef<'r, B> for &'r HeaderMap {
 	type Error = Infallible;
 
-	fn from_request_head(
-		head: &mut RequestHead,
-		_args: &Args,
-	) -> impl Future<Output = Result<Self, Self::Error>> {
-		ready(Ok(head.headers.clone()))
+	#[inline(always)]
+	fn from_request_ref(request: &'r Request<B>) -> impl Future<Output = Result<Self, Self::Error>> {
+		ready(Ok(request.headers()))
 	}
 }
 
-impl<B, Args> FromRequest<B, Args> for HeaderMap {
+impl<B> FromRequest<B> for HeaderMap {
 	type Error = Infallible;
 
-	fn from_request(
-		request: Request<B>,
-		_args: Args,
-	) -> impl Future<Output = Result<Self, Self::Error>> {
+	fn from_request(request: Request<B>) -> impl Future<Output = Result<Self, Self::Error>> {
 		let (RequestHead { headers, .. }, _) = request.into_parts();
 
 		ready(Ok(headers))
@@ -173,70 +178,88 @@ impl<B, Args> FromRequest<B, Args> for HeaderMap {
 // --------------------------------------------------
 // Tuples
 
-macro_rules! impl_extractions_for_tuples {
-	($t1:ident, $(($($t:ident),*),)? $tl:ident) => {
-		#[allow(non_snake_case)]
-		impl<$t1, $($($t,)*)? $tl, Args> FromRequestHead<Args> for ($t1, $($($t,)*)? $tl)
-		where
-			$t1: FromRequestHead<Args> + Send,
-			$($($t: FromRequestHead<Args> + Send,)*)?
-			$tl: FromRequestHead<Args> + Send,
-			Args: Sync,
-		{
-			type Error = BoxedErrorResponse;
+// macro_rules! impl_extractions_for_tuples {
+// 	($t1:ident, $(($($t:ident),*),)? $tl:ident) => {
 
-			async fn from_request_head(
-				head: &mut RequestHead,
-				args: &Args,
-			) -> Result<Self, Self::Error> {
-				let $t1 = $t1::from_request_head(head, args).await.map_err(Into::into)?;
+// #[allow(non_snake_case)]
+// impl<$t1, $($($t,)*)? $tl> FromMutRequestHead for ($t1, $($($t,)*)? $tl)
+// where
+// 	$t1: FromMutRequestHead + Send,
+// 	$($($t: FromMutRequestHead + Send,)*)?
+// 	$tl: FromMutRequestHead + Send,
+// {
+// 	type Error = BoxedErrorResponse;
+//
+// 	async fn from_request_head(head: &mut RequestHead) -> Result<Self, Self::Error> {
+// 		let $t1 = $t1::from_request_head(head).await.map_err(Into::into)?;
+//
+// 		$(
+// 			$(
+// 				let $t = $t::from_request_head(head).await.map_err(Into::into)?;
+// 			)*
+// 		)?
+//
+// 		let $tl = $tl::from_request_head(head).await.map_err(Into::into)?;
+//
+// 		Ok(($t1, $($($t,)*)? $tl))
+// 	}
+// }
 
-				$(
-					$(
-						let $t = $t::from_request_head(head, args).await.map_err(Into::into)?;
-					)*
-				)?
+// #[allow(non_snake_case)]
+// impl<'r, B, $t1, $($($t,)*)? $tl> FromRequestRef<'r, B> for ($t1, $($($t,)*)? $tl)
+// where
+// 	B: Send + Sync,
+// 	$t1: FromRequestRef<'r, B> + Send,
+// 	$($($t: FromRequestRef<'r, B> + Send,)*)?
+// 	$tl: FromRequestRef<'r, B> + Send,
+// {
+// 	type Error = BoxedErrorResponse;
+//
+// 	async fn from_request_ref(request: &'r Request<B>) -> Result<Self, Self::Error> {
+// 		let $t1 = $t1::from_request_ref(request).await.map_err(Into::into)?;
+//
+// 		$(
+// 			$(
+// 				let $t = $t::from_request_ref(request).await.map_err(Into::into)?;
+// 			)*
+// 		)?
+//
+// 		let $tl = $tl::from_request_ref(request).await.map_err(Into::into)?;
+//
+// 		Ok(($t1, $($($t,)*)? $tl))
+// 	}
+// }
 
-				let $tl = $tl::from_request_head(head, args).await.map_err(Into::into)?;
+// #[allow(non_snake_case)]
+// impl<$t1, $($($t,)*)? $tl, B> FromRequest<B> for ($t1, $($($t,)*)? $tl)
+// where
+// 	$t1: FromMutRequestHead + Send,
+// 	$($($t: FromMutRequestHead + Send,)*)?
+// 	$tl: FromRequest<B> + Send,
+// 	B: Send,
+// {
+// 	type Error = BoxedErrorResponse;
+//
+// 	async fn from_request(request: Request<B>) -> Result<Self, Self::Error> {
+// 		let (mut head, body) = request.into_parts();
+//
+// 		let $t1 = $t1::from_request_head(&mut head).await.map_err(Into::into)?;
+//
+// 		$($(
+// 			let $t = $t::from_request_head(&mut head).await.map_err(Into::into)?;
+// 		)*)?
+//
+// 		let request = Request::from_parts(head, body);
+//
+// 		let $tl = $tl::from_request(request).await.map_err(Into::into)?;
+//
+// 		Ok(($t1, $($($t,)*)? $tl))
+// 	}
+// }
 
-				Ok(($t1, $($($t,)*)? $tl))
-			}
-		}
+// };
+// }
 
-		#[allow(non_snake_case)]
-		impl<$t1, $($($t,)*)? $tl, B, Args>
-		FromRequest<B, Args> for ($t1, $($($t,)*)? $tl)
-		where
-			$t1: FromRequestHead<Args> + Send,
-			$($($t: FromRequestHead<Args> + Send,)*)?
-			$tl: FromRequest<B, Args> + Send,
-			B: Send,
-			Args: Send,
-		{
-			type Error = BoxedErrorResponse;
-
-			async fn from_request(
-				request: Request<B>,
-				args: Args,
-			) -> Result<Self, Self::Error> {
-				let (mut head, body) = request.into_parts();
-
-				let $t1 = $t1::from_request_head(&mut head, &args).await.map_err(Into::into)?;
-
-				$($(
-					let $t = $t::from_request_head(&mut head, &args).await.map_err(Into::into)?;
-				)*)?
-
-				let request = Request::from_parts(head, body);
-
-				let $tl = $tl::from_request(request, args).await.map_err(Into::into)?;
-
-				Ok(($t1, $($($t,)*)? $tl))
-			}
-		}
-	};
-}
-
-call_for_tuples!(impl_extractions_for_tuples!);
+// call_for_tuples!(impl_extractions_for_tuples!);
 
 // --------------------------------------------------------------------------------

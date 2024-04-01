@@ -5,7 +5,7 @@ use tokio::io::AsyncBufReadExt;
 use crate::{
 	common::{marker::Sealed, trim, SCOPE_VALIDITY},
 	handler::Args,
-	request::{FromRequest, FromRequestHead, Request, RequestHead},
+	request::{FromRequest, Request, RequestHead},
 	response::{BoxedErrorResponse, IntoResponse, IntoResponseHead, Response, ResponseHead},
 	ImplError,
 };

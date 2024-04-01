@@ -13,6 +13,7 @@ use pin_project::pin_project;
 
 use crate::{
 	handler::{AdaptiveHandler, Args, BoxedHandler, DummyHandler, Handler},
+	request::RequestContext,
 	response::{BoxedErrorResponse, IntoResponse, Response},
 };
 
@@ -64,7 +65,7 @@ where
 	type Future = IntoResponseResultFuture<H::Future>;
 
 	#[inline]
-	fn handle(&self, request: Request<B>, args: Args) -> Self::Future {
+	fn handle(&self, request: RequestContext<B>, args: Args) -> Self::Future {
 		let response_future = self.0.handle(request, args);
 
 		IntoResponseResultFuture::from(response_future)
@@ -121,7 +122,7 @@ where
 	type Error = H::Error;
 	type Future = BoxedFuture<Result<Self::Response, Self::Error>>;
 
-	fn handle(&self, request: Request<B>, args: Args) -> Self::Future {
+	fn handle(&self, request: RequestContext<B>, args: Args) -> Self::Future {
 		let response_future = self.0.handle(request, args);
 
 		Box::pin(response_future)
@@ -183,7 +184,7 @@ where
 	type Future = H::Future;
 
 	#[inline(always)]
-	fn handle(&self, mut request: Request<B>, args: Args<'_, ()>) -> Self::Future {
+	fn handle(&self, mut request: RequestContext<B>, args: Args<'_, ()>) -> Self::Future {
 		self.boxed_modifier.0(request.extensions_mut());
 
 		self.inner_handler.handle(request, args)

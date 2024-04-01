@@ -1,6 +1,10 @@
-use http::{response::Parts, HeaderName, HeaderValue, StatusCode};
+use http::{HeaderName, HeaderValue, StatusCode};
 
 use crate::body::Body;
+
+// ----------
+
+pub use http::response::Builder;
 
 // --------------------------------------------------
 
@@ -13,7 +17,7 @@ mod impls;
 // --------------------------------------------------------------------------------
 
 pub type Response<B = Body> = http::response::Response<B>;
-pub type ResponseHead = Parts;
+pub type ResponseHead = http::response::Parts;
 
 pub type BoxedErrorResponse = Box<dyn ErrorResponse + Send + Sync>;
 

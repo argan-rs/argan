@@ -120,17 +120,17 @@ where
 // 	use std::{convert::Infallible, future::ready, marker::PhantomData};
 //
 // 	use argan_core::{
-// 		request::{FromRequest, FromRequestHead, Request},
+// 		request::{FromRequest, FromRequestRef, Request},
 // 		response::Response,
 // 		BoxedFuture,
 // 	};
-// 	use http::{Extensions, Uri};
+// 	use http::{Extensions, HeaderMap, Uri};
 //
 // 	use crate::{
 // 		common::marker::Private,
-// 		data::{extensions::NodeExtension, form::Multipart, json::Json},
+// 		data::{form::MultipartForm, json::Json, Text},
 // 		handler::Args,
-// 		request::{Extract, PathParams, RemainingPath, RemainingPathRef},
+// 		request::{Extract, PathParams, PathParamsError, RemainingPath, RequestContext, SizeLimit},
 // 		routing::{RouteTraversal, RoutingState},
 // 	};
 //
@@ -141,12 +141,12 @@ where
 //
 // 	#[derive(Clone)]
 // 	struct H<T1>(PhantomData<T1>);
-// 	impl<'n, T1: FromRequest<Body, Args<'n, ()>>> Handler for H<T1> {
+// 	impl<T1: FromRequest<Body>> Handler for H<T1> {
 // 		type Response = Response;
 // 		type Error = Infallible;
 // 		type Future = BoxedFuture<Result<Self::Response, Self::Error>>;
 //
-// 		fn handle(&self, request: Request<Body>, args: Args<'_, ()>) -> Self::Future {
+// 		fn handle(&self, request: RequestContext<Body>, args: Args<'_, ()>) -> Self::Future {
 // 			Box::pin(ready(Ok(Response::default())))
 // 		}
 // 	}
@@ -164,8 +164,7 @@ where
 // 		}
 // 	}
 //
-// 	fn is_from_request<'a, F2: FromRequestHead<Args<'a, ()>>, F1: FromRequest<Body, Args<'a, ()>>>() {
-// 	}
+// 	fn is_from_request<'r, B, F2: FromRequestRef<'r, B>, F1: FromRequest<Body>>() {}
 //
 // 	fn is_into_handler<H, Mark>(h: H)
 // 	where
@@ -180,10 +179,10 @@ where
 //
 // 	#[test]
 // 	fn ttt_test() {
-// 		is_from_request::<RemainingPath, PathParams<String>>();
+// 		// is_from_request::<RemainingPath, PathParams<String>>();
 // 		// is_from_request::<Method, Uri>();
 // 		// is_from_request::<Method, RemainingPath>();
-// 		is_from_request::<PathParams<String>, Request>();
+// 		// is_from_request::<PathParams<String>, Request>();
 //
 // 		// let boo = Boo::<RemainingPath>(PhantomData);
 // 		// is_into_handler(boo);
@@ -193,43 +192,57 @@ where
 //
 // 		// let boo = Boo::<Request>(PhantomData);
 // 		// is_into_handler(boo);
+// 		//
+// 		// is_into_handler(|_: PathParams<String>, _: RemainingPath, _: Request| async {});
+// 		// is_into_handler(|_: NodeExtension<String>, _: Request| async {});
+// 		// is_into_handler(|_: NodeExtension<String>, _: Multipart| async {});
+// 		// is_into_handler(|_: Multipart| async {});
+// 		is_into_handler(|_: RequestContext| async {});
 //
-// 		is_into_handler(|_: PathParams<String>, _: RemainingPath, _: Request| async {});
-// 		is_into_handler(|_: NodeExtension<String>, _: Request| async {});
-// 		is_into_handler(|_: NodeExtension<String>, _: Multipart| async {});
-// 		is_into_handler(|_: Multipart| async {});
-// 		is_into_handler::<_, Request>(|_: Request| async {});
-//
-// 		is_into_handler::<_, Request>(|mut request: Request| async move {
-// 			let remaining_path = request.extract_ref::<RemainingPathRef>().await;
-// 			// let json = request.extract::<Json<String>>().await;
-// 			let multipart = request.extract::<Multipart>().await;
+// 		is_into_handler(|mut request: RequestContext| async move {
+// 			let remaining_path = request.extract::<RemainingPath>().await;
+// 			let multipart = request.extract_into::<MultipartForm>().await;
 // 		});
 //
-// 		is_into_handler::<_, Request>(foo1);
+// 		// is_into_handler((|request: Request, args: Args<'static, usize>| async move {}).with_extensions(42));
 //
-// 		is_into_handler(|path_params: PathParams<String>, mut request: Request| async move {
-// 			let remaining_path = request.extract_ref::<RemainingPathRef>().await;
-// 			let json = request.extract::<Json<String>>().await;
-// 			// let multipart = request.extract::<Multipart>().await;
+// 		is_into_handler(foo1);
+//
+// 		is_into_handler(|mut request: RequestContext| async move {
+// 			let path_params = request.extract::<PathParams<String>>().await;
+// 			let remaining_path = request.extract::<RemainingPath>().await;
+// 			let text = request.extract_into::<Text>().await;
 // 		});
 //
-// 		is_into_handler(|request: Request, args: Args<'static, ()>| async move {
-// 			let remaining_path = request.extract_ref::<PathParams<&str>>().await;
-// 			let path_params = request.extract_ref_with_args::<_, PathParams<&str>>(&args).await;
-// 			let remaining_path = request.extract_ref_with_args::<_, RemainingPathRef>(&args).await;
-// 			let json = request.extract_with_args::<_, Json<String>>(args).await;
-// 		});
+// 		is_into_handler(
+// 			|request: RequestContext, args: Args<'static, ()>| async move {
+// 				let uri = request.uri_ref();
+// 				let headers = request.headers_ref();
+// 				let path_params = request.path_params_as::<&str>();
+// 				let remaining_path = request.remaining_path_segments();
+// 				let json = request.into_json_data::<String>(SizeLimit::Default).await;
+// 			},
+// 		);
+//
+// 		is_into_handler(
+// 			|request: RequestContext, args: Args<'static, ()>| async move {
+// 				let path_params = request.extract::<PathParams<String>>().await;
+// 				let path_params = request.extract::<PathParams<&str>>().await;
+// 				let remaining_path = request.extract::<RemainingPath>().await;
+// 				let json = request.extract_into::<Json<String>>().await;
+// 			},
+// 		);
 //
 // 		is_into_handler(foo2);
 // 	}
 //
-// 	async fn foo1(request: Request) {
-// 		let remaining_path = request.extract_ref::<RemainingPathRef>().await;
-// 		let json = request.extract::<Json<String>>().await;
+// 	async fn foo1(request: RequestContext) {
+// 		let remaining_path = request.extract::<RemainingPath>().await;
+// 		let binary = request.into_binary_data(SizeLimit::Default).await;
 // 	}
 //
-// 	async fn foo2(request: Request, args: Args<'static, ()>) {
-// 		let remaining_path = request.extract_ref_with_args::<_, RemainingPathRef>(&args).await;
+// 	async fn foo2(request: RequestContext, args: Args<'static, ()>) {
+// 		let remaining_path = request.extract::<PathParams<&str>>().await;
+// 		let text = request.into_text_data(SizeLimit::Default).await;
 // 	}
 // }

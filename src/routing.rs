@@ -45,12 +45,12 @@ impl RouteTraversal {
 	}
 
 	#[inline(always)]
-	pub(crate) fn remaining_segments<'req>(&self, route: &'req str) -> Option<&'req str> {
+	pub(crate) fn remaining_segments<'req>(&self, route: &'req str) -> &'req str {
 		if self.0 < route.len() {
-			return Some(&route[self.0..]);
+			return &route[self.0..];
 		}
 
-		None
+		""
 	}
 
 	#[inline(always)]
@@ -205,7 +205,7 @@ mod test {
 		assert!(route_traversal.has_remaining_segments(&route_str));
 		assert_eq!(
 			route[1][1..].to_owned() + route[2],
-			route_traversal.remaining_segments(&route_str).unwrap()
+			route_traversal.remaining_segments(&route_str)
 		);
 	}
 }

@@ -7,7 +7,7 @@ use serde_json::error::Category;
 
 use crate::{
 	handler::Args,
-	request::{FromRequest, Request},
+	request::{FromRequest, Request, SizeLimit},
 	response::{BoxedErrorResponse, IntoResponse, IntoResponseResult, Response},
 	routing::RoutingState,
 };
@@ -18,37 +18,57 @@ use super::*;
 // --------------------------------------------------------------------------------
 
 // --------------------------------------------------
+
+pub(crate) const JSON_BODY_SIZE_LIMIT: usize = { 2 * 1024 * 1024 };
+
+// ----------
+
+#[inline(always)]
+pub(crate) async fn request_into_json_data<T, B>(
+	request: Request<B>,
+	size_limit: usize,
+) -> Result<T, JsonError>
+where
+	B: HttpBody,
+	B::Error: Into<BoxedError>,
+	T: DeserializeOwned,
+{
+	let content_type = content_type(&request)?;
+
+	if content_type == mime::APPLICATION_JSON {
+		match Limited::new(request, size_limit).collect().await {
+			Ok(body) => serde_json::from_slice::<T>(&body.to_bytes())
+				.map(|value| value)
+				.map_err(Into::<JsonError>::into),
+			Err(error) => Err(
+				error
+					.downcast_ref::<LengthLimitError>()
+					.map_or(JsonError::BufferingFailure, |_| JsonError::ContentTooLarge),
+			),
+		}
+	} else {
+		Err(JsonError::UnsupportedMediaType)
+	}
+}
+
+// --------------------------------------------------
 // Json
 
-pub struct Json<T, const SIZE_LIMIT: usize = { 2 * 1024 * 1024 }>(pub T);
+pub struct Json<T, const SIZE_LIMIT: usize = JSON_BODY_SIZE_LIMIT>(pub T);
 
-impl<'n, B, HE, T, const SIZE_LIMIT: usize> FromRequest<B, Args<'n, HE>> for Json<T, SIZE_LIMIT>
+impl<B, T, const SIZE_LIMIT: usize> FromRequest<B> for Json<T, SIZE_LIMIT>
 where
 	B: HttpBody + Send,
 	B::Data: Send,
 	B::Error: Into<BoxedError>,
-	HE: Clone + Send + Sync,
 	T: DeserializeOwned,
 {
 	type Error = JsonError;
 
-	async fn from_request(request: Request<B>, _args: Args<'n, HE>) -> Result<Self, Self::Error> {
-		let content_type = content_type(&request)?;
-
-		if content_type == mime::APPLICATION_JSON {
-			match Limited::new(request, SIZE_LIMIT).collect().await {
-				Ok(body) => serde_json::from_slice::<T>(&body.to_bytes())
-					.map(|value| Self(value))
-					.map_err(Into::<JsonError>::into),
-				Err(error) => Err(
-					error
-						.downcast_ref::<LengthLimitError>()
-						.map_or(JsonError::BufferingFailure, |_| JsonError::ContentTooLarge),
-				),
-			}
-		} else {
-			Err(JsonError::UnsupportedMediaType)
-		}
+	async fn from_request(request: Request<B>) -> Result<Self, Self::Error> {
+		request_into_json_data::<T, B>(request, SIZE_LIMIT)
+			.await
+			.map(Self)
 	}
 }
 
@@ -148,9 +168,7 @@ mod test {
 			.body(json_data_string)
 			.unwrap();
 
-		let Json(mut json_data) = Json::<Data>::from_request(request, Args::new())
-			.await
-			.unwrap();
+		let Json(mut json_data) = Json::<Data>::from_request(request).await.unwrap();
 
 		assert_eq!(json_data.login, login.as_ref());
 		assert_eq!(json_data.password, password.as_ref());
@@ -171,9 +189,7 @@ mod test {
 			.body(json_body)
 			.unwrap();
 
-		let Json(json_data) = Json::<Data>::from_request(request, Args::new())
-			.await
-			.unwrap();
+		let Json(json_data) = Json::<Data>::from_request(request).await.unwrap();
 
 		assert_eq!(json_data.some_id, Some(1));
 		assert_eq!(json_data.login, login.as_ref());

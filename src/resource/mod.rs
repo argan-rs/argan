@@ -23,7 +23,7 @@ use crate::{
 		_request_receiver,
 	},
 	pattern::{split_uri_host_and_path, Pattern, Similarity},
-	request::{FromRequest, FromRequestHead, Request, RequestHead},
+	request::{FromRequest, Request, RequestHead},
 	response::Response,
 	routing::{RouteSegments, RoutingState},
 };
@@ -31,8 +31,6 @@ use crate::{
 // --------------------------------------------------
 
 mod config;
-mod service;
-mod static_files;
 
 use self::{
 	config::{resource_config_from, ConfigFlags},
@@ -41,7 +39,10 @@ use self::{
 	},
 };
 
+mod service;
 pub use service::ResourceService;
+
+mod static_files;
 pub use static_files::StaticFiles;
 
 // --------------------------------------------------------------------------------
