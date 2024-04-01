@@ -54,37 +54,37 @@ where
 // 	}
 // }
 
-impl<'r, B, T> FromRequestRef<'r, B> for PathParams<T>
-where
-	B: Sync,
-	T: Deserialize<'r> + Send + 'r,
-{
-	type Error = PathParamsError;
-
-	async fn from_request_ref(request: &'r Request<B>) -> Result<Self, Self::Error> {
-		let mut from_params_list = request.uri_params_deserializer();
-
-		T::deserialize(&mut from_params_list)
-			.map(|value| Self(value))
-			.map_err(Into::into)
-	}
-}
-
-impl<B, T> FromRequest<B> for PathParams<T>
-where
-	B: Send,
-	T: DeserializeOwned,
-{
-	type Error = PathParamsError;
-
-	async fn from_request(request: Request<B>) -> Result<Self, Self::Error> {
-		let mut from_params_list = request.uri_params_deserializer();
-
-		T::deserialize(&mut from_params_list)
-			.map(|value| Self(value))
-			.map_err(Into::into)
-	}
-}
+// impl<'r, B, T> FromRequestRef<'r, B> for PathParams<T>
+// where
+// 	B: Sync,
+// 	T: Deserialize<'r> + Send + 'r,
+// {
+// 	type Error = PathParamsError;
+//
+// 	async fn from_request_ref(request: &'r Request<B>) -> Result<Self, Self::Error> {
+// 		let mut from_params_list = request.uri_params_deserializer();
+//
+// 		T::deserialize(&mut from_params_list)
+// 			.map(|value| Self(value))
+// 			.map_err(Into::into)
+// 	}
+// }
+//
+// impl<B, T> FromRequest<B> for PathParams<T>
+// where
+// 	B: Send,
+// 	T: DeserializeOwned,
+// {
+// 	type Error = PathParamsError;
+//
+// 	async fn from_request(request: Request<B>) -> Result<Self, Self::Error> {
+// 		let mut from_params_list = request.uri_params_deserializer();
+//
+// 		T::deserialize(&mut from_params_list)
+// 			.map(|value| Self(value))
+// 			.map_err(Into::into)
+// 	}
+// }
 
 impl<T> Debug for PathParams<T>
 where
@@ -208,28 +208,28 @@ pub struct RemainingPath<'r>(pub Cow<'r, str>);
 // 	}
 // }
 
-impl<'r, B> FromRequestRef<'r, B> for RemainingPath<'r>
-where
-	B: Sync,
-{
-	type Error = Infallible;
-
-	async fn from_request_ref(request: &'r Request<B>) -> Result<Self, Self::Error> {
-		Ok(Self(request.routing_remaining_segments().into()))
-	}
-}
-
-impl<B> FromRequest<B> for RemainingPath<'static>
-where
-	B: Send + 'static,
-{
-	type Error = Infallible;
-
-	async fn from_request(request: Request<B>) -> Result<Self, Self::Error> {
-		Ok(Self(Cow::Owned(
-			request.routing_remaining_segments().into(),
-		)))
-	}
-}
+// impl<'r, B> FromRequestRef<'r, B> for RemainingPath<'r>
+// where
+// 	B: Sync,
+// {
+// 	type Error = Infallible;
+//
+// 	async fn from_request_ref(request: &'r Request<B>) -> Result<Self, Self::Error> {
+// 		Ok(Self(request.routing_remaining_segments().into()))
+// 	}
+// }
+//
+// impl<B> FromRequest<B> for RemainingPath<'static>
+// where
+// 	B: Send + 'static,
+// {
+// 	type Error = Infallible;
+//
+// 	async fn from_request(request: Request<B>) -> Result<Self, Self::Error> {
+// 		Ok(Self(Cow::Owned(
+// 			request.routing_remaining_segments().into(),
+// 		)))
+// 	}
+// }
 
 // --------------------------------------------------------------------------------

@@ -33,7 +33,7 @@ use crate::{
 	},
 	middleware::{layer_targets::LayerTarget, BoxedLayer, Layer, ResponseResultFutureBoxer},
 	pattern::{ParamsList, Pattern},
-	request::{Request, RequestContext, RequestRoutingStateExt},
+	request::{Request, RequestContext},
 	response::{BoxedErrorResponse, InfallibleResponseFuture, IntoResponse, Redirect, Response},
 	routing::{self, RouteTraversal, RoutingState, UnusedRequest},
 };

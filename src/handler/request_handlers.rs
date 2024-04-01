@@ -11,7 +11,7 @@ use crate::{
 	common::{marker::Private, Uncloneable},
 	data::extensions::NodeExtensions,
 	middleware::{layer_targets::LayerTarget, BoxedLayer, Layer, ResponseResultFutureBoxer},
-	request::{Request, RequestContext, RequestRoutingStateExt},
+	request::{Request, RequestContext},
 	resource::Resource,
 	response::{BoxedErrorResponse, IntoResponse, Response, ResponseError},
 	routing::{RoutingState, UnusedRequest},

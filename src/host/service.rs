@@ -10,7 +10,7 @@ use crate::{
 	data::extensions::NodeExtensions,
 	handler::{futures::ResponseToResultFuture, request_handlers::handle_mistargeted_request, Args},
 	pattern::ParamsList,
-	request::{Request, RequestContext, RequestRoutingStateExt},
+	request::{Request, RequestContext},
 	resource::ResourceService,
 	response::{BoxedErrorResponse, InfallibleResponseFuture, IntoResponse, Response},
 	routing::{RouteTraversal, RoutingState},

@@ -15,7 +15,7 @@ use crate::{
 	host::{Host, HostService},
 	middleware::{layer_targets::LayerTarget, Layer},
 	pattern::ParamsList,
-	request::{Request, RequestContext, RequestRoutingStateExt},
+	request::{Request, RequestContext},
 	resource::{Resource, ResourceService},
 	response::{BoxedErrorResponse, InfallibleResponseFuture, IntoResponse, Response},
 	routing::{RouteTraversal, RoutingState},

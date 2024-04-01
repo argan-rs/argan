@@ -160,72 +160,78 @@ impl<B> FromRequest<B> for WebSocketUpgrade {
 	type Error = WebSocketUpgradeError;
 
 	fn from_request(mut request: Request<B>) -> impl Future<Output = Result<Self, Self::Error>> {
-		if request.method() != Method::GET {
-			panic!("WebSocket is not supported with methods other than GET")
-		}
-
-		if !request
-			.headers()
-			.get(CONNECTION)
-			.is_some_and(|header_value| header_value.as_bytes().eq_ignore_ascii_case(b"upgrade"))
-		{
-			return ready(Err(WebSocketUpgradeError::InvalidConnectionHeader));
-		}
-
-		if !request
-			.headers()
-			.get(UPGRADE)
-			.is_some_and(|header_value| header_value.as_bytes().eq_ignore_ascii_case(b"websocket"))
-		{
-			return ready(Err(WebSocketUpgradeError::InvalidUpgradeHeader));
-		}
-
-		if !request
-			.headers()
-			.get(SEC_WEBSOCKET_VERSION)
-			.is_some_and(|header_value| header_value.as_bytes() == b"13")
-		{
-			return ready(Err(WebSocketUpgradeError::InvalidSecWebSocketVersion));
-		}
-
-		let Some(mut sec_websocket_accept_value) = request
-			.headers()
-			.get(SEC_WEBSOCKET_KEY)
-			.map(|header_value| sec_websocket_accept_value_from(header_value.as_bytes()))
-		else {
-			return ready(Err(WebSocketUpgradeError::MissingSecWebSocketKey));
-		};
-
-		let Some(upgrade_future) = request
-			.extensions_mut()
-			.remove::<OnUpgrade>()
-			.map(UpgradeFuture)
-		else {
-			return ready(Err(WebSocketUpgradeError::UnupgradableConnection));
-		};
-
-		let some_requested_protocols = request.headers_mut().remove(SEC_WEBSOCKET_PROTOCOL);
-
-		let mut response = StatusCode::SWITCHING_PROTOCOLS.into_response();
-
-		response
-			.headers_mut()
-			.insert(CONNECTION, HeaderValue::from_static("upgrade"));
-
-		response
-			.headers_mut()
-			.insert(UPGRADE, HeaderValue::from_static("websocket"));
-
-		response
-			.headers_mut()
-			.insert(SEC_WEBSOCKET_ACCEPT, sec_websocket_accept_value);
-
-		ready(Ok(WebSocketUpgrade::new(
-			response,
-			upgrade_future,
-			some_requested_protocols,
-		)))
+		ready(request_into_websocket_upgrade(request))
 	}
+}
+
+pub(crate) fn request_into_websocket_upgrade<B>(
+	mut request: Request<B>,
+) -> Result<WebSocketUpgrade, WebSocketUpgradeError> {
+	if request.method() != Method::GET {
+		panic!("WebSocket is not supported with methods other than GET")
+	}
+
+	if !request
+		.headers()
+		.get(CONNECTION)
+		.is_some_and(|header_value| header_value.as_bytes().eq_ignore_ascii_case(b"upgrade"))
+	{
+		return Err(WebSocketUpgradeError::InvalidConnectionHeader);
+	}
+
+	if !request
+		.headers()
+		.get(UPGRADE)
+		.is_some_and(|header_value| header_value.as_bytes().eq_ignore_ascii_case(b"websocket"))
+	{
+		return Err(WebSocketUpgradeError::InvalidUpgradeHeader);
+	}
+
+	if !request
+		.headers()
+		.get(SEC_WEBSOCKET_VERSION)
+		.is_some_and(|header_value| header_value.as_bytes() == b"13")
+	{
+		return Err(WebSocketUpgradeError::InvalidSecWebSocketVersion);
+	}
+
+	let Some(mut sec_websocket_accept_value) = request
+		.headers()
+		.get(SEC_WEBSOCKET_KEY)
+		.map(|header_value| sec_websocket_accept_value_from(header_value.as_bytes()))
+	else {
+		return Err(WebSocketUpgradeError::MissingSecWebSocketKey);
+	};
+
+	let Some(upgrade_future) = request
+		.extensions_mut()
+		.remove::<OnUpgrade>()
+		.map(UpgradeFuture)
+	else {
+		return Err(WebSocketUpgradeError::UnupgradableConnection);
+	};
+
+	let some_requested_protocols = request.headers_mut().remove(SEC_WEBSOCKET_PROTOCOL);
+
+	let mut response = StatusCode::SWITCHING_PROTOCOLS.into_response();
+
+	response
+		.headers_mut()
+		.insert(CONNECTION, HeaderValue::from_static("upgrade"));
+
+	response
+		.headers_mut()
+		.insert(UPGRADE, HeaderValue::from_static("websocket"));
+
+	response
+		.headers_mut()
+		.insert(SEC_WEBSOCKET_ACCEPT, sec_websocket_accept_value);
+
+	Ok(WebSocketUpgrade::new(
+		response,
+		upgrade_future,
+		some_requested_protocols,
+	))
 }
 
 fn sec_websocket_accept_value_from(key: &[u8]) -> HeaderValue {
