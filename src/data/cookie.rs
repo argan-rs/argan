@@ -5,7 +5,7 @@ use std::{
 	marker::PhantomData,
 };
 
-use argan_core::IntoArray;
+use argan_core::{request::FromRequestRef, IntoArray};
 use bytes::Bytes;
 use cookie::{prefix::Prefix, CookieJar as InnerCookieJar};
 use http::{
@@ -16,7 +16,7 @@ use http::{
 use crate::{
 	common::SCOPE_VALIDITY,
 	handler::Args,
-	request::{FromRequest, FromRequestHead, Request, RequestHead},
+	request::{FromRequest, Request, RequestHead},
 	response::{BoxedErrorResponse, IntoResponse, IntoResponseHead, Response, ResponseHead},
 	routing::RoutingState,
 };
@@ -143,19 +143,42 @@ where
 	}
 }
 
-impl<'n, HE, K> FromRequestHead<Args<'n, HE>> for CookieJar<K>
+// impl<K> FromMutRequestHead for CookieJar<K>
+// where
+// 	K: for<'k> TryFrom<&'k [u8]> + Into<Key>,
+// {
+// 	type Error = Infallible;
+//
+// 	async fn from_request_head(head: &mut RequestHead) -> Result<Self, Self::Error> {
+// 		let cookie_jar = head
+// 			.headers
+// 			.get_all(COOKIE)
+// 			.iter()
+// 			.filter_map(|value| value.to_str().ok())
+// 			.flat_map(Cookie::split_parse_encoded)
+// 			.fold(CookieJar::new(), |mut jar, result| {
+// 				match result {
+// 					Ok(cookie) => jar.inner.add_original(cookie.into_owned()),
+// 					Err(_) => {} // Ignored.
+// 				}
+//
+// 				jar
+// 			});
+//
+// 		Ok(cookie_jar)
+// 	}
+// }
+
+impl<'r, B, K> FromRequestRef<'r, B> for CookieJar<K>
 where
-	HE: Clone + Sync,
+	B: Sync,
 	K: for<'k> TryFrom<&'k [u8]> + Into<Key>,
 {
 	type Error = Infallible;
 
-	async fn from_request_head(
-		head: &mut RequestHead,
-		_args: &Args<'n, HE>,
-	) -> Result<Self, Self::Error> {
-		let cookie_jar = head
-			.headers
+	async fn from_request_ref(request: &'r Request<B>) -> Result<Self, Self::Error> {
+		let cookie_jar = request
+			.headers()
 			.get_all(COOKIE)
 			.iter()
 			.filter_map(|value| value.to_str().ok())
@@ -173,18 +196,30 @@ where
 	}
 }
 
-impl<'n, B, HE, K> FromRequest<B, Args<'n, HE>> for CookieJar<K>
+impl<B, K> FromRequest<B> for CookieJar<K>
 where
 	B: Send,
-	HE: Clone + Send + Sync,
 	K: for<'k> TryFrom<&'k [u8]> + Into<Key>,
 {
 	type Error = Infallible;
 
-	async fn from_request(request: Request<B>, _args: Args<'n, HE>) -> Result<Self, Self::Error> {
-		let (mut head, _) = request.into_parts();
+	async fn from_request(request: Request<B>) -> Result<Self, Self::Error> {
+		let cookie_jar = request
+			.headers()
+			.get_all(COOKIE)
+			.iter()
+			.filter_map(|value| value.to_str().ok())
+			.flat_map(Cookie::split_parse_encoded)
+			.fold(CookieJar::new(), |mut jar, result| {
+				match result {
+					Ok(cookie) => jar.inner.add_original(cookie.into_owned()),
+					Err(_) => {} // Ignored.
+				}
 
-		<CookieJar<K> as FromRequestHead<Args<'_, HE>>>::from_request_head(&mut head, &_args).await
+				jar
+			});
+
+		Ok(cookie_jar)
 	}
 }
 
@@ -251,36 +286,44 @@ impl<K> PrivateCookieJar<K> {
 	}
 }
 
-impl<'n, HE, K> FromRequestHead<Args<'n, HE>> for PrivateCookieJar<K>
+// impl<K> FromMutRequestHead for PrivateCookieJar<K>
+// where
+// 	K: for<'k> TryFrom<&'k [u8]> + Into<Key>,
+// {
+// 	type Error = Infallible;
+//
+// 	async fn from_request_head(head: &mut RequestHead) -> Result<Self, Self::Error> {
+// 		<CookieJar<K> as FromMutRequestHead>::from_request_head(head)
+// 			.await
+// 			.map(|jar| jar.into_private_jar())
+// 	}
+// }
+
+impl<'r, B, K> FromRequestRef<'r, B> for PrivateCookieJar<K>
 where
-	HE: Clone + Sync,
+	B: Sync,
 	K: for<'k> TryFrom<&'k [u8]> + Into<Key>,
 {
 	type Error = Infallible;
 
-	async fn from_request_head(
-		head: &mut RequestHead,
-		_args: &Args<'n, HE>,
-	) -> Result<Self, Self::Error> {
-		<CookieJar<K> as FromRequestHead<Args<'_, HE>>>::from_request_head(head, _args)
+	async fn from_request_ref(request: &'r Request<B>) -> Result<Self, Self::Error> {
+		<CookieJar<K> as FromRequestRef<'r, B>>::from_request_ref(request)
 			.await
 			.map(|jar| jar.into_private_jar())
 	}
 }
 
-impl<'n, B, HE, K> FromRequest<B, Args<'n, HE>> for PrivateCookieJar<K>
+impl<B, K> FromRequest<B> for PrivateCookieJar<K>
 where
 	B: Send,
-	HE: Clone + Send + Sync,
 	K: for<'k> TryFrom<&'k [u8]> + Into<Key>,
 {
 	type Error = Infallible;
 
-	async fn from_request(request: Request<B>, _args: Args<'n, HE>) -> Result<Self, Self::Error> {
-		let (mut head, _) = request.into_parts();
-
-		<PrivateCookieJar<K> as FromRequestHead<Args<'_, HE>>>::from_request_head(&mut head, &_args)
+	async fn from_request(request: Request<B>) -> Result<Self, Self::Error> {
+		<CookieJar<K> as FromRequest<B>>::from_request(request)
 			.await
+			.map(|jar| jar.into_private_jar())
 	}
 }
 
@@ -340,36 +383,44 @@ impl<K> SignedCookieJar<K> {
 	}
 }
 
-impl<'n, HE, K> FromRequestHead<Args<'n, HE>> for SignedCookieJar<K>
+// impl<K> FromMutRequestHead for SignedCookieJar<K>
+// where
+// 	K: for<'k> TryFrom<&'k [u8]> + Into<Key>,
+// {
+// 	type Error = Infallible;
+//
+// 	async fn from_request_head(head: &mut RequestHead) -> Result<Self, Self::Error> {
+// 		<CookieJar<K> as FromMutRequestHead>::from_request_head(head)
+// 			.await
+// 			.map(|jar| jar.into_signed_jar())
+// 	}
+// }
+
+impl<'r, B, K> FromRequestRef<'r, B> for SignedCookieJar<K>
 where
-	HE: Clone + Sync,
+	B: Sync,
 	K: for<'k> TryFrom<&'k [u8]> + Into<Key>,
 {
 	type Error = Infallible;
 
-	async fn from_request_head(
-		head: &mut RequestHead,
-		_args: &Args<'n, HE>,
-	) -> Result<Self, Self::Error> {
-		<CookieJar<K> as FromRequestHead<Args<'_, HE>>>::from_request_head(head, _args)
+	async fn from_request_ref(request: &'r Request<B>) -> Result<Self, Self::Error> {
+		<CookieJar<K> as FromRequestRef<'r, B>>::from_request_ref(request)
 			.await
 			.map(|jar| jar.into_signed_jar())
 	}
 }
 
-impl<'n, B, HE, K> FromRequest<B, Args<'n, HE>> for SignedCookieJar<K>
+impl<B, K> FromRequest<B> for SignedCookieJar<K>
 where
 	B: Send,
-	HE: Clone + Send + Sync,
 	K: for<'k> TryFrom<&'k [u8]> + Into<Key>,
 {
 	type Error = Infallible;
 
-	async fn from_request(request: Request<B>, _args: Args<'n, HE>) -> Result<Self, Self::Error> {
-		let (mut head, _) = request.into_parts();
-
-		<SignedCookieJar<K> as FromRequestHead<Args<'_, HE>>>::from_request_head(&mut head, &_args)
+	async fn from_request(request: Request<B>) -> Result<Self, Self::Error> {
+		<CookieJar<K> as FromRequest<B>>::from_request(request)
 			.await
+			.map(|jar| jar.into_signed_jar())
 	}
 }
 

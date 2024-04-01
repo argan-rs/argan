@@ -11,7 +11,7 @@ use crate::{
 	common::{marker::Private, Uncloneable},
 	data::extensions::NodeExtensions,
 	middleware::{layer_targets::LayerTarget, BoxedLayer, Layer, ResponseResultFutureBoxer},
-	request::Request,
+	request::{Request, RequestContext, RequestRoutingStateExt},
 	resource::Resource,
 	response::{BoxedErrorResponse, IntoResponse, Response, ResponseError},
 	routing::{RoutingState, UnusedRequest},
@@ -167,7 +167,7 @@ impl Handler for WildcardMethodHandler {
 	type Error = BoxedErrorResponse;
 	type Future = BoxedFuture<Result<Self::Response, Self::Error>>;
 
-	fn handle(&self, request: Request, mut args: Args) -> Self::Future {
+	fn handle(&self, request: RequestContext, mut args: Args) -> Self::Future {
 		match self {
 			Self::Default => handle_unimplemented_method(args),
 			Self::Custom(boxed_handler) => boxed_handler.handle(request, args),
@@ -207,7 +207,7 @@ impl Handler for UnimplementedMethodHandler {
 	type Error = BoxedErrorResponse;
 	type Future = BoxedFuture<Result<Self::Response, Self::Error>>;
 
-	fn handle(&self, request: Request, args: Args) -> Self::Future {
+	fn handle(&self, request: RequestContext, args: Args) -> Self::Future {
 		handle_unimplemented_method(args)
 	}
 }
@@ -266,7 +266,7 @@ impl Handler for MistargetedRequestHandler {
 	type Error = BoxedErrorResponse;
 	type Future = Ready<Result<Self::Response, Self::Error>>;
 
-	fn handle(&self, _request: Request, _args: Args) -> Self::Future {
+	fn handle(&self, _request: RequestContext, _args: Args) -> Self::Future {
 		let mut response = Response::default();
 		*response.status_mut() = StatusCode::NOT_FOUND;
 
@@ -305,7 +305,7 @@ pub(crate) fn wrap_mistargeted_request_handler(
 // -------------------------
 
 pub(crate) fn handle_mistargeted_request(
-	mut request: Request,
+	mut request: RequestContext,
 	mut args: Args,
 	mut some_custom_handler_with_extensions: Option<&ArcHandler>,
 ) -> BoxedFuture<Result<Response, BoxedErrorResponse>> {
@@ -316,14 +316,12 @@ pub(crate) fn handle_mistargeted_request(
 
 	let mut response = StatusCode::NOT_FOUND.into_response();
 
-	if args.routing_state.subtree_handler_exists {
-		response
-			.extensions_mut()
-			.insert(Uncloneable::from(UnusedRequest::from(request)));
-
+	if request.noted_subtree_handler() {
 		let args = args.to_owned();
 
-		response.extensions_mut().insert(Uncloneable::from(args));
+		response
+			.extensions_mut()
+			.insert(Uncloneable::from((request, args)));
 	}
 
 	Box::pin(ready(Ok(response)))

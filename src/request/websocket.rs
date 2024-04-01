@@ -19,7 +19,7 @@ use http::{
 		CONNECTION, SEC_WEBSOCKET_ACCEPT, SEC_WEBSOCKET_KEY, SEC_WEBSOCKET_PROTOCOL,
 		SEC_WEBSOCKET_VERSION, UPGRADE,
 	},
-	HeaderValue,
+	HeaderValue, Method,
 };
 use http_body_util::Empty;
 use hyper::upgrade::{OnUpgrade, Upgraded};
@@ -156,54 +156,55 @@ impl WebSocketUpgrade {
 	}
 }
 
-impl<'n, HE: Clone> FromRequestHead<Args<'n, HE>> for WebSocketUpgrade {
+impl<B> FromRequest<B> for WebSocketUpgrade {
 	type Error = WebSocketUpgradeError;
 
-	fn from_request_head(
-		head: &mut RequestHead,
-		_args: &Args<'n, HE>,
-	) -> impl Future<Output = Result<Self, Self::Error>> + Send {
-		if head.method != Method::GET {
+	fn from_request(mut request: Request<B>) -> impl Future<Output = Result<Self, Self::Error>> {
+		if request.method() != Method::GET {
 			panic!("WebSocket is not supported with methods other than GET")
 		}
 
-		if !head
-			.headers
+		if !request
+			.headers()
 			.get(CONNECTION)
 			.is_some_and(|header_value| header_value.as_bytes().eq_ignore_ascii_case(b"upgrade"))
 		{
 			return ready(Err(WebSocketUpgradeError::InvalidConnectionHeader));
 		}
 
-		if !head
-			.headers
+		if !request
+			.headers()
 			.get(UPGRADE)
 			.is_some_and(|header_value| header_value.as_bytes().eq_ignore_ascii_case(b"websocket"))
 		{
 			return ready(Err(WebSocketUpgradeError::InvalidUpgradeHeader));
 		}
 
-		if !head
-			.headers
+		if !request
+			.headers()
 			.get(SEC_WEBSOCKET_VERSION)
 			.is_some_and(|header_value| header_value.as_bytes() == b"13")
 		{
 			return ready(Err(WebSocketUpgradeError::InvalidSecWebSocketVersion));
 		}
 
-		let Some(mut sec_websocket_accept_value) = head
-			.headers
+		let Some(mut sec_websocket_accept_value) = request
+			.headers()
 			.get(SEC_WEBSOCKET_KEY)
 			.map(|header_value| sec_websocket_accept_value_from(header_value.as_bytes()))
 		else {
 			return ready(Err(WebSocketUpgradeError::MissingSecWebSocketKey));
 		};
 
-		let Some(upgrade_future) = head.extensions.remove::<OnUpgrade>().map(UpgradeFuture) else {
+		let Some(upgrade_future) = request
+			.extensions_mut()
+			.remove::<OnUpgrade>()
+			.map(UpgradeFuture)
+		else {
 			return ready(Err(WebSocketUpgradeError::UnupgradableConnection));
 		};
 
-		let some_requested_protocols = head.headers.remove(SEC_WEBSOCKET_PROTOCOL);
+		let some_requested_protocols = request.headers_mut().remove(SEC_WEBSOCKET_PROTOCOL);
 
 		let mut response = StatusCode::SWITCHING_PROTOCOLS.into_response();
 

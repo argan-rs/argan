@@ -1,15 +1,20 @@
 use std::{
+	borrow::Cow,
 	convert::Infallible,
 	fmt::{Debug, Display},
 	future::{ready, Future, Ready},
 };
 
-use argan_core::{body::Body, BoxedFuture};
+use argan_core::{
+	body::{Body, HttpBody},
+	request, BoxedError, BoxedFuture,
+};
+use bytes::Bytes;
+use cookie::CookieJar;
 use futures_util::TryFutureExt;
 use http::{
 	header::{ToStrError, CONTENT_TYPE},
-	request::{self, Parts},
-	HeaderName, StatusCode,
+	Extensions, HeaderMap, HeaderName, HeaderValue, Method, StatusCode, Uri, Version,
 };
 use serde::{
 	de::{DeserializeOwned, Error},
@@ -18,9 +23,18 @@ use serde::{
 
 use crate::{
 	common::{marker::Sealed, Uncloneable},
-	data::header::ContentTypeError,
+	data::{
+		form::{
+			request_into_form_data, request_into_multipart_form, FormError, MultipartForm,
+			MultipartFormError, FORM_BODY_SIZE_LIMIT,
+		},
+		header::{content_type, ContentTypeError},
+		json::{request_into_json_data, Json, JsonError, JSON_BODY_SIZE_LIMIT},
+		request_into_binary_data, request_into_full_body, request_into_text_data, BinaryExtractorError,
+		FullBodyExtractorError, TextExtractorError, BODY_SIZE_LIMIT,
+	},
 	handler::Args,
-	pattern,
+	pattern::{self, FromParamsList, ParamsList},
 	response::{BoxedErrorResponse, IntoResponse, IntoResponseHead, Response},
 	routing::RoutingState,
 	ImplError, StdError,
@@ -34,304 +48,328 @@ pub use argan_core::request::*;
 
 pub mod websocket;
 
+mod extractors;
+pub use extractors::*;
+
 // --------------------------------------------------------------------------------
 // --------------------------------------------------------------------------------
 
 // --------------------------------------------------
-// RequestExt
 
-pub trait Extract<B>: Sized + Sealed {
-	fn extract_ref<'r, T>(&'r self) -> impl Future<Output = Result<T, T::Error>> + Send
-	where
-		T: FromRequestRef<'r, B, Args<'static, ()>>;
-
-	fn extract_ref_with_args<'r, Ext: Clone + 'static, T>(
-		&'r self,
-		args: &'r Args<'static, Ext>,
-	) -> impl Future<Output = Result<T, T::Error>> + Send
-	where
-		T: FromRequestRef<'r, B, Args<'static, Ext>>;
-
-	fn extract<T>(self) -> impl Future<Output = Result<T, T::Error>> + Send
-	where
-		T: FromRequest<B, Args<'static, ()>>;
-
-	fn extract_with_args<Ext: Clone + 'static, T>(
-		self,
-		args: Args<'static, Ext>,
-	) -> impl Future<Output = Result<T, T::Error>> + Send
-	where
-		T: FromRequest<B, Args<'static, Ext>>;
+pub struct RequestContext<B = Body> {
+	pub(crate) request: Request<B>,
+	pub(crate) routing_state: RoutingState,
 }
 
-impl<B> Extract<B> for Request<B> {
-	fn extract_ref<'r, T>(&'r self) -> impl Future<Output = Result<T, T::Error>>
+impl<B> RequestContext<B> {
+	#[inline(always)]
+	pub(crate) fn new(request: Request<B>, routing_state: RoutingState) -> Self {
+		Self {
+			request,
+			routing_state,
+		}
+	}
+
+	#[inline(always)]
+	pub fn method_ref(&self) -> &Method {
+		self.request.method()
+	}
+
+	#[inline(always)]
+	pub fn method_mut(&mut self) -> &mut Method {
+		self.request.method_mut()
+	}
+
+	#[inline(always)]
+	pub fn uri_ref(&self) -> &Uri {
+		self.request.uri()
+	}
+
+	#[inline(always)]
+	pub fn uri_mut(&mut self) -> &mut Uri {
+		self.request.uri_mut()
+	}
+
+	#[inline(always)]
+	pub fn version(&self) -> Version {
+		self.request.version()
+	}
+
+	#[inline(always)]
+	pub fn version_mut(&mut self) -> &mut Version {
+		self.request.version_mut()
+	}
+
+	#[inline(always)]
+	pub fn headers_ref(&self) -> &HeaderMap<HeaderValue> {
+		self.request.headers()
+	}
+
+	#[inline(always)]
+	pub fn headers_mut(&mut self) -> &mut HeaderMap<HeaderValue> {
+		self.request.headers_mut()
+	}
+
+	#[inline(always)]
+	pub fn extensions_ref(&self) -> &Extensions {
+		self.request.extensions()
+	}
+
+	#[inline(always)]
+	pub fn extensions_mut(&mut self) -> &mut Extensions {
+		self.request.extensions_mut()
+	}
+
+	#[inline(always)]
+	pub fn body_ref(&self) -> &B {
+		self.request.body()
+	}
+
+	#[inline(always)]
+	pub fn body_mut(&mut self) -> &mut B {
+		self.request.body_mut()
+	}
+
+	#[inline(always)]
+	pub fn into_request_parts(self) -> (RequestHead, B) {
+		self.request.into_parts()
+	}
+
+	// ----------
+
+	pub fn cookies(&self) -> CookieJar {
+		todo!()
+	}
+
+	#[inline]
+	pub fn path_params_as<'r, T>(&'r self) -> Result<T, PathParamsError>
 	where
-		T: FromRequestRef<'r, B, Args<'static, ()>>,
+		T: Deserialize<'r>,
 	{
-		T::from_request_ref(self, None)
-	}
-
-	fn extract_ref_with_args<'r, Ext: Clone + 'static, T>(
-		&'r self,
-		args: &'r Args<'static, Ext>,
-	) -> impl Future<Output = Result<T, T::Error>>
-	where
-		T: FromRequestRef<'r, B, Args<'static, Ext>>,
-	{
-		T::from_request_ref(self, Some(args))
-	}
-
-	fn extract<T>(self) -> impl Future<Output = Result<T, T::Error>>
-	where
-		T: FromRequest<B, Args<'static, ()>>,
-	{
-		T::from_request(self, Args::new())
-	}
-
-	fn extract_with_args<Ext: Clone + 'static, T>(
-		self,
-		args: Args<'static, Ext>,
-	) -> impl Future<Output = Result<T, T::Error>>
-	where
-		T: FromRequest<B, Args<'static, Ext>>,
-	{
-		T::from_request(self, args)
-	}
-}
-
-impl<B> Sealed for Request<B> {}
-
-// --------------------------------------------------
-// PathParams
-
-pub struct PathParams<T>(pub T);
-
-impl<'de, T> PathParams<T>
-where
-	T: Deserialize<'de>,
-{
-	pub fn deserialize<D: Deserializer<'de>>(&mut self, deserializer: D) -> Result<(), D::Error> {
-		self.0 = T::deserialize(deserializer)?;
-
-		Ok(())
-	}
-}
-
-impl<'r, B, HE, T> FromRequestRef<'r, B, Args<'static, HE>> for PathParams<T>
-where
-	HE: Clone,
-	T: Deserialize<'r> + Send + 'r,
-{
-	type Error = PathParamsError;
-
-	fn from_request_ref(
-		request: &'r Request<B>,
-		some_args: Option<&'r Args<'static, HE>>,
-	) -> impl Future<Output = Result<Self, Self::Error>> {
-		let args = some_args.unwrap(); // TODO
-
-		let mut from_params_list = args.routing_state.uri_params.deserializer();
-
-		ready(
-			T::deserialize(&mut from_params_list)
-				.map(|value| Self(value))
-				.map_err(Into::into),
-		)
-	}
-}
-
-impl<'n, HE, T> FromRequestHead<Args<'n, HE>> for PathParams<T>
-where
-	HE: Clone + Sync,
-	T: DeserializeOwned,
-{
-	type Error = PathParamsError;
-
-	async fn from_request_head(
-		head: &mut RequestHead,
-		args: &Args<'n, HE>,
-	) -> Result<Self, Self::Error> {
-		let mut from_params_list = args.routing_state.uri_params.deserializer();
+		let mut from_params_list = self.routing_state.uri_params.deserializer();
 
 		T::deserialize(&mut from_params_list)
-			.map(|value| Self(value))
+			.map(|value| value)
 			.map_err(Into::into)
 	}
-}
 
-impl<'n, B, HE, T> FromRequest<B, Args<'n, HE>> for PathParams<T>
-where
-	B: Send,
-	HE: Clone + Send + Sync,
-	T: DeserializeOwned,
-{
-	type Error = PathParamsError;
+	#[inline]
+	pub fn query_params_as<'r, T>(&'r self) -> Result<T, QueryParamsError>
+	where
+		T: Deserialize<'r>,
+	{
+		let query_string = self
+			.request
+			.uri()
+			.query()
+			.ok_or(QueryParamsError::NoDataIsAvailable)?;
 
-	async fn from_request(request: Request<B>, args: Args<'n, HE>) -> Result<Self, Self::Error> {
-		let (mut head, _) = request.into_parts();
-
-		Self::from_request_head(&mut head, &args).await
+		serde_urlencoded::from_str::<T>(query_string)
+			.map(|value| value)
+			.map_err(|error| QueryParamsError::InvalidData(error.into()))
 	}
-}
 
-impl<T> Debug for PathParams<T>
-where
-	T: Debug,
-{
-	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-		f.debug_tuple("PathParams").field(&self.0).finish()
+	#[inline(always)]
+	pub fn remaining_path_segments(&self) -> &str {
+		self
+			.routing_state
+			.route_traversal
+			.remaining_segments(self.request.uri().path())
 	}
-}
 
-// ----------
+	pub async fn into_full_body(self, size_limit: SizeLimit) -> Result<Bytes, FullBodyExtractorError>
+	where
+		B: HttpBody,
+		B::Error: Into<BoxedError>,
+	{
+		let size_limit = match size_limit {
+			SizeLimit::Default => BODY_SIZE_LIMIT,
+			SizeLimit::Value(value) => value,
+		};
 
-#[derive(Debug, crate::ImplError)]
-#[error(transparent)]
-pub struct PathParamsError(#[from] pub(crate) pattern::DeserializerError);
+		request_into_full_body(self.request, size_limit).await
+	}
 
-impl IntoResponse for PathParamsError {
-	fn into_response(self) -> Response {
-		match self.0 {
-			pattern::DeserializerError::ParsingFailue(_) => StatusCode::NOT_FOUND.into_response(),
-			_ => StatusCode::INTERNAL_SERVER_ERROR.into_response(),
+	pub async fn into_binary_data(self, size_limit: SizeLimit) -> Result<Bytes, BinaryExtractorError>
+	where
+		B: HttpBody,
+		B::Error: Into<BoxedError>,
+	{
+		let size_limit = match size_limit {
+			SizeLimit::Default => BODY_SIZE_LIMIT,
+			SizeLimit::Value(value) => value,
+		};
+
+		request_into_binary_data(self.request, size_limit).await
+	}
+
+	pub async fn into_text_data(self, size_limit: SizeLimit) -> Result<String, TextExtractorError>
+	where
+		B: HttpBody,
+		B::Error: Into<BoxedError>,
+	{
+		let size_limit = match size_limit {
+			SizeLimit::Default => BODY_SIZE_LIMIT,
+			SizeLimit::Value(value) => value,
+		};
+
+		request_into_text_data(self.request, size_limit).await
+	}
+
+	pub async fn into_json_data<T>(self, size_limit: SizeLimit) -> Result<T, JsonError>
+	where
+		B: HttpBody,
+		B::Error: Into<BoxedError>,
+		T: DeserializeOwned,
+	{
+		let size_limit = match size_limit {
+			SizeLimit::Default => JSON_BODY_SIZE_LIMIT,
+			SizeLimit::Value(value) => value,
+		};
+
+		request_into_json_data::<T, B>(self.request, size_limit).await
+	}
+
+	pub async fn into_form_data<T>(self, size_limit: SizeLimit) -> Result<T, FormError>
+	where
+		B: HttpBody,
+		B::Error: Into<BoxedError>,
+		T: DeserializeOwned,
+	{
+		let size_limit = match size_limit {
+			SizeLimit::Default => FORM_BODY_SIZE_LIMIT,
+			SizeLimit::Value(value) => value,
+		};
+
+		request_into_form_data::<T, B>(self.request, size_limit).await
+	}
+
+	#[inline(always)]
+	pub fn into_multipart_form(self) -> Result<MultipartForm, MultipartFormError>
+	where
+		B: HttpBody<Data = Bytes> + Send + Sync + 'static,
+		B::Error: Into<BoxedError>,
+	{
+		request_into_multipart_form(self.request)
+	}
+
+	pub async fn extract<'r, T>(&'r self) -> Result<T, T::Error>
+	where
+		T: FromRequestRef<'r, B>,
+	{
+		T::from_request_ref(&self.request).await
+	}
+
+	pub async fn extract_into<T>(self) -> Result<T, T::Error>
+	where
+		T: FromRequest<B>,
+	{
+		T::from_request(self.request).await
+	}
+
+	pub fn map<Func, NewB>(self, func: Func) -> RequestContext<NewB>
+	where
+		Func: FnOnce(B) -> NewB,
+	{
+		let RequestContext {
+			request,
+			routing_state,
+		} = self;
+		let (head, body) = request.into_parts();
+
+		let new_body = func(body);
+		let request = Request::from_parts(head, new_body);
+
+		RequestContext {
+			request,
+			routing_state,
 		}
 	}
 }
 
-// --------------------------------------------------
-// QueryParams
-
-pub struct QueryParams<T>(pub T);
-
-impl<'n, HE, T> FromRequestHead<Args<'n, HE>> for QueryParams<T>
-where
-	HE: Clone + Sync,
-	T: DeserializeOwned,
-{
-	type Error = QueryParamsError;
-
-	async fn from_request_head(
-		head: &mut RequestHead,
-		_args: &Args<'n, HE>,
-	) -> Result<Self, Self::Error> {
-		let query_string = head
-			.uri
-			.query()
-			.ok_or(QueryParamsError(QueryParamsErrorValue::NoDataIsAvailable))?;
-
-		serde_urlencoded::from_str::<T>(query_string)
-			.map(|value| Self(value))
-			.map_err(|error| QueryParamsError(error.into()))
-	}
-}
-
-impl<'n, B, HE, T> FromRequest<B, Args<'n, HE>> for QueryParams<T>
-where
-	B: Send,
-	HE: Clone + Send + Sync,
-	T: DeserializeOwned,
-{
-	type Error = QueryParamsError;
-
-	async fn from_request(request: Request<B>, _args: Args<'n, HE>) -> Result<Self, Self::Error> {
-		let (mut head, _) = request.into_parts();
-
-		Self::from_request_head(&mut head, &_args).await
-	}
-}
-
-#[derive(Debug, crate::ImplError)]
-#[error(transparent)]
-pub struct QueryParamsError(#[from] QueryParamsErrorValue);
-
-impl IntoResponse for QueryParamsError {
-	fn into_response(self) -> Response {
-		StatusCode::BAD_REQUEST.into_response()
-	}
-}
-
-#[derive(Debug, crate::ImplError)]
-enum QueryParamsErrorValue {
-	#[error("no data is available")]
-	NoDataIsAvailable,
-	#[error(transparent)]
-	InvalidData(#[from] serde_urlencoded::de::Error),
-}
-
-// --------------------------------------------------
-// Remaining path ref
-
-pub enum RemainingPathRef<'r> {
-	Value(&'r str),
-	None,
-}
-
-impl<'r, B, HE: Clone> FromRequestRef<'r, B, Args<'static, HE>> for RemainingPathRef<'r> {
-	type Error = Infallible;
-
-	fn from_request_ref(
-		request: &'r Request<B>,
-		some_args: Option<&'r Args<'static, HE>>,
-	) -> impl Future<Output = Result<Self, Self::Error>> {
-		some_args.map_or(ready(Ok(RemainingPathRef::None)), |args| {
-			ready(
-				args
-					.routing_state
-					.route_traversal
-					.remaining_segments(request.uri().path())
-					.map_or(Ok(RemainingPathRef::None), |remaining_path| {
-						Ok(RemainingPathRef::Value(remaining_path))
-					}),
-			)
-		})
-	}
-}
-
-// --------------------------------------------------
-// Remaining path
-
-pub enum RemainingPath {
-	Value(Box<str>),
-	None,
-}
-
-impl<'n, HE> FromRequestHead<Args<'n, HE>> for RemainingPath
-where
-	HE: Clone + Sync,
-{
-	type Error = Infallible;
-
-	async fn from_request_head(
-		head: &mut RequestHead,
-		args: &Args<'n, HE>,
-	) -> Result<Self, Self::Error> {
-		args
+impl<B> RequestContext<B> {
+	#[inline(always)]
+	pub(crate) fn path_ends_with_slash(&self) -> bool {
+		self
 			.routing_state
 			.route_traversal
-			.remaining_segments(head.uri.path())
-			.map_or(Ok(RemainingPath::None), |remaining_path| {
-				Ok(RemainingPath::Value(remaining_path.into()))
-			})
+			.ends_with_slash(self.request.uri().path())
 	}
-}
 
-impl<'n, B, HE> FromRequest<B, Args<'n, HE>> for RemainingPath
-where
-	B: Send,
-	HE: Clone + Send + Sync,
-{
-	type Error = Infallible;
-
-	async fn from_request(request: Request<B>, args: Args<'n, HE>) -> Result<Self, Self::Error> {
-		args
+	#[inline(always)]
+	pub(crate) fn routing_has_remaining_segments(&self) -> bool {
+		self
 			.routing_state
 			.route_traversal
-			.remaining_segments(request.uri().path())
-			.map_or(Ok(RemainingPath::None), |remaining_path| {
-				Ok(RemainingPath::Value(remaining_path.into()))
-			})
+			.has_remaining_segments(self.request.uri().path())
+	}
+
+	#[inline(always)]
+	pub(crate) fn routing_next_segment_index(&self) -> usize {
+		self.routing_state.route_traversal.next_segment_index()
+	}
+
+	#[inline(always)]
+	pub(crate) fn routing_next_segment_with_index(&mut self) -> Option<(&str, usize)> {
+		self
+			.routing_state
+			.route_traversal
+			.next_segment(self.request.uri().path())
+	}
+
+	#[inline(always)]
+	pub(crate) fn routing_revert_to_segment(&mut self, segment_index: usize) {
+		self
+			.routing_state
+			.route_traversal
+			.revert_to_segment(segment_index);
+	}
+
+	#[inline(always)]
+	pub(crate) fn note_subtree_handler(&mut self) {
+		self.routing_state.subtree_handler_exists = true;
+	}
+
+	#[inline(always)]
+	pub(crate) fn noted_subtree_handler(&self) -> bool {
+		self.routing_state.subtree_handler_exists
+	}
+
+	#[inline(always)]
+	pub(crate) fn uri_params_mut(&mut self) -> &mut ParamsList {
+		&mut self.routing_state.uri_params
 	}
 }
+
+// --------------------------------------------------
+// Extract
+
+pub trait Extract<B>: Sized + Sealed {
+	fn extract<'r, T>(&'r self) -> impl Future<Output = Result<T, T::Error>> + Send
+	where
+		T: FromRequestRef<'r, B>;
+
+	fn extract_into<T>(self) -> impl Future<Output = Result<T, T::Error>> + Send
+	where
+		T: FromRequest<B>;
+}
+
+impl<B> Extract<B> for Request<B> {
+	fn extract<'r, T>(&'r self) -> impl Future<Output = Result<T, T::Error>>
+	where
+		T: FromRequestRef<'r, B>,
+	{
+		T::from_request_ref(self)
+	}
+
+	fn extract_into<T>(self) -> impl Future<Output = Result<T, T::Error>>
+	where
+		T: FromRequest<B>,
+	{
+		T::from_request(self)
+	}
+}
+
+impl<B> Sealed for Request<B> {}
 
 // --------------------------------------------------------------------------------

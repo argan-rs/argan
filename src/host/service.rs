@@ -6,10 +6,11 @@ use http::{Extensions, StatusCode};
 use hyper::service::Service;
 
 use crate::{
+	common::Uncloneable,
 	data::extensions::NodeExtensions,
 	handler::{futures::ResponseToResultFuture, request_handlers::handle_mistargeted_request, Args},
 	pattern::ParamsList,
-	request::Request,
+	request::{Request, RequestContext, RequestRoutingStateExt},
 	resource::ResourceService,
 	response::{BoxedErrorResponse, InfallibleResponseFuture, IntoResponse, Response},
 	routing::{RouteTraversal, RoutingState},
@@ -46,7 +47,7 @@ impl HostService {
 	#[inline(always)]
 	pub(crate) fn handle<B>(
 		&self,
-		request: Request<B>,
+		request: RequestContext<B>,
 		args: Args,
 	) -> BoxedFuture<Result<Response, BoxedErrorResponse>>
 	where
@@ -66,7 +67,7 @@ where
 	type Error = Infallible;
 	type Future = InfallibleResponseFuture;
 
-	fn call(&self, request: Request<B>) -> Self::Future {
+	fn call(&self, mut request: Request<B>) -> Self::Future {
 		macro_rules! handle_unmatching_host {
 			() => {
 				InfallibleResponseFuture::from(Box::pin(ready(Ok(StatusCode::NOT_FOUND.into_response()))))
@@ -77,21 +78,24 @@ where
 			return handle_unmatching_host!();
 		};
 
-		let routing_state = RoutingState::new(RouteTraversal::for_route(request.uri().path()));
-		let mut args = Args {
-			routing_state,
+		let mut routing_state = RoutingState::new(RouteTraversal::for_route(request.uri().path()));
+		let args = Args {
 			node_extensions: NodeExtensions::new_owned(Extensions::new()),
 			handler_extension: Cow::Borrowed(&()),
 		};
 
 		if let Some(result) = self.pattern.is_static_match(host) {
+			let request = RequestContext::new(request, routing_state);
+
 			return InfallibleResponseFuture::from(self.root_resource.handle(request, args));
 		}
 
 		if let Some(result) = self
 			.pattern
-			.is_regex_match(host, &mut args.routing_state.uri_params)
+			.is_regex_match(host, &mut routing_state.uri_params)
 		{
+			let request = RequestContext::new(request, routing_state);
+
 			return InfallibleResponseFuture::from(self.root_resource.handle(request, args));
 		}
 

@@ -20,39 +20,57 @@ use super::*;
 // --------------------------------------------------------------------------------
 
 // --------------------------------------------------
+
+pub(crate) const FORM_BODY_SIZE_LIMIT: usize = { 2 * 1024 * 1024 };
+
+// ----------
+
+#[inline(always)]
+pub(crate) async fn request_into_form_data<T, B>(
+	request: Request<B>,
+	size_limit: usize,
+) -> Result<T, FormError>
+where
+	B: HttpBody,
+	B::Error: Into<BoxedError>,
+	T: DeserializeOwned,
+{
+	let content_type_str = content_type(&request)?;
+
+	if content_type_str == mime::APPLICATION_WWW_FORM_URLENCODED {
+		match Limited::new(request, size_limit).collect().await {
+			Ok(body) => Ok(
+				serde_urlencoded::from_bytes::<T>(&body.to_bytes())
+					.map(|value| value)
+					.map_err(Into::<FormError>::into)?,
+			),
+			Err(error) => Err(
+				error
+					.downcast_ref::<LengthLimitError>()
+					.map_or(FormError::BufferingFailure, |_| FormError::ContentTooLarge),
+			),
+		}
+	} else {
+		Err(FormError::UnsupportedMediaType)
+	}
+}
+
+// --------------------------------------------------
 // Form
 
-pub struct Form<T, const SIZE_LIMIT: usize = { 2 * 1024 * 1024 }>(pub T);
+pub struct Form<T, const SIZE_LIMIT: usize = FORM_BODY_SIZE_LIMIT>(pub T);
 
-impl<'n, B, HE, T, const SIZE_LIMIT: usize> FromRequest<B, Args<'n, HE>> for Form<T, SIZE_LIMIT>
+impl<B, T, const SIZE_LIMIT: usize> FromRequest<B> for Form<T, SIZE_LIMIT>
 where
 	B: HttpBody + Send,
 	B::Data: Send,
 	B::Error: Into<BoxedError>,
-	HE: Clone + Send + Sync,
 	T: DeserializeOwned,
 {
 	type Error = FormError;
 
-	async fn from_request(request: Request<B>, _args: Args<'n, HE>) -> Result<Self, Self::Error> {
-		let content_type_str = content_type(&request).map_err(Into::<FormError>::into)?;
-
-		if content_type_str == mime::APPLICATION_WWW_FORM_URLENCODED {
-			match Limited::new(request, SIZE_LIMIT).collect().await {
-				Ok(body) => Ok(
-					serde_urlencoded::from_bytes::<T>(&body.to_bytes())
-						.map(|value| Self(value))
-						.map_err(Into::<FormError>::into)?,
-				),
-				Err(error) => Err(
-					error
-						.downcast_ref::<LengthLimitError>()
-						.map_or(FormError::BufferingFailure, |_| FormError::ContentTooLarge),
-				),
-			}
-		} else {
-			Err(FormError::UnsupportedMediaType)
-		}
+	async fn from_request(request: Request<B>) -> Result<Self, Self::Error> {
+		request_into_form_data(request, SIZE_LIMIT).await.map(Self)
 	}
 }
 
@@ -87,16 +105,50 @@ data_extractor_error! {
 	}
 }
 
-// --------------------------------------------------
-// Multipart
+// --------------------------------------------------------------------------------
+// --------------------------------------------------------------------------------
+// --------------------------------------------------------------------------------
 
-pub struct Multipart<const SIZE_LIMIT: usize = { 8 * 1024 * 1024 }> {
+const MULTIPART_FORM_BODY_SIZE_LIMIT: usize = { 8 * 1024 * 1024 };
+
+// ----------
+
+#[inline(always)]
+pub(crate) fn request_into_multipart_form<B>(
+	request: Request<B>,
+) -> Result<MultipartForm, MultipartFormError>
+where
+	B: HttpBody<Data = Bytes> + Send + Sync + 'static,
+	B::Error: Into<BoxedError>,
+{
+	let content_type_str = content_type(&request)?;
+
+	parse_boundary(content_type_str)
+		.map(|boundary| {
+			let incoming_body = Body::new(request.into_body());
+			let body_stream = BodyStream::new(incoming_body);
+
+			let multipart_form = MultipartForm {
+				body_stream,
+				boundary,
+				some_constraints: None,
+			};
+
+			multipart_form
+		})
+		.map_err(Into::<MultipartFormError>::into)
+}
+
+// --------------------------------------------------
+// MultipartForm
+
+pub struct MultipartForm {
 	body_stream: BodyStream<Body>,
 	boundary: String,
 	some_constraints: Option<Constraints>,
 }
 
-impl<const SIZE_LIMIT: usize> Multipart<SIZE_LIMIT> {
+impl MultipartForm {
 	fn with_constraints(mut self, constraints: Constraints) -> Self {
 		self.some_constraints = Some(constraints);
 
@@ -116,58 +168,56 @@ impl<const SIZE_LIMIT: usize> Multipart<SIZE_LIMIT> {
 			}
 		});
 
-		if let Some(constraints) = self.some_constraints.take() {
+		let constraints = if let Some(constraints) = self.some_constraints.take() {
 			let Constraints {
 				inner: mut constraints,
-				mut size_limit,
+				some_body_size_limit,
+				some_part_size_limit,
+				some_size_limits_for_parts,
 			} = constraints;
 
-			size_limit = size_limit.whole_stream(SIZE_LIMIT as u64);
-			constraints = constraints.size_limit(size_limit);
+			let mut size_limit = multer::SizeLimit::new();
 
-			Parts(multer::Multipart::with_constraints(
-				data_stream,
-				self.boundary,
-				constraints,
-			))
+			if let Some(body_size_limit) = some_body_size_limit {
+				size_limit = size_limit.whole_stream(body_size_limit);
+			} else {
+				size_limit = size_limit.whole_stream(MULTIPART_FORM_BODY_SIZE_LIMIT as u64);
+			}
+
+			if let Some(part_size_limit) = some_part_size_limit {
+				size_limit = size_limit.per_field(part_size_limit);
+			}
+
+			if let Some(size_limits_for_parts) = some_size_limits_for_parts {
+				for (part_name, limit) in size_limits_for_parts {
+					size_limit = size_limit.for_field(part_name, limit);
+				}
+			}
+
+			constraints.size_limit(size_limit)
 		} else {
-			let size_limit = multer::SizeLimit::new().whole_stream(SIZE_LIMIT as u64);
-			let constraints = multer::Constraints::new().size_limit(size_limit);
+			let size_limit = multer::SizeLimit::new().whole_stream(MULTIPART_FORM_BODY_SIZE_LIMIT as u64);
 
-			Parts(multer::Multipart::with_constraints(
-				data_stream,
-				self.boundary,
-				constraints,
-			))
-		}
+			multer::Constraints::new().size_limit(size_limit)
+		};
+
+		Parts(multer::Multipart::with_constraints(
+			data_stream,
+			self.boundary,
+			constraints,
+		))
 	}
 }
 
-impl<'n, B, HE, const SIZE_LIMIT: usize> FromRequest<B, Args<'n, HE>> for Multipart<SIZE_LIMIT>
+impl<B> FromRequest<B> for MultipartForm
 where
 	B: HttpBody<Data = Bytes> + Send + Sync + 'static,
 	B::Error: Into<BoxedError>,
-	HE: Clone + Send + Sync,
 {
 	type Error = MultipartFormError;
 
-	async fn from_request(request: Request<B>, _args: Args<'n, HE>) -> Result<Self, Self::Error> {
-		let content_type_str = content_type(&request).map_err(Into::<MultipartFormError>::into)?;
-
-		parse_boundary(content_type_str)
-			.map(|boundary| {
-				let incoming_body = Body::new(request.into_body());
-				let body_stream = BodyStream::new(incoming_body);
-
-				let multipart_form = Multipart {
-					body_stream,
-					boundary,
-					some_constraints: None,
-				};
-
-				multipart_form
-			})
-			.map_err(Into::<MultipartFormError>::into)
+	async fn from_request(request: Request<B>) -> Result<Self, Self::Error> {
+		request_into_multipart_form(request)
 	}
 }
 
@@ -175,14 +225,18 @@ where
 
 pub struct Constraints {
 	inner: multer::Constraints,
-	size_limit: multer::SizeLimit,
+	some_body_size_limit: Option<u64>,
+	some_part_size_limit: Option<u64>,
+	some_size_limits_for_parts: Option<Vec<(String, u64)>>,
 }
 
 impl Constraints {
 	fn new() -> Self {
 		Self {
 			inner: multer::Constraints::new(),
-			size_limit: multer::SizeLimit::new(),
+			some_body_size_limit: None,
+			some_part_size_limit: None,
+			some_size_limits_for_parts: None,
 		}
 	}
 
@@ -192,28 +246,20 @@ impl Constraints {
 		self
 	}
 
-	pub fn with_size_limit(mut self, size_limit: SizeLimit) -> Self {
-		self.size_limit = size_limit.0;
-
-		self
-	}
-}
-
-pub struct SizeLimit(multer::SizeLimit);
-
-impl SizeLimit {
-	pub fn new() -> Self {
-		Self(multer::SizeLimit::new())
-	}
-
-	pub fn per_part(mut self, limit: usize) -> Self {
-		self.0 = self.0.per_field(limit as u64);
+	pub fn with_body_size_limit(mut self, size_limit: u64) -> Self {
+		self.some_body_size_limit = Some(size_limit);
 
 		self
 	}
 
-	pub fn for_part<S: Into<String>>(mut self, part_name: S, limit: usize) -> Self {
-		self.0 = self.0.for_field(part_name, limit as u64);
+	pub fn with_part_size_limit(mut self, size_limit: u64) -> Self {
+		self.some_part_size_limit = Some(size_limit);
+
+		self
+	}
+
+	pub fn with_size_limits_for_parts(mut self, size_limits_for_parts: Vec<(String, u64)>) -> Self {
+		self.some_size_limits_for_parts = Some(size_limits_for_parts);
 
 		self
 	}
@@ -449,9 +495,7 @@ mod test {
 			.body(form_data_string)
 			.unwrap();
 
-		let Form(mut form_data) = Form::<Data>::from_request(request, Args::new())
-			.await
-			.unwrap();
+		let Form(mut form_data) = Form::<Data>::from_request(request).await.unwrap();
 
 		assert_eq!(form_data.login, login.as_ref());
 		assert_eq!(form_data.password, password.as_ref());
@@ -472,9 +516,7 @@ mod test {
 			.body(form_body)
 			.unwrap();
 
-		let Form(form_data) = Form::<Data>::from_request(request, Args::new())
-			.await
-			.unwrap();
+		let Form(form_data) = Form::<Data>::from_request(request).await.unwrap();
 
 		assert_eq!(form_data.some_id, Some(1));
 		assert_eq!(form_data.login, login.as_ref());

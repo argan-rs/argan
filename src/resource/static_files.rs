@@ -22,7 +22,7 @@ use crate::{
 	common::{normalize_path, patterns_to_route, strip_double_quotes, Uncloneable, SCOPE_VALIDITY},
 	data::header::{split_header_value_with_weights, SplitHeaderValueError},
 	handler::{_get, request_handlers::handle_mistargeted_request, Handler, IntoHandler},
-	request::{FromRequest, RemainingPath, Request},
+	request::{Extract, FromRequest, RemainingPath, Request, RequestContext},
 	response::{
 		file_stream::{
 			ContentCoding, FileStream, FileStreamError, _as_attachment, _content_encoding, _content_type,
@@ -145,7 +145,7 @@ impl StaticFiles {
 			level: self.level_to_encode,
 		};
 
-		let get_handler = move |remaining_path: RemainingPath, request: Request| {
+		let get_handler = move |request: RequestContext| {
 			let handler_props = HandlerProps {
 				files_dir: files_dir.clone(),
 				some_tagger: None, /* some_tagger.clone() */
@@ -154,7 +154,7 @@ impl StaticFiles {
 				dynamic_encoding_props: dynamic_encoding_props.clone(),
 			};
 
-			get_handler(request, remaining_path, handler_props)
+			get_handler(request, handler_props)
 		};
 
 		if self.flags.has(Flags::GET) {
@@ -208,8 +208,7 @@ struct DynamicEncodingProps {
 // --------------------------------------------------
 
 async fn get_handler(
-	mut request: Request,
-	remaining_path: RemainingPath,
+	mut request: RequestContext,
 	HandlerProps {
 		files_dir,
 		some_tagger,
@@ -218,14 +217,16 @@ async fn get_handler(
 		dynamic_encoding_props,
 	}: HandlerProps,
 ) -> Result<Response, StaticFileError> {
-	let RemainingPath::Value(remaining_path) = remaining_path else {
+	let remaining_path = request.remaining_path_segments();
+
+	if remaining_path.is_empty() {
 		return Err(StaticFileError::FileNotFound);
 	};
 
 	let remaining_path = normalize_path(remaining_path.as_ref());
 
 	let (coding, path_buf, should_encode) = evaluate_optimal_coding(
-		request.headers(),
+		request.headers_ref(),
 		files_dir.as_ref(),
 		&remaining_path,
 		dynamic_encoding_props.enabled,
@@ -250,8 +251,8 @@ async fn get_handler(
 				.map_err(Into::<StaticFileError>::into)?
 		} else {
 			let mut file_stream = match evaluate_preconditions(
-				request.headers(),
-				request.method(),
+				request.headers_ref(),
+				request.method_ref(),
 				some_tagger,
 				&path_buf,
 				&path_metadata,

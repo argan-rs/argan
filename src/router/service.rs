@@ -9,13 +9,13 @@ use http::{Extensions, StatusCode};
 use hyper::service::Service;
 
 use crate::{
-	common::MaybeBoxed,
+	common::{MaybeBoxed, Uncloneable},
 	data::extensions::NodeExtensions,
 	handler::{futures::ResponseToResultFuture, Args, BoxedHandler, Handler},
 	host::{Host, HostService},
 	middleware::{layer_targets::LayerTarget, Layer},
 	pattern::ParamsList,
-	request::Request,
+	request::{Request, RequestContext, RequestRoutingStateExt},
 	resource::{Resource, ResourceService},
 	response::{BoxedErrorResponse, InfallibleResponseFuture, IntoResponse, Response},
 	routing::{RouteTraversal, RoutingState},
@@ -53,11 +53,12 @@ where
 	fn call(&self, mut request: Request<B>) -> Self::Future {
 		let routing_state = RoutingState::new(RouteTraversal::for_route(request.uri().path()));
 
-		let mut args = Args {
-			routing_state,
+		let args = Args {
 			node_extensions: NodeExtensions::new_borrowed(&self.extensions),
 			handler_extension: Cow::Borrowed(&()),
 		};
+
+		let request = RequestContext::new(request, routing_state);
 
 		match &self.request_passer {
 			MaybeBoxed::Boxed(boxed_request_passer) => {
@@ -193,8 +194,8 @@ where
 	type Error = BoxedErrorResponse;
 	type Future = BoxedFuture<Result<Self::Response, Self::Error>>;
 
-	fn handle(&self, request: Request<B>, mut args: Args) -> Self::Future {
-		if let Some(uri_host) = request.uri().host() {
+	fn handle(&self, mut request: RequestContext<B>, mut args: Args) -> Self::Future {
+		if let Some(uri_host) = request.request.uri().host() {
 			if let Some(host) = self.some_static_hosts.as_ref().and_then(|hosts| {
 				hosts.iter().find(|host| {
 					host
@@ -208,7 +209,7 @@ where
 			if let Some(host) = self.some_regex_hosts.as_ref().and_then(|hosts| {
 				hosts.iter().find(|host| {
 					host
-						.is_regex_match(uri_host, &mut args.routing_state.uri_params)
+						.is_regex_match(uri_host, &mut request.routing_state.uri_params)
 						.expect("regex_hosts must keep only the hosts with a static pattern")
 				})
 			}) {
@@ -611,11 +612,9 @@ mod test {
 			extensions.insert("Hello from Handler!".to_string());
 		}));
 
-		router
-			.resource_mut("/st_0_0/st_1_0")
-			.set_handler_for(_get::<_, Request>(|request: Request| async move {
-				request.extensions().get::<String>().unwrap().clone()
-			}));
+		router.resource_mut("/st_0_0/st_1_0").set_handler_for(_get(
+			|request: RequestContext| async move { request.extensions_ref().get::<String>().unwrap().clone() },
+		));
 
 		// ----------
 
