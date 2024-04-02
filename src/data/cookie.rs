@@ -25,8 +25,8 @@ use crate::{
 // --------------------------------------------------------------------------------
 
 pub use cookie::{
-	prefix::{Host, Secure},
-	Cookie, Iter, Key,
+	prefix::{Host as PrefixHost, Secure as PrefixSecure},
+	Cookie, CookieBuilder, Expiration, SameSite, Iter, Key, KeyError, ParseError,
 };
 
 // --------------------------------------------------
@@ -137,10 +137,10 @@ where
 		}
 	}
 
-	#[inline(always)]
-	pub fn iter(&self) -> Iter<'_> {
-		self.inner.iter()
-	}
+	// #[inline(always)]
+	// pub fn iter(&self) -> Iter<'_> {
+	// 	self.inner.iter()
+	// }
 }
 
 // impl<K> FromMutRequestHead for CookieJar<K>
@@ -177,22 +177,7 @@ where
 	type Error = Infallible;
 
 	async fn from_request_ref(request: &'r Request<B>) -> Result<Self, Self::Error> {
-		let cookie_jar = request
-			.headers()
-			.get_all(COOKIE)
-			.iter()
-			.filter_map(|value| value.to_str().ok())
-			.flat_map(Cookie::split_parse_encoded)
-			.fold(CookieJar::new(), |mut jar, result| {
-				match result {
-					Ok(cookie) => jar.inner.add_original(cookie.into_owned()),
-					Err(_) => {} // Ignored.
-				}
-
-				jar
-			});
-
-		Ok(cookie_jar)
+		Ok(cookies_from_request(request))
 	}
 }
 
@@ -204,24 +189,33 @@ where
 	type Error = Infallible;
 
 	async fn from_request(request: Request<B>) -> Result<Self, Self::Error> {
-		let cookie_jar = request
-			.headers()
-			.get_all(COOKIE)
-			.iter()
-			.filter_map(|value| value.to_str().ok())
-			.flat_map(Cookie::split_parse_encoded)
-			.fold(CookieJar::new(), |mut jar, result| {
-				match result {
-					Ok(cookie) => jar.inner.add_original(cookie.into_owned()),
-					Err(_) => {} // Ignored.
-				}
-
-				jar
-			});
-
-		Ok(cookie_jar)
+		Ok(cookies_from_request(&request))
 	}
 }
+
+pub(crate) fn cookies_from_request<B, K>(request: &Request<B>) -> CookieJar<K>
+where
+	K: for<'k> TryFrom<&'k [u8]> + Into<Key>,
+{
+	let cookie_jar = request
+		.headers()
+		.get_all(COOKIE)
+		.iter()
+		.filter_map(|value| value.to_str().ok())
+		.flat_map(Cookie::split_parse_encoded)
+		.fold(CookieJar::new(), |mut jar, result| {
+			match result {
+				Ok(cookie) => jar.inner.add_original(cookie.into_owned()),
+				Err(_) => {} // Ignored.
+			}
+
+			jar
+		});
+
+	cookie_jar
+}
+
+// -------------------------
 
 impl<K> IntoResponseHead for CookieJar<K> {
 	fn into_response_head(self, mut head: ResponseHead) -> Result<ResponseHead, BoxedErrorResponse> {
@@ -443,24 +437,30 @@ impl<K> IntoResponse for SignedCookieJar<K> {
 
 // -------------------------
 
-pub enum CookieKind {
-	Plain(Cookie<'static>),
-	Private(Cookie<'static>),
-	Signed(Cookie<'static>),
+mod private {
+	use super::*;
+
+	pub enum CookieKind {
+		Plain(Cookie<'static>),
+		Private(Cookie<'static>),
+		Signed(Cookie<'static>),
+	}
 }
 
+use private::CookieKind;
+
 #[inline(always)]
-pub fn plain<C: Into<Cookie<'static>>>(cookie: C) -> CookieKind {
+pub fn _plain<C: Into<Cookie<'static>>>(cookie: C) -> CookieKind {
 	CookieKind::Plain(cookie.into())
 }
 
 #[inline(always)]
-pub fn private<C: Into<Cookie<'static>>>(cookie: C) -> CookieKind {
+pub fn _private<C: Into<Cookie<'static>>>(cookie: C) -> CookieKind {
 	CookieKind::Private(cookie.into())
 }
 
 #[inline(always)]
-pub fn signed<C: Into<Cookie<'static>>>(cookie: C) -> CookieKind {
+pub fn _signed<C: Into<Cookie<'static>>>(cookie: C) -> CookieKind {
 	CookieKind::Signed(cookie.into())
 }
 

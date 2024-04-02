@@ -10,7 +10,7 @@ use argan_core::{
 	request, BoxedError, BoxedFuture,
 };
 use bytes::Bytes;
-use cookie::CookieJar;
+use cookie::Key;
 use futures_util::TryFutureExt;
 use http::{
 	header::{ToStrError, CONTENT_TYPE},
@@ -24,14 +24,10 @@ use serde::{
 use crate::{
 	common::{marker::Sealed, Uncloneable},
 	data::{
-		form::{
+		cookie::{cookies_from_request, CookieJar}, form::{
 			request_into_form_data, request_into_multipart_form, FormError, MultipartForm,
 			MultipartFormError, FORM_BODY_SIZE_LIMIT,
-		},
-		header::{content_type, ContentTypeError},
-		json::{request_into_json_data, Json, JsonError, JSON_BODY_SIZE_LIMIT},
-		request_into_binary_data, request_into_full_body, request_into_text_data, BinaryExtractorError,
-		FullBodyExtractorError, TextExtractorError, BODY_SIZE_LIMIT,
+		}, header::{content_type, ContentTypeError}, json::{request_into_json_data, Json, JsonError, JSON_BODY_SIZE_LIMIT}, request_into_binary_data, request_into_full_body, request_into_text_data, BinaryExtractorError, FullBodyExtractorError, TextExtractorError, BODY_SIZE_LIMIT
 	},
 	handler::Args,
 	pattern::{self, FromParamsList, ParamsList},
@@ -114,8 +110,11 @@ impl<B> RequestContext<B> {
 
 	// ----------
 
-	pub fn cookies(&self) -> CookieJar {
-		todo!()
+	pub fn cookies<K>(&self) -> CookieJar<K>
+	where
+		K: for<'k> TryFrom<&'k [u8]> + Into<Key>,
+	{
+		cookies_from_request(&self.request)
 	}
 
 	#[inline]
