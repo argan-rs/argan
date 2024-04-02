@@ -185,7 +185,7 @@ where
 
 	#[inline(always)]
 	fn handle(&self, mut request: RequestContext<B>, args: Args<'_, ()>) -> Self::Future {
-		self.boxed_modifier.0(request.extensions_mut());
+		self.boxed_modifier.0(request.request_mut().extensions_mut());
 
 		self.inner_handler.handle(request, args)
 	}
