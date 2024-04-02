@@ -195,7 +195,7 @@ where
 	type Future = BoxedFuture<Result<Self::Response, Self::Error>>;
 
 	fn handle(&self, mut request: RequestContext<B>, mut args: Args) -> Self::Future {
-		if let Some(uri_host) = request.request.uri().host() {
+		if let Some((uri_host, uri_params)) = request.routing_host_and_uri_params_mut() {
 			if let Some(host) = self.some_static_hosts.as_ref().and_then(|hosts| {
 				hosts.iter().find(|host| {
 					host
@@ -209,7 +209,7 @@ where
 			if let Some(host) = self.some_regex_hosts.as_ref().and_then(|hosts| {
 				hosts.iter().find(|host| {
 					host
-						.is_regex_match(uri_host, &mut request.routing_state.uri_params)
+						.is_regex_match(uri_host, uri_params)
 						.expect("regex_hosts must keep only the hosts with a static pattern")
 				})
 			}) {

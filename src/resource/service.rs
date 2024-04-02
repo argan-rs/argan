@@ -485,10 +485,8 @@ impl Handler for RequestPasser {
 	#[inline]
 	fn handle(&self, mut request: RequestContext, mut args: Args) -> Self::Future {
 		let some_next_resource = 'some_next_resource: {
-			let (next_segment, _) = request
-				.routing_state
-				.route_traversal
-				.next_segment(request.request.uri().path())
+			let (next_segment, uri_params) = request
+				.routing_next_segment_and_uri_params_mut()
 				.expect("request passer shouldn't be called when there is no next path segment");
 
 			if let Some(next_resource) = self.some_static_resources.as_ref().and_then(|resources| {
@@ -514,10 +512,7 @@ impl Handler for RequestPasser {
 				resources.iter().find(|resource| {
 					resource
 						.pattern
-						.is_regex_match(
-							decoded_segment.as_ref(),
-							&mut request.routing_state.uri_params,
-						)
+						.is_regex_match(decoded_segment.as_ref(), uri_params)
 						.expect("regex_resources must keep only the resources with a regex pattern")
 				})
 			}) {
@@ -530,7 +525,7 @@ impl Handler for RequestPasser {
 				.is_some_and(|resource| {
 					resource
 						.pattern
-						.is_wildcard_match(decoded_segment, &mut request.routing_state.uri_params)
+						.is_wildcard_match(decoded_segment, uri_params)
 						.expect("wildcard_resource must keep only a resource with a wilcard pattern")
 				});
 

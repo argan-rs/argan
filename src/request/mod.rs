@@ -59,8 +59,8 @@ use self::websocket::{request_into_websocket_upgrade, WebSocketUpgrade, WebSocke
 // --------------------------------------------------
 
 pub struct RequestContext<B = Body> {
-	pub(crate) request: Request<B>,
-	pub(crate) routing_state: RoutingState,
+	request: Request<B>,
+	routing_state: RoutingState,
 }
 
 impl<B> RequestContext<B> {
@@ -78,18 +78,8 @@ impl<B> RequestContext<B> {
 	}
 
 	#[inline(always)]
-	pub fn method_mut(&mut self) -> &mut Method {
-		self.request.method_mut()
-	}
-
-	#[inline(always)]
 	pub fn uri_ref(&self) -> &Uri {
 		self.request.uri()
-	}
-
-	#[inline(always)]
-	pub fn uri_mut(&mut self) -> &mut Uri {
-		self.request.uri_mut()
 	}
 
 	#[inline(always)]
@@ -98,18 +88,8 @@ impl<B> RequestContext<B> {
 	}
 
 	#[inline(always)]
-	pub fn version_mut(&mut self) -> &mut Version {
-		self.request.version_mut()
-	}
-
-	#[inline(always)]
 	pub fn headers_ref(&self) -> &HeaderMap<HeaderValue> {
 		self.request.headers()
-	}
-
-	#[inline(always)]
-	pub fn headers_mut(&mut self) -> &mut HeaderMap<HeaderValue> {
-		self.request.headers_mut()
 	}
 
 	#[inline(always)]
@@ -118,23 +98,18 @@ impl<B> RequestContext<B> {
 	}
 
 	#[inline(always)]
-	pub fn extensions_mut(&mut self) -> &mut Extensions {
-		self.request.extensions_mut()
-	}
-
-	#[inline(always)]
 	pub fn body_ref(&self) -> &B {
 		self.request.body()
 	}
 
 	#[inline(always)]
-	pub fn body_mut(&mut self) -> &mut B {
-		self.request.body_mut()
+	pub fn request_ref(&self) -> &Request<B> {
+		&self.request
 	}
 
 	#[inline(always)]
-	pub fn into_request_parts(self) -> (RequestHead, B) {
-		self.request.into_parts()
+	pub fn request_mut(&mut self) -> &mut Request<B> {
+		&mut self.request
 	}
 
 	// ----------
@@ -317,11 +292,27 @@ impl<B> RequestContext<B> {
 	}
 
 	#[inline(always)]
-	pub(crate) fn routing_next_segment_with_index(&mut self) -> Option<(&str, usize)> {
-		self
+	pub(crate) fn routing_host_and_uri_params_mut(&mut self) -> Option<(&str, &mut ParamsList)> {
+		let Some(host) = self.request.uri().host() else {
+			return None;
+		};
+
+		Some((host, &mut self.routing_state.uri_params))
+	}
+
+	#[inline(always)]
+	pub(crate) fn routing_next_segment_and_uri_params_mut(
+		&mut self,
+	) -> Option<(&str, &mut ParamsList)> {
+		let Some((next_segment, _)) = self
 			.routing_state
 			.route_traversal
 			.next_segment(self.request.uri().path())
+		else {
+			return None;
+		};
+
+		Some((next_segment, &mut self.routing_state.uri_params))
 	}
 
 	#[inline(always)]
@@ -340,6 +331,11 @@ impl<B> RequestContext<B> {
 	#[inline(always)]
 	pub(crate) fn noted_subtree_handler(&self) -> bool {
 		self.routing_state.subtree_handler_exists
+	}
+
+	#[inline(always)]
+	pub(crate) fn into_parts(self) -> (Request<B>, RoutingState) {
+		(self.request, self.routing_state)
 	}
 }
 

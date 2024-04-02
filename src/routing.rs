@@ -15,6 +15,7 @@ pub(crate) struct RoutingState {
 }
 
 impl RoutingState {
+	#[inline(always)]
 	pub(crate) fn new(route_traversal: RouteTraversal) -> RoutingState {
 		Self {
 			route_traversal,

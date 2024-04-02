@@ -61,10 +61,7 @@ where
 	type Future = S::Future;
 
 	fn handle(&self, mut request: RequestContext<B>, mut args: Args) -> Self::Future {
-		let RequestContext {
-			mut request,
-			routing_state,
-		} = request;
+		let (mut request, routing_state) = request.into_parts();
 		let args = args.to_owned();
 
 		request
