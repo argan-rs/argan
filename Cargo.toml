@@ -34,8 +34,7 @@ futures-util = { workspace = true }
 thiserror = {workspace = true}
 mime = { workspace = true }
 base64 = "0.22.0"
-biscotti = "0.2.1"
-cookie = { version = "0.18.0", features = ["percent-encode", "secure"] }
+cookie = { version = "0.18.1", features = ["percent-encode", "secure"] }
 fastwebsockets = { version = "0.7.1", features = ["upgrade"] }
 flate2 = "1.0.28"
 httparse = "1.8.0"
