@@ -690,7 +690,7 @@ mod test {
 			config::_with_request_extensions_modifier,
 			test_helpers::{new_root, test_service, Case, DataKind, Rx_1_1, Rx_2_0, Wl_3_0},
 		},
-		handler::{DummyHandler, IntoExtendedHandler, IntoWrappedHandler, _get},
+		handler::{DummyHandler, _get},
 		middleware::{IntoResponseResultAdapter, _request_handler, _request_passer, _request_receiver},
 		resource::Resource,
 	};
