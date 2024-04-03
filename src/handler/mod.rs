@@ -72,12 +72,21 @@ where
 	}
 }
 
-// -------------------------
+// --------------------------------------------------
+// IntoHandler
 
 pub trait IntoHandler<Mark, B = Body, Ext: Clone = ()>: Sized {
 	type Handler: Handler<B, Ext>;
 
 	fn into_handler(self) -> Self::Handler;
+
+	fn with_extension(self, handler_extension: Ext) -> ExtendedHandler<Self::Handler, Ext> {
+		ExtendedHandler::new(self.into_handler(), handler_extension)
+	}
+
+	fn wrapped_in<L: Layer<Self::Handler>>(self, layer: L) -> L::Handler {
+		layer.wrap(self.into_handler())
+	}
 }
 
 impl<H, B, Ext> IntoHandler<(), B, Ext> for H
@@ -93,35 +102,37 @@ where
 }
 
 // --------------------------------------------------
+// IntoWrappedHandler
 
-pub trait IntoWrappedHandler<Mark>: IntoHandler<Mark> + Sized {
-	fn wrapped_in<L: Layer<Self::Handler>>(self, layer: L) -> L::Handler;
-}
-
-impl<H, Mark> IntoWrappedHandler<Mark> for H
-where
-	H: IntoHandler<Mark>,
-{
-	fn wrapped_in<L: Layer<H::Handler>>(self, layer: L) -> L::Handler {
-		layer.wrap(self.into_handler())
-	}
-}
+// pub trait IntoWrappedHandler<Mark>: IntoHandler<Mark> + Sized {
+// 	fn wrapped_in<L: Layer<Self::Handler>>(self, layer: L) -> L::Handler;
+// }
+//
+// impl<H, Mark> IntoWrappedHandler<Mark> for H
+// where
+// 	H: IntoHandler<Mark>,
+// {
+// 	fn wrapped_in<L: Layer<H::Handler>>(self, layer: L) -> L::Handler {
+// 		layer.wrap(self.into_handler())
+// 	}
+// }
 
 // --------------------------------------------------
+// IntoExtendedHandler
 
-pub trait IntoExtendedHandler<Mark, B, Ext: Clone>: IntoHandler<Mark, B, Ext> + Sized {
-	fn with_extension(self, handler_extension: Ext) -> ExtendedHandler<Self::Handler, Ext>;
-}
-
-impl<H, Mark, B, Ext> IntoExtendedHandler<Mark, B, Ext> for H
-where
-	H: IntoHandler<Mark, B, Ext>,
-	Ext: Clone + Send + Sync + 'static,
-{
-	fn with_extension(self, handler_extension: Ext) -> ExtendedHandler<Self::Handler, Ext> {
-		ExtendedHandler::new(self.into_handler(), handler_extension)
-	}
-}
+// pub trait IntoExtendedHandler<Mark, B, Ext: Clone>: IntoHandler<Mark, B, Ext> + Sized {
+// 	fn with_extension(self, handler_extension: Ext) -> ExtendedHandler<Self::Handler, Ext>;
+// }
+//
+// impl<H, Mark, B, Ext> IntoExtendedHandler<Mark, B, Ext> for H
+// where
+// 	H: IntoHandler<Mark, B, Ext>,
+// 	Ext: Clone + Send + Sync + 'static,
+// {
+// 	fn with_extension(self, handler_extension: Ext) -> ExtendedHandler<Self::Handler, Ext> {
+// 		ExtendedHandler::new(self.into_handler(), handler_extension)
+// 	}
+// }
 
 // --------------------------------------------------
 // ExtendedHandler
