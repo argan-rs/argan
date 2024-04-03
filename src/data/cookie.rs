@@ -26,36 +26,42 @@ use crate::{
 
 pub use cookie::{
 	prefix::{Host as PrefixHost, Secure as PrefixSecure},
-	Cookie, CookieBuilder, Expiration, SameSite, Iter, Key, KeyError, ParseError,
+	Cookie, CookieBuilder, Expiration, Iter, Key, KeyError, ParseError, SameSite,
 };
+
+// --------------------------------------------------------------------------------
+
+const NO_KEY: &'static str = "key should have been set";
 
 // --------------------------------------------------
 // Cookies
 
-pub struct CookieJar<K = Key> {
+pub struct CookieJar {
 	inner: InnerCookieJar,
 	some_key: Option<Key>,
-	_key_mark: PhantomData<K>,
 }
 
-impl<K> CookieJar<K>
-where
-	K: for<'k> TryFrom<&'k [u8]> + Into<Key>,
-{
+impl CookieJar {
 	#[inline(always)]
-	pub fn new() -> CookieJar<K> {
+	pub fn new() -> CookieJar {
 		Self {
 			inner: InnerCookieJar::new(),
 			some_key: None,
-			_key_mark: PhantomData,
 		}
 	}
 
 	#[inline(always)]
-	pub fn with_key(mut self, key: Key) -> CookieJar<K> {
-		self.some_key = Some(key);
+	pub fn with_key<K>(mut self, key: K) -> CookieJar
+	where
+		K: for<'k> TryFrom<&'k [u8]> + Into<Key>,
+	{
+		self.some_key = Some(key.into());
 
 		self
+	}
+
+	pub fn clone_key(&mut self) -> Key {
+		self.some_key.as_ref().expect(NO_KEY).clone()
 	}
 
 	pub fn add<C, const N: usize>(&mut self, cookies: C)
@@ -70,11 +76,11 @@ where
 				Plain(cookie) => self.inner.add(cookie),
 				Private(cookie) => self
 					.inner
-					.private_mut(self.some_key.as_ref().expect(SCOPE_VALIDITY))
+					.private_mut(self.some_key.as_ref().expect(NO_KEY))
 					.add(cookie),
 				Signed(cookie) => self
 					.inner
-					.signed_mut(self.some_key.as_ref().expect(SCOPE_VALIDITY))
+					.signed_mut(self.some_key.as_ref().expect(NO_KEY))
 					.add(cookie),
 			}
 		}
@@ -89,7 +95,7 @@ where
 	pub fn private_cookie<S: AsRef<str>>(&self, name: S) -> Option<Cookie<'static>> {
 		self
 			.inner
-			.private(self.some_key.as_ref().expect(SCOPE_VALIDITY))
+			.private(self.some_key.as_ref().expect(NO_KEY))
 			.get(name.as_ref())
 	}
 
@@ -97,7 +103,7 @@ where
 	pub fn signed_cookie<S: AsRef<str>>(&self, name: S) -> Option<Cookie<'static>> {
 		self
 			.inner
-			.signed(self.some_key.as_ref().expect(SCOPE_VALIDITY))
+			.signed(self.some_key.as_ref().expect(NO_KEY))
 			.get(name.as_ref())
 	}
 
@@ -120,20 +126,18 @@ where
 	}
 
 	#[inline(always)]
-	pub fn into_private_jar(self) -> PrivateCookieJar<K> {
+	pub fn into_private_jar(self) -> PrivateCookieJar {
 		PrivateCookieJar {
 			inner: self.inner,
-			key: self.some_key.expect(SCOPE_VALIDITY),
-			_key_mark: PhantomData,
+			key: self.some_key.expect(NO_KEY),
 		}
 	}
 
 	#[inline(always)]
-	pub fn into_signed_jar(self) -> SignedCookieJar<K> {
+	pub fn into_signed_jar(self) -> SignedCookieJar {
 		SignedCookieJar {
 			inner: self.inner,
-			key: self.some_key.expect(SCOPE_VALIDITY),
-			_key_mark: PhantomData,
+			key: self.some_key.expect(NO_KEY),
 		}
 	}
 
@@ -169,10 +173,9 @@ where
 // 	}
 // }
 
-impl<'r, B, K> FromRequestRef<'r, B> for CookieJar<K>
+impl<'r, B> FromRequestRef<'r, B> for CookieJar
 where
 	B: Sync,
-	K: for<'k> TryFrom<&'k [u8]> + Into<Key>,
 {
 	type Error = Infallible;
 
@@ -181,10 +184,9 @@ where
 	}
 }
 
-impl<B, K> FromRequest<B> for CookieJar<K>
+impl<B> FromRequest<B> for CookieJar
 where
 	B: Send,
-	K: for<'k> TryFrom<&'k [u8]> + Into<Key>,
 {
 	type Error = Infallible;
 
@@ -193,10 +195,7 @@ where
 	}
 }
 
-pub(crate) fn cookies_from_request<B, K>(request: &Request<B>) -> CookieJar<K>
-where
-	K: for<'k> TryFrom<&'k [u8]> + Into<Key>,
-{
+pub(crate) fn cookies_from_request<B>(request: &Request<B>) -> CookieJar {
 	let cookie_jar = request
 		.headers()
 		.get_all(COOKIE)
@@ -217,7 +216,7 @@ where
 
 // -------------------------
 
-impl<K> IntoResponseHead for CookieJar<K> {
+impl IntoResponseHead for CookieJar {
 	fn into_response_head(self, mut head: ResponseHead) -> Result<ResponseHead, BoxedErrorResponse> {
 		for cookie in self.inner.delta() {
 			match HeaderValue::try_from(cookie.encoded().to_string()) {
@@ -230,7 +229,7 @@ impl<K> IntoResponseHead for CookieJar<K> {
 	}
 }
 
-impl<K> IntoResponse for CookieJar<K> {
+impl IntoResponse for CookieJar {
 	fn into_response(self) -> Response {
 		let (head, body) = Response::default().into_parts();
 
@@ -243,13 +242,12 @@ impl<K> IntoResponse for CookieJar<K> {
 
 // -------------------------
 
-pub struct PrivateCookieJar<K = Key> {
+pub struct PrivateCookieJar {
 	inner: InnerCookieJar,
 	key: Key,
-	_key_mark: PhantomData<K>,
 }
 
-impl<K> PrivateCookieJar<K> {
+impl PrivateCookieJar {
 	#[inline(always)]
 	pub fn get<S: AsRef<str>>(&self, name: S) -> Option<Cookie<'static>> {
 		self.inner.private(&self.key).get(name.as_ref())
@@ -271,11 +269,10 @@ impl<K> PrivateCookieJar<K> {
 	}
 
 	#[inline(always)]
-	pub fn into_jar(self) -> CookieJar<K> {
+	pub fn into_jar(self) -> CookieJar {
 		CookieJar {
 			inner: self.inner,
 			some_key: Some(self.key),
-			_key_mark: PhantomData,
 		}
 	}
 }
@@ -293,41 +290,39 @@ impl<K> PrivateCookieJar<K> {
 // 	}
 // }
 
-impl<'r, B, K> FromRequestRef<'r, B> for PrivateCookieJar<K>
+impl<'r, B> FromRequestRef<'r, B> for PrivateCookieJar
 where
 	B: Sync,
-	K: for<'k> TryFrom<&'k [u8]> + Into<Key>,
 {
 	type Error = Infallible;
 
 	async fn from_request_ref(request: &'r Request<B>) -> Result<Self, Self::Error> {
-		<CookieJar<K> as FromRequestRef<'r, B>>::from_request_ref(request)
+		<CookieJar as FromRequestRef<'r, B>>::from_request_ref(request)
 			.await
 			.map(|jar| jar.into_private_jar())
 	}
 }
 
-impl<B, K> FromRequest<B> for PrivateCookieJar<K>
+impl<B> FromRequest<B> for PrivateCookieJar
 where
 	B: Send,
-	K: for<'k> TryFrom<&'k [u8]> + Into<Key>,
 {
 	type Error = Infallible;
 
 	async fn from_request(request: Request<B>) -> Result<Self, Self::Error> {
-		<CookieJar<K> as FromRequest<B>>::from_request(request)
+		<CookieJar as FromRequest<B>>::from_request(request)
 			.await
 			.map(|jar| jar.into_private_jar())
 	}
 }
 
-impl<K> IntoResponseHead for PrivateCookieJar<K> {
+impl IntoResponseHead for PrivateCookieJar {
 	fn into_response_head(self, mut head: ResponseHead) -> Result<ResponseHead, BoxedErrorResponse> {
 		self.into_jar().into_response_head(head)
 	}
 }
 
-impl<K> IntoResponse for PrivateCookieJar<K> {
+impl IntoResponse for PrivateCookieJar {
 	fn into_response(self) -> Response {
 		let (head, body) = Response::default().into_parts();
 
@@ -340,13 +335,12 @@ impl<K> IntoResponse for PrivateCookieJar<K> {
 
 // -------------------------
 
-pub struct SignedCookieJar<K = Key> {
+pub struct SignedCookieJar {
 	inner: InnerCookieJar,
 	key: Key,
-	_key_mark: PhantomData<K>,
 }
 
-impl<K> SignedCookieJar<K> {
+impl SignedCookieJar {
 	#[inline(always)]
 	pub fn get<S: AsRef<str>>(&self, name: S) -> Option<Cookie<'static>> {
 		self.inner.signed(&self.key).get(name.as_ref())
@@ -368,11 +362,10 @@ impl<K> SignedCookieJar<K> {
 	}
 
 	#[inline(always)]
-	pub fn into_jar(self) -> CookieJar<K> {
+	pub fn into_jar(self) -> CookieJar {
 		CookieJar {
 			inner: self.inner,
 			some_key: Some(self.key),
-			_key_mark: PhantomData,
 		}
 	}
 }
@@ -390,41 +383,39 @@ impl<K> SignedCookieJar<K> {
 // 	}
 // }
 
-impl<'r, B, K> FromRequestRef<'r, B> for SignedCookieJar<K>
+impl<'r, B> FromRequestRef<'r, B> for SignedCookieJar
 where
 	B: Sync,
-	K: for<'k> TryFrom<&'k [u8]> + Into<Key>,
 {
 	type Error = Infallible;
 
 	async fn from_request_ref(request: &'r Request<B>) -> Result<Self, Self::Error> {
-		<CookieJar<K> as FromRequestRef<'r, B>>::from_request_ref(request)
+		<CookieJar as FromRequestRef<'r, B>>::from_request_ref(request)
 			.await
 			.map(|jar| jar.into_signed_jar())
 	}
 }
 
-impl<B, K> FromRequest<B> for SignedCookieJar<K>
+impl<B> FromRequest<B> for SignedCookieJar
 where
 	B: Send,
-	K: for<'k> TryFrom<&'k [u8]> + Into<Key>,
 {
 	type Error = Infallible;
 
 	async fn from_request(request: Request<B>) -> Result<Self, Self::Error> {
-		<CookieJar<K> as FromRequest<B>>::from_request(request)
+		<CookieJar as FromRequest<B>>::from_request(request)
 			.await
 			.map(|jar| jar.into_signed_jar())
 	}
 }
 
-impl<K> IntoResponseHead for SignedCookieJar<K> {
+impl IntoResponseHead for SignedCookieJar {
 	fn into_response_head(self, mut head: ResponseHead) -> Result<ResponseHead, BoxedErrorResponse> {
 		self.into_jar().into_response_head(head)
 	}
 }
 
-impl<K> IntoResponse for SignedCookieJar<K> {
+impl IntoResponse for SignedCookieJar {
 	fn into_response(self) -> Response {
 		let (head, body) = Response::default().into_parts();
 
@@ -444,6 +435,12 @@ mod private {
 		Plain(Cookie<'static>),
 		Private(Cookie<'static>),
 		Signed(Cookie<'static>),
+	}
+
+	impl IntoArray<CookieKind, 1> for CookieKind {
+		fn into_array(self) -> [CookieKind; 1] {
+			[self]
+		}
 	}
 }
 
@@ -503,3 +500,64 @@ where
 }
 
 // --------------------------------------------------------------------------------
+// --------------------------------------------------------------------------------
+
+#[cfg(test)]
+mod test {
+	use http_body_util::Empty;
+
+	use super::*;
+
+	// --------------------------------------------------------------------------------
+	// --------------------------------------------------------------------------------
+
+	#[test]
+	fn cookies() {
+		let request = Request::builder()
+			.uri("/")
+			.header("Cookie", "key1=value1; key2=value2")
+			.body(Empty::<Bytes>::default())
+			.unwrap();
+
+		let cookies = super::cookies_from_request(&request);
+		assert_eq!(cookies.inner.iter().count(), 2);
+		assert_eq!(cookies.plain_cookie("key1").unwrap().value(), "value1");
+		assert_eq!(cookies.plain_cookie("key2").unwrap().value(), "value2");
+
+		// --------------------------------------------------
+
+		let key = Key::generate();
+
+		let mut cookies = CookieJar::new().with_key(key);
+		cookies.add([
+			_private(("key1", "value1")),
+			_signed(("key2", "value2")),
+			_private(("key3", "value3")),
+			_signed(("key4", "value4")),
+		]);
+
+		let mut cookies_string = String::new();
+
+		for cookie in cookies.inner.delta() {
+			let cookie_string = cookie.encoded().to_string();
+
+			cookies_string.push_str(&cookie_string);
+			cookies_string.push_str("; ");
+		}
+
+		let mut request = Request::builder()
+			.uri("/")
+			.header("Cookie", cookies_string)
+			.body(Empty::<Bytes>::default())
+			.unwrap();
+
+		let key = cookies.clone_key();
+		let cookies = super::cookies_from_request(&request).with_key(key);
+		assert_eq!(cookies.inner.iter().count(), 4);
+
+		assert_eq!(cookies.private_cookie("key1").unwrap().value(), "value1");
+		assert_eq!(cookies.signed_cookie("key2").unwrap().value(), "value2");
+		assert_eq!(cookies.private_cookie("key3").unwrap().value(), "value3");
+		assert_eq!(cookies.signed_cookie("key4").unwrap().value(), "value4");
+	}
+}
