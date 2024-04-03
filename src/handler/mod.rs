@@ -84,6 +84,12 @@ pub trait IntoHandler<Mark, B = Body, Ext: Clone = ()>: Sized {
 		ExtendedHandler::new(self.into_handler(), handler_extension)
 	}
 
+	fn with_cookie_key(self, cookie_key: cookie::Key) -> ContextProviderHandler<Self::Handler> {
+		let handler_context = HandlerContext { cookie_key };
+
+		ContextProviderHandler::new(self.into_handler(), handler_context)
+	}
+
 	fn wrapped_in<L: Layer<Self::Handler>>(self, layer: L) -> L::Handler {
 		layer.wrap(self.into_handler())
 	}
@@ -144,7 +150,7 @@ pub struct ExtendedHandler<H, Ext> {
 }
 
 impl<H, Ext> ExtendedHandler<H, Ext> {
-	pub fn new(inner: H, extension: Ext) -> Self {
+	pub(crate) fn new(inner: H, extension: Ext) -> Self {
 		Self { inner, extension }
 	}
 }
@@ -169,6 +175,47 @@ where
 
 		self.inner.handle(request, args)
 	}
+}
+
+// --------------------------------------------------
+// YummyHandler
+
+pub struct ContextProviderHandler<H> {
+	inner: H,
+	context: HandlerContext,
+}
+
+impl<H> ContextProviderHandler<H> {
+	pub(crate) fn new(handler: H, context: HandlerContext) -> Self {
+		Self {
+			inner: handler,
+			context,
+		}
+	}
+}
+
+impl<H, B, Ext> Handler<B, Ext> for ContextProviderHandler<H>
+where
+	H: Handler<B, Ext>,
+	Ext: Clone,
+{
+	type Response = H::Response;
+	type Error = H::Error;
+	type Future = H::Future;
+
+	#[inline]
+	fn handle(&self, mut request: RequestContext<B>, mut args: Args<'_, Ext>) -> Self::Future {
+		let request = request.with_cookie_key(self.context.cookie_key.clone());
+
+		self.inner.handle(request, args)
+	}
+}
+
+// -------------------------
+// HandlerContext
+
+pub(crate) struct HandlerContext {
+	pub(crate) cookie_key: cookie::Key,
 }
 
 // --------------------------------------------------

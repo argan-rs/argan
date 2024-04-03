@@ -62,6 +62,7 @@ use self::websocket::{request_into_websocket_upgrade, WebSocketUpgrade, WebSocke
 pub struct RequestContext<B = Body> {
 	request: Request<B>,
 	routing_state: RoutingState,
+	some_cookie_key: Option<cookie::Key>,
 }
 
 impl<B> RequestContext<B> {
@@ -70,7 +71,15 @@ impl<B> RequestContext<B> {
 		Self {
 			request,
 			routing_state,
+			some_cookie_key: None,
 		}
+	}
+
+	#[inline(always)]
+	pub(crate) fn with_cookie_key(mut self, cookie_key: cookie::Key) -> Self {
+		self.some_cookie_key = Some(cookie_key);
+
+		self
 	}
 
 	#[inline(always)]
@@ -115,8 +124,9 @@ impl<B> RequestContext<B> {
 
 	// ----------
 
-	pub fn cookies(&self) -> CookieJar {
-		cookies_from_request(&self.request)
+	// Consumes cookies.
+	pub fn cookies(&mut self) -> CookieJar {
+		cookies_from_request(&mut self.request, self.some_cookie_key.take())
 	}
 
 	#[inline]
@@ -257,6 +267,7 @@ impl<B> RequestContext<B> {
 		let RequestContext {
 			request,
 			routing_state,
+			some_cookie_key,
 		} = self;
 		let (head, body) = request.into_parts();
 
@@ -266,6 +277,7 @@ impl<B> RequestContext<B> {
 		RequestContext {
 			request,
 			routing_state,
+			some_cookie_key,
 		}
 	}
 }
