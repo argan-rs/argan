@@ -1,6 +1,7 @@
 use std::{
 	borrow::{Borrow, BorrowMut, Cow},
 	convert::Infallible,
+	default,
 	future::Future,
 	marker::PhantomData,
 };
@@ -36,6 +37,7 @@ const NO_KEY: &'static str = "key should have been set";
 // --------------------------------------------------
 // Cookies
 
+#[derive(Default)]
 pub struct CookieJar {
 	inner: InnerCookieJar,
 	some_key: Option<Key>,
@@ -173,16 +175,16 @@ impl CookieJar {
 // 	}
 // }
 
-impl<'r, B> FromRequestRef<'r, B> for CookieJar
-where
-	B: Sync,
-{
-	type Error = Infallible;
-
-	async fn from_request_ref(request: &'r Request<B>) -> Result<Self, Self::Error> {
-		Ok(cookies_from_request(request))
-	}
-}
+// impl<'r, B> FromRequestRef<'r, B> for CookieJar
+// where
+// 	B: Sync,
+// {
+// 	type Error = Infallible;
+//
+// 	async fn from_request_ref(request: &'r Request<B>) -> Result<Self, Self::Error> {
+// 		Ok(cookies_from_request(request, None))
+// 	}
+// }
 
 impl<B> FromRequest<B> for CookieJar
 where
@@ -190,26 +192,39 @@ where
 {
 	type Error = Infallible;
 
-	async fn from_request(request: Request<B>) -> Result<Self, Self::Error> {
-		Ok(cookies_from_request(&request))
+	async fn from_request(mut request: Request<B>) -> Result<Self, Self::Error> {
+		Ok(cookies_from_request(&mut request, None))
 	}
 }
 
-pub(crate) fn cookies_from_request<B>(request: &Request<B>) -> CookieJar {
+pub(crate) fn cookies_from_request<B>(
+	request: &mut Request<B>,
+	some_key: Option<Key>,
+) -> CookieJar {
 	let cookie_jar = request
-		.headers()
-		.get_all(COOKIE)
-		.iter()
-		.filter_map(|value| value.to_str().ok())
-		.flat_map(Cookie::split_parse_encoded)
-		.fold(CookieJar::new(), |mut jar, result| {
-			match result {
-				Ok(cookie) => jar.inner.add_original(cookie.into_owned()),
-				Err(_) => {} // Ignored.
-			}
+		.headers_mut()
+		.remove(COOKIE)
+		.and_then(|value| {
+			value
+				.to_str()
+				.ok()
+				.map(Cookie::split_parse_encoded)
+				.map(|cookies| {
+					cookies.fold(CookieJar::new(), |mut jar, result| {
+						match result {
+							Ok(cookie) => jar.inner.add_original(cookie.into_owned()),
+							Err(_) => {} // Ignored.
+						}
 
-			jar
-		});
+						jar
+					})
+				})
+		})
+		.unwrap_or_default();
+
+	if some_key.is_some() {
+		return cookie_jar.with_key(some_key.expect(SCOPE_VALIDITY));
+	}
 
 	cookie_jar
 }
@@ -290,18 +305,18 @@ impl PrivateCookieJar {
 // 	}
 // }
 
-impl<'r, B> FromRequestRef<'r, B> for PrivateCookieJar
-where
-	B: Sync,
-{
-	type Error = Infallible;
-
-	async fn from_request_ref(request: &'r Request<B>) -> Result<Self, Self::Error> {
-		<CookieJar as FromRequestRef<'r, B>>::from_request_ref(request)
-			.await
-			.map(|jar| jar.into_private_jar())
-	}
-}
+// impl<'r, B> FromRequestRef<'r, B> for PrivateCookieJar
+// where
+// 	B: Sync,
+// {
+// 	type Error = Infallible;
+//
+// 	async fn from_request_ref(request: &'r Request<B>) -> Result<Self, Self::Error> {
+// 		<CookieJar as FromRequestRef<'r, B>>::from_request_ref(request)
+// 			.await
+// 			.map(|jar| jar.into_private_jar())
+// 	}
+// }
 
 impl<B> FromRequest<B> for PrivateCookieJar
 where
@@ -383,18 +398,18 @@ impl SignedCookieJar {
 // 	}
 // }
 
-impl<'r, B> FromRequestRef<'r, B> for SignedCookieJar
-where
-	B: Sync,
-{
-	type Error = Infallible;
-
-	async fn from_request_ref(request: &'r Request<B>) -> Result<Self, Self::Error> {
-		<CookieJar as FromRequestRef<'r, B>>::from_request_ref(request)
-			.await
-			.map(|jar| jar.into_signed_jar())
-	}
-}
+// impl<'r, B> FromRequestRef<'r, B> for SignedCookieJar
+// where
+// 	B: Sync,
+// {
+// 	type Error = Infallible;
+//
+// 	async fn from_request_ref(request: &'r Request<B>) -> Result<Self, Self::Error> {
+// 		<CookieJar as FromRequestRef<'r, B>>::from_request_ref(request)
+// 			.await
+// 			.map(|jar| jar.into_signed_jar())
+// 	}
+// }
 
 impl<B> FromRequest<B> for SignedCookieJar
 where
@@ -513,13 +528,13 @@ mod test {
 
 	#[test]
 	fn cookies() {
-		let request = Request::builder()
+		let mut request = Request::builder()
 			.uri("/")
 			.header("Cookie", "key1=value1; key2=value2")
 			.body(Empty::<Bytes>::default())
 			.unwrap();
 
-		let cookies = super::cookies_from_request(&request);
+		let cookies = super::cookies_from_request(&mut request, None);
 		assert_eq!(cookies.inner.iter().count(), 2);
 		assert_eq!(cookies.plain_cookie("key1").unwrap().value(), "value1");
 		assert_eq!(cookies.plain_cookie("key2").unwrap().value(), "value2");
@@ -552,7 +567,7 @@ mod test {
 			.unwrap();
 
 		let key = cookies.clone_key();
-		let cookies = super::cookies_from_request(&request).with_key(key);
+		let cookies = super::cookies_from_request(&mut request, Some(key));
 		assert_eq!(cookies.inner.iter().count(), 4);
 
 		assert_eq!(cookies.private_cookie("key1").unwrap().value(), "value1");
