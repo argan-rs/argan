@@ -38,7 +38,7 @@ use crate::{
 	routing::{self, RouteTraversal, RoutingState, UnusedRequest},
 };
 
-use super::{config::ConfigFlags, Resource};
+use super::{config::ConfigFlags, Context, Resource};
 
 // --------------------------------------------------------------------------------
 // --------------------------------------------------------------------------------
@@ -46,6 +46,7 @@ use super::{config::ConfigFlags, Resource};
 #[derive(Clone)]
 pub struct ResourceService {
 	pattern: Pattern,
+	context: Context,
 	extensions: Extensions,
 
 	request_receiver: MaybeBoxed<RequestReceiver>,
@@ -56,12 +57,14 @@ impl ResourceService {
 	#[inline(always)]
 	pub(super) fn new(
 		pattern: Pattern,
+		context: Context,
 		extensions: Extensions,
 		request_receiver: MaybeBoxed<RequestReceiver>,
 		some_mistargeted_request_handler: Option<ArcHandler>,
 	) -> Self {
 		Self {
 			pattern,
+			context,
 			extensions,
 			request_receiver,
 			some_mistargeted_request_handler,
@@ -92,6 +95,12 @@ impl ResourceService {
 		B::Error: Into<BoxedError>,
 	{
 		let mut request = request.map(Body::new);
+
+		if self.context.some_cookie_key.is_some() {
+			request =
+				request.with_cookie_key(self.context.some_cookie_key.clone().expect(SCOPE_VALIDITY));
+		}
+
 		let mut args = args.extensions_replaced(NodeExtensions::new_borrowed(&self.extensions), &());
 
 		match &self.request_receiver {
@@ -160,7 +169,12 @@ where
 			handler_extension: Cow::Borrowed(&()),
 		};
 
-		let request = RequestContext::new(request, routing_state);
+		let mut request = RequestContext::new(request, routing_state);
+
+		if self.context.some_cookie_key.is_some() {
+			request =
+				request.with_cookie_key(self.context.some_cookie_key.clone().expect(SCOPE_VALIDITY));
+		}
 
 		if matched {
 			match &self.request_receiver {
@@ -533,6 +547,16 @@ impl Handler for RequestPasser {
 		};
 
 		if let Some(next_resource) = some_next_resource {
+			if next_resource.context.some_cookie_key.is_some() {
+				request = request.with_cookie_key(
+					next_resource
+						.context
+						.some_cookie_key
+						.clone()
+						.expect(SCOPE_VALIDITY),
+				);
+			}
+
 			let mut args =
 				args.extensions_replaced(NodeExtensions::new_borrowed(&next_resource.extensions), &());
 

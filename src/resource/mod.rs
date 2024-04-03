@@ -60,6 +60,7 @@ pub struct Resource {
 	method_handlers: MethodHandlers,
 	some_mistargeted_request_handler: Option<BoxedHandler>,
 
+	context: Context,
 	extensions: Extensions,
 	middleware: Vec<LayerTarget<Self>>,
 
@@ -147,10 +148,11 @@ impl Resource {
 			static_resources: Vec::new(),
 			regex_resources: Vec::new(),
 			some_wildcard_resource: None,
-			middleware: Vec::new(),
 			method_handlers: MethodHandlers::new(),
 			some_mistargeted_request_handler: None,
+			context: Context::default(),
 			extensions: Extensions::new(),
+			middleware: Vec::new(),
 			config_flags,
 		}
 	}
@@ -1021,6 +1023,7 @@ impl Resource {
 			use ConfigOption::*;
 
 			match config_option {
+				CookieKey(cookie_key) => self.context.some_cookie_key = Some(cookie_key),
 				RequestExtensionsModifier(request_extensions_modifier_layer) => {
 					let request_receiver_layer_target = _request_receiver(request_extensions_modifier_layer);
 
@@ -1066,15 +1069,17 @@ impl Resource {
 	pub fn into_service(self) -> ResourceService {
 		let Resource {
 			pattern,
+			prefix_segment_patterns: __prefix_segment_patterns,
+			some_host_pattern: __some_host_pattern,
 			static_resources,
 			regex_resources,
-			some_wildcard_resource: wildcard_resource,
-			mut middleware,
+			some_wildcard_resource,
 			method_handlers,
 			mut some_mistargeted_request_handler,
+			context,
 			mut extensions,
+			mut middleware,
 			config_flags,
-			..
 		} = self;
 
 		// ----------
@@ -1102,7 +1107,7 @@ impl Resource {
 		};
 
 		let some_wildcard_resource =
-			wildcard_resource.map(|resource| Arc::new(resource.into_service()));
+			some_wildcard_resource.map(|resource| Arc::new(resource.into_service()));
 
 		// ----------
 
@@ -1178,6 +1183,7 @@ impl Resource {
 
 		ResourceService::new(
 			pattern,
+			context,
 			extensions,
 			request_receiver,
 			some_mistargeted_request_handler,
@@ -1243,6 +1249,13 @@ impl IntoArray<Resource, 1> for Resource {
 	fn into_array(self) -> [Resource; 1] {
 		[self]
 	}
+}
+
+// -------------------------
+
+#[derive(Default, Clone)]
+struct Context {
+	some_cookie_key: Option<cookie::Key>,
 }
 
 // --------------------------------------------------

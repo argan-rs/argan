@@ -9,7 +9,7 @@ use http::{Extensions, StatusCode};
 use hyper::service::Service;
 
 use crate::{
-	common::{MaybeBoxed, Uncloneable},
+	common::{MaybeBoxed, Uncloneable, SCOPE_VALIDITY},
 	data::extensions::NodeExtensions,
 	handler::{futures::ResponseToResultFuture, Args, BoxedHandler, Handler},
 	host::{Host, HostService},
@@ -21,20 +21,26 @@ use crate::{
 	routing::{RouteTraversal, RoutingState},
 };
 
-use super::Router;
+use super::{Context, Router};
 
 // --------------------------------------------------------------------------------
 // --------------------------------------------------------------------------------
 
 pub struct RouterService {
+	context: Context,
 	extensions: Extensions,
 	request_passer: MaybeBoxed<RequestPasser>,
 }
 
 impl RouterService {
 	#[inline(always)]
-	pub(super) fn new(extensions: Extensions, request_passer: MaybeBoxed<RequestPasser>) -> Self {
+	pub(super) fn new(
+		context: Context,
+		extensions: Extensions,
+		request_passer: MaybeBoxed<RequestPasser>,
+	) -> Self {
 		Self {
+			context,
 			extensions,
 			request_passer,
 		}
@@ -58,7 +64,11 @@ where
 			handler_extension: Cow::Borrowed(&()),
 		};
 
-		let request = RequestContext::new(request, routing_state);
+		let mut request = RequestContext::new(request, routing_state);
+		if self.context.some_cookie_key.is_some() {
+			request =
+				request.with_cookie_key(self.context.some_cookie_key.clone().expect(SCOPE_VALIDITY));
+		}
 
 		match &self.request_passer {
 			MaybeBoxed::Boxed(boxed_request_passer) => {
