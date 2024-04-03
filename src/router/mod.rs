@@ -33,6 +33,7 @@ pub struct Router {
 	regex_hosts: Vec<Host>,
 	some_root_resource: Option<Box<Resource>>,
 
+	context: Context,
 	extensions: Extensions,
 	middleware: Vec<LayerTarget<Self>>,
 }
@@ -44,6 +45,7 @@ impl Router {
 			regex_hosts: Vec::new(),
 			some_root_resource: None,
 
+			context: Context::default(),
 			extensions: Extensions::new(),
 			middleware: Vec::new(),
 		}
@@ -341,16 +343,15 @@ impl Router {
 		for config_option in config_options {
 			use ConfigOption::*;
 
-			let request_extensions_modifier_layer = match config_option {
+			match config_option {
+				CookieKey(cookie_key) => self.context.some_cookie_key = Some(cookie_key),
 				RequestExtensionsModifier(request_extensions_modifier_layer) => {
-					request_extensions_modifier_layer
+					let request_passer_layer_target = _request_passer(request_extensions_modifier_layer);
+
+					self.middleware.insert(0, request_passer_layer_target);
 				}
 				_ => unreachable!("ConfigOption::None should never be used"),
-			};
-
-			let request_passer_layer_target = _request_passer(request_extensions_modifier_layer);
-
-			self.middleware.insert(0, request_passer_layer_target);
+			}
 		}
 	}
 
@@ -394,6 +395,7 @@ impl Router {
 			static_hosts,
 			regex_hosts,
 			some_root_resource,
+			context,
 			extensions,
 			middleware,
 		} = self;
@@ -430,7 +432,7 @@ impl Router {
 			middleware,
 		);
 
-		RouterService::new(extensions, request_passer)
+		RouterService::new(context, extensions, request_passer)
 	}
 
 	#[inline(always)]
@@ -442,6 +444,13 @@ impl Router {
 	pub fn into_leaked_service(self) -> LeakedRouterService {
 		LeakedRouterService::from(self.into_service())
 	}
+}
+
+// -------------------------
+
+#[derive(Default)]
+struct Context {
+	some_cookie_key: Option<cookie::Key>,
 }
 
 // --------------------------------------------------------------------------------
