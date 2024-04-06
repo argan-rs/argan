@@ -65,7 +65,10 @@ impl<T: IntoResponse> IntoResponse for Option<T> {
 
 impl IntoResponseHead for HeaderMap {
 	#[inline]
-	fn into_response_head(self, mut head: ResponseHead) -> Result<ResponseHead, BoxedErrorResponse> {
+	fn into_response_head(
+		self,
+		mut head: ResponseHeadParts,
+	) -> Result<ResponseHeadParts, BoxedErrorResponse> {
 		head.headers.extend(self);
 
 		Ok(head)
@@ -201,7 +204,7 @@ macro_rules! impl_into_response_for_tuples {
 			$($($t: IntoResponseHead,)*)?
 			$tl: IntoResponseHead,
 		{
-			fn into_response_head(self, mut head: ResponseHead) -> Result<ResponseHead, BoxedErrorResponse> {
+			fn into_response_head(self, mut head: ResponseHeadParts) -> Result<ResponseHeadParts, BoxedErrorResponse> {
 				let ($t1, $($($t,)*)? $tl) = self;
 
 				head = $t1.into_response_head(head)?;

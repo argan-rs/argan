@@ -17,7 +17,7 @@ mod impls;
 // --------------------------------------------------------------------------------
 
 pub type Response<B = Body> = http::response::Response<B>;
-pub type ResponseHead = http::response::Parts;
+pub type ResponseHeadParts = http::response::Parts;
 
 pub type BoxedErrorResponse = Box<dyn ErrorResponse + Send + Sync>;
 
@@ -27,7 +27,10 @@ pub type BoxedErrorResponse = Box<dyn ErrorResponse + Send + Sync>;
 // IntoResponseHead trait
 
 pub trait IntoResponseHead {
-	fn into_response_head(self, head: ResponseHead) -> Result<ResponseHead, BoxedErrorResponse>;
+	fn into_response_head(
+		self,
+		head: ResponseHeadParts,
+	) -> Result<ResponseHeadParts, BoxedErrorResponse>;
 }
 
 // --------------------------------------------------
@@ -79,7 +82,10 @@ where
 	V: TryInto<HeaderValue>,
 	V::Error: crate::StdError + Send + Sync + 'static,
 {
-	fn into_response_head(self, mut head: ResponseHead) -> Result<ResponseHead, BoxedErrorResponse> {
+	fn into_response_head(
+		self,
+		mut head: ResponseHeadParts,
+	) -> Result<ResponseHeadParts, BoxedErrorResponse> {
 		for (key, value) in self {
 			let header_name = TryInto::<HeaderName>::try_into(key)
 				.map_err(HeaderError::<N::Error, V::Error>::from_name_error)?;

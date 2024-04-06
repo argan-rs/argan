@@ -58,6 +58,7 @@ use self::websocket::{request_into_websocket_upgrade, WebSocketUpgrade, WebSocke
 // --------------------------------------------------------------------------------
 
 // --------------------------------------------------
+// RequestContext
 
 pub struct RequestContext<B = Body> {
 	request: Request<B>,
@@ -107,15 +108,7 @@ impl<B> RequestContext<B> {
 		self.request.extensions()
 	}
 
-	#[inline(always)]
-	pub fn body_ref(&self) -> &B {
-		self.request.body()
-	}
-
-	#[inline(always)]
-	pub fn request_ref(&self) -> &Request<B> {
-		&self.request
-	}
+	// ----------
 
 	#[inline(always)]
 	pub fn request_mut(&mut self) -> &mut Request<B> {
@@ -126,7 +119,7 @@ impl<B> RequestContext<B> {
 
 	// Consumes cookies.
 	pub fn cookies(&mut self) -> CookieJar {
-		cookies_from_request(&mut self.request, self.some_cookie_key.take())
+		cookies_from_request(self.headers_ref(), self.some_cookie_key.clone())
 	}
 
 	#[inline]
@@ -158,7 +151,7 @@ impl<B> RequestContext<B> {
 	}
 
 	#[inline(always)]
-	pub fn remaining_path_segments(&self) -> &str {
+	pub fn subtree_path_segments(&self) -> &str {
 		self
 			.routing_state
 			.route_traversal
@@ -175,7 +168,9 @@ impl<B> RequestContext<B> {
 			SizeLimit::Value(value) => value,
 		};
 
-		request_into_full_body(self.request, size_limit).await
+		let (_, body) = self.request.into_parts();
+
+		request_into_full_body(body, size_limit).await
 	}
 
 	pub async fn into_binary_data(self, size_limit: SizeLimit) -> Result<Bytes, BinaryExtractorError>
@@ -188,7 +183,9 @@ impl<B> RequestContext<B> {
 			SizeLimit::Value(value) => value,
 		};
 
-		request_into_binary_data(self.request, size_limit).await
+		let (head_parts, body) = self.request.into_parts();
+
+		request_into_binary_data(&head_parts, body, size_limit).await
 	}
 
 	pub async fn into_text_data(self, size_limit: SizeLimit) -> Result<String, TextExtractorError>
@@ -201,7 +198,9 @@ impl<B> RequestContext<B> {
 			SizeLimit::Value(value) => value,
 		};
 
-		request_into_text_data(self.request, size_limit).await
+		let (head_parts, body) = self.request.into_parts();
+
+		request_into_text_data(&head_parts, body, size_limit).await
 	}
 
 	pub async fn into_json_data<T>(self, size_limit: SizeLimit) -> Result<T, JsonError>
@@ -215,7 +214,9 @@ impl<B> RequestContext<B> {
 			SizeLimit::Value(value) => value,
 		};
 
-		request_into_json_data::<T, B>(self.request, size_limit).await
+		let (head_parts, body) = self.request.into_parts();
+
+		request_into_json_data::<T, B>(&head_parts, body, size_limit).await
 	}
 
 	pub async fn into_form_data<T>(self, size_limit: SizeLimit) -> Result<T, FormError>
@@ -229,21 +230,27 @@ impl<B> RequestContext<B> {
 			SizeLimit::Value(value) => value,
 		};
 
-		request_into_form_data::<T, B>(self.request, size_limit).await
+		let (head_parts, body) = self.request.into_parts();
+
+		request_into_form_data::<T, B>(&head_parts, body, size_limit).await
 	}
 
 	#[inline(always)]
-	pub fn into_multipart_form(self) -> Result<MultipartForm, MultipartFormError>
+	pub fn into_multipart_form(self) -> Result<MultipartForm<B>, MultipartFormError>
 	where
 		B: HttpBody<Data = Bytes> + Send + Sync + 'static,
 		B::Error: Into<BoxedError>,
 	{
-		request_into_multipart_form(self.request)
+		let (head_parts, body) = self.request.into_parts();
+
+		request_into_multipart_form(&head_parts, body)
 	}
 
 	#[inline(always)]
 	pub fn into_websocket_upgrade(self) -> Result<WebSocketUpgrade, WebSocketUpgradeError> {
-		request_into_websocket_upgrade(self.request)
+		let (mut head, _) = self.request.into_parts();
+
+		request_into_websocket_upgrade(&mut head)
 	}
 
 	pub async fn extract<'r, T>(&'r self) -> Result<T, T::Error>
@@ -253,11 +260,16 @@ impl<B> RequestContext<B> {
 		T::from_request_ref(&self.request).await
 	}
 
-	pub async fn extract_into<T>(self) -> Result<T, T::Error>
+	pub async fn extract_into<T>(self) -> (RequestHead, Result<T, T::Error>)
 	where
 		T: FromRequest<B>,
 	{
-		T::from_request(self.request).await
+		let (head_parts, body) = self.request.into_parts();
+		let (head_parts, result) = T::from_request(head_parts, body).await;
+
+		let request_head = RequestHead::new(head_parts, self.routing_state);
+
+		(request_head, result)
 	}
 
 	pub fn map<Func, NewB>(self, func: Func) -> RequestContext<NewB>
@@ -282,6 +294,7 @@ impl<B> RequestContext<B> {
 	}
 }
 
+// Crate private methods.
 impl<B> RequestContext<B> {
 	#[inline(always)]
 	pub(crate) fn path_ends_with_slash(&self) -> bool {
@@ -347,40 +360,152 @@ impl<B> RequestContext<B> {
 	}
 
 	#[inline(always)]
-	pub(crate) fn into_parts(self) -> (Request<B>, RoutingState) {
-		(self.request, self.routing_state)
+	pub(crate) fn into_parts(self) -> (Request<B>, RoutingState, Option<cookie::Key>) {
+		(self.request, self.routing_state, self.some_cookie_key)
 	}
 }
 
 // --------------------------------------------------
-// Extract
+// RequestHeead
 
-pub trait Extract<B>: Sized + Sealed {
-	fn extract<'r, T>(&'r self) -> impl Future<Output = Result<T, T::Error>> + Send
-	where
-		T: FromRequestRef<'r, B>;
+pub struct RequestHead {
+	method: Method,
+	uri: Uri,
+	version: Version,
+	headers: HeaderMap<HeaderValue>,
+	extensions: Extensions,
 
-	fn extract_into<T>(self) -> impl Future<Output = Result<T, T::Error>> + Send
-	where
-		T: FromRequest<B>;
+	routing_state: RoutingState,
+	some_cookie_key: Option<cookie::Key>,
 }
 
-impl<B> Extract<B> for Request<B> {
-	fn extract<'r, T>(&'r self) -> impl Future<Output = Result<T, T::Error>>
-	where
-		T: FromRequestRef<'r, B>,
-	{
-		T::from_request_ref(self)
+impl RequestHead {
+	#[inline(always)]
+	pub(crate) fn new(head_parts: RequestHeadParts, routing_state: RoutingState) -> Self {
+		Self {
+			method: head_parts.method,
+			uri: head_parts.uri,
+			version: head_parts.version,
+			headers: head_parts.headers,
+			extensions: head_parts.extensions,
+			routing_state,
+			some_cookie_key: None,
+		}
 	}
 
-	fn extract_into<T>(self) -> impl Future<Output = Result<T, T::Error>>
-	where
-		T: FromRequest<B>,
-	{
-		T::from_request(self)
+	#[inline(always)]
+	pub(crate) fn with_cookie_key(mut self, cookie_key: cookie::Key) -> Self {
+		self.some_cookie_key = Some(cookie_key);
+
+		self
+	}
+
+	#[inline(always)]
+	pub(crate) fn take_some_cookie_key(&mut self) -> Option<cookie::Key> {
+		self.some_cookie_key.take()
 	}
 }
 
-impl<B> Sealed for Request<B> {}
+impl RequestHead {
+	#[inline(always)]
+	pub fn method_ref(&self) -> &Method {
+		&self.method
+	}
+
+	#[inline(always)]
+	pub fn set_method(&mut self, method: Method) {
+		self.method = method;
+	}
+
+	#[inline(always)]
+	pub fn uri_ref(&self) -> &Uri {
+		&self.uri
+	}
+
+	#[inline(always)]
+	pub fn set_uri(&mut self, uri: Uri) {
+		self.uri = uri;
+	}
+
+	#[inline(always)]
+	pub fn version(&self) -> Version {
+		self.version
+	}
+
+	#[inline(always)]
+	pub fn set_version(&mut self, version: Version) {
+		self.version = version;
+	}
+
+	#[inline(always)]
+	pub fn headers_ref(&self) -> &HeaderMap<HeaderValue> {
+		&self.headers
+	}
+
+	#[inline(always)]
+	pub fn headers_mut(&mut self) -> &mut HeaderMap<HeaderValue> {
+		&mut self.headers
+	}
+
+	#[inline(always)]
+	pub fn extensions_ref(&self) -> &Extensions {
+		&self.extensions
+	}
+
+	#[inline(always)]
+	pub fn extensions_mut(&mut self) -> &mut Extensions {
+		&mut self.extensions
+	}
+
+	// ----------
+
+	#[inline(always)]
+	pub fn cookies(&mut self) -> CookieJar {
+		cookies_from_request(&self.headers, self.some_cookie_key.clone())
+	}
+
+	#[inline]
+	pub fn path_params_as<'r, T>(&'r self) -> Result<T, PathParamsError>
+	where
+		T: Deserialize<'r>,
+	{
+		let mut from_params_list = self.routing_state.uri_params.deserializer();
+
+		T::deserialize(&mut from_params_list)
+			.map(|value| value)
+			.map_err(Into::into)
+	}
+
+	#[inline]
+	pub fn query_params_as<'r, T>(&'r self) -> Result<T, QueryParamsError>
+	where
+		T: Deserialize<'r>,
+	{
+		let query_string = self
+			.uri
+			.query()
+			.ok_or(QueryParamsError::NoDataIsAvailable)?;
+
+		serde_urlencoded::from_str::<T>(query_string)
+			.map(|value| value)
+			.map_err(|error| QueryParamsError::InvalidData(error.into()))
+	}
+
+	#[inline(always)]
+	pub fn subtree_path_segments(&self) -> &str {
+		self
+			.routing_state
+			.route_traversal
+			.remaining_segments(self.uri.path())
+	}
+}
+
+// --------------------------------------------------
+// SizeLimit
+
+pub enum SizeLimit {
+	Default,
+	Value(usize),
+}
 
 // --------------------------------------------------------------------------------

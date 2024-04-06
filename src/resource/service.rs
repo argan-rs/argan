@@ -716,6 +716,7 @@ mod test {
 		},
 		handler::{DummyHandler, _get},
 		middleware::{IntoResponseResultAdapter, _request_handler, _request_passer, _request_receiver},
+		request::RequestHead,
 		resource::Resource,
 	};
 
@@ -918,7 +919,7 @@ mod test {
 	async fn resource_handler_layer() {
 		let mut root = Resource::new("/");
 		root.subresource_mut("/st_0_0/st_1_0").set_handler_for(_get(
-			(|_: RequestContext, _: Args<'_, usize>| async { "Hello from Handler!" })
+			(|_: RequestHead, _: Args<'_, usize>| async { "Hello from Handler!" })
 				.with_extension(42)
 				.wrapped_in(Middleware),
 		));
@@ -1028,9 +1029,11 @@ mod test {
 			extensions.insert("Hello from Handler!".to_string());
 		}));
 
-		root.subresource_mut("/st_0_0/st_1_0").set_handler_for(_get(
-			|request: RequestContext| async move { request.extensions_ref().get::<String>().unwrap().clone() },
-		));
+		root
+			.subresource_mut("/st_0_0/st_1_0")
+			.set_handler_for(_get(|head: RequestHead| async move {
+				head.extensions_ref().get::<String>().unwrap().clone()
+			}));
 
 		// ----------
 

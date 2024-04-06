@@ -1,5 +1,7 @@
+use std::convert::Infallible;
+
 use futures_util::FutureExt;
-use http::{HeaderMap, Method, Uri, Version};
+use http::Method;
 
 use crate::IntoArray;
 
@@ -10,19 +12,6 @@ use super::*;
 
 // --------------------------------------------------
 // Result<T, E>
-
-// impl<T, E> FromMutRequestHead for Result<T, E>
-// where
-// 	T: FromMutRequestHead<Error = E>,
-// {
-// 	type Error = Infallible;
-//
-// 	fn from_request_head(
-// 		head: &mut RequestHead,
-// 	) -> impl Future<Output = Result<Self, Self::Error>> {
-// 		T::from_request_head(head).map(|result| Ok(result))
-// 	}
-// }
 
 impl<'r, B, T, E: 'r> FromRequestRef<'r, B> for Result<T, E>
 where
@@ -42,8 +31,36 @@ where
 {
 	type Error = Infallible;
 
-	fn from_request(request: Request<B>) -> impl Future<Output = Result<Self, Self::Error>> {
-		T::from_request(request).map(|result| Ok(result))
+	fn from_request(
+		head_parts: RequestHeadParts,
+		body: B,
+	) -> impl Future<Output = (RequestHeadParts, Result<Self, Self::Error>)> {
+		T::from_request(head_parts, body).map(|(head, result)| (head, Ok(result)))
+	}
+}
+
+impl<B, T, E> FromRequest<B> for Option<T>
+where
+	T: FromRequest<B, Error = E>,
+{
+	type Error = Infallible;
+
+	fn from_request(
+		head_parts: RequestHeadParts,
+		body: B,
+	) -> impl Future<Output = (RequestHeadParts, Result<Self, Self::Error>)> {
+		T::from_request(head_parts, body).map(|(head, result)| (head, Ok(result.ok())))
+	}
+}
+
+impl<B> FromRequest<B> for () {
+	type Error = Infallible;
+
+	fn from_request(
+		head_parts: RequestHeadParts,
+		_: B,
+	) -> impl Future<Output = (RequestHeadParts, Result<Self, Self::Error>)> + Send {
+		ready((head_parts, Ok(())))
 	}
 }
 
@@ -60,25 +77,25 @@ where
 // 		ready(Ok(head.method.clone()))
 // 	}
 // }
-
-impl<'r, B> FromRequestRef<'r, B> for &'r Method {
-	type Error = Infallible;
-
-	#[inline(always)]
-	fn from_request_ref(request: &'r Request<B>) -> impl Future<Output = Result<Self, Self::Error>> {
-		ready(Ok(request.method()))
-	}
-}
-
-impl<B> FromRequest<B> for Method {
-	type Error = Infallible;
-
-	fn from_request(request: Request<B>) -> impl Future<Output = Result<Self, Self::Error>> {
-		let (head, _) = request.into_parts();
-
-		ready(Ok(head.method))
-	}
-}
+//
+// impl<'r, B> FromRequestRef<'r, B> for &'r Method {
+// 	type Error = Infallible;
+//
+// 	#[inline(always)]
+// 	fn from_request_ref(request: &'r Request<B>) -> impl Future<Output = Result<Self, Self::Error>> {
+// 		ready(Ok(request.method()))
+// 	}
+// }
+//
+// impl<B> FromRequest<B> for Method {
+// 	type Error = Infallible;
+//
+// 	fn from_request(request: Request<B>) -> impl Future<Output = Result<Self, Self::Error>> {
+// 		let (head, _) = request.into_parts();
+//
+// 		ready(Ok(head.method))
+// 	}
+// }
 
 // ----------
 
@@ -101,24 +118,24 @@ impl IntoArray<Method, 1> for Method {
 // 	}
 // }
 
-impl<'r, B> FromRequestRef<'r, B> for &'r Uri {
-	type Error = Infallible;
-
-	#[inline(always)]
-	fn from_request_ref(request: &'r Request<B>) -> impl Future<Output = Result<Self, Self::Error>> {
-		ready(Ok(request.uri()))
-	}
-}
-
-impl<B> FromRequest<B> for Uri {
-	type Error = Infallible;
-
-	fn from_request(request: Request<B>) -> impl Future<Output = Result<Self, Self::Error>> {
-		let (head, _) = request.into_parts();
-
-		ready(Ok(head.uri))
-	}
-}
+// impl<'r, B> FromRequestRef<'r, B> for &'r Uri {
+// 	type Error = Infallible;
+//
+// 	#[inline(always)]
+// 	fn from_request_ref(request: &'r Request<B>) -> impl Future<Output = Result<Self, Self::Error>> {
+// 		ready(Ok(request.uri()))
+// 	}
+// }
+//
+// impl<B> FromRequest<B> for Uri {
+// 	type Error = Infallible;
+//
+// 	fn from_request(request: Request<B>) -> impl Future<Output = Result<Self, Self::Error>> {
+// 		let (head, _) = request.into_parts();
+//
+// 		ready(Ok(head.uri))
+// 	}
+// }
 
 // --------------------------------------------------
 // Version
@@ -133,15 +150,15 @@ impl<B> FromRequest<B> for Uri {
 // 	}
 // }
 
-impl<B> FromRequest<B> for Version {
-	type Error = Infallible;
-
-	fn from_request(request: Request<B>) -> impl Future<Output = Result<Self, Self::Error>> {
-		let (head, _) = request.into_parts();
-
-		ready(Ok(head.version))
-	}
-}
+// impl<B> FromRequest<B> for Version {
+// 	type Error = Infallible;
+//
+// 	fn from_request(request: Request<B>) -> impl Future<Output = Result<Self, Self::Error>> {
+// 		let (head, _) = request.into_parts();
+//
+// 		ready(Ok(head.version))
+// 	}
+// }
 
 // --------------------------------------------------
 // HeaderMap
@@ -156,24 +173,24 @@ impl<B> FromRequest<B> for Version {
 // 	}
 // }
 
-impl<'r, B> FromRequestRef<'r, B> for &'r HeaderMap {
-	type Error = Infallible;
-
-	#[inline(always)]
-	fn from_request_ref(request: &'r Request<B>) -> impl Future<Output = Result<Self, Self::Error>> {
-		ready(Ok(request.headers()))
-	}
-}
-
-impl<B> FromRequest<B> for HeaderMap {
-	type Error = Infallible;
-
-	fn from_request(request: Request<B>) -> impl Future<Output = Result<Self, Self::Error>> {
-		let (RequestHead { headers, .. }, _) = request.into_parts();
-
-		ready(Ok(headers))
-	}
-}
+// impl<'r, B> FromRequestRef<'r, B> for &'r HeaderMap {
+// 	type Error = Infallible;
+//
+// 	#[inline(always)]
+// 	fn from_request_ref(request: &'r Request<B>) -> impl Future<Output = Result<Self, Self::Error>> {
+// 		ready(Ok(request.headers()))
+// 	}
+// }
+//
+// impl<B> FromRequest<B> for HeaderMap {
+// 	type Error = Infallible;
+//
+// 	fn from_request(request: Request<B>) -> impl Future<Output = Result<Self, Self::Error>> {
+// 		let (RequestHead { headers, .. }, _) = request.into_parts();
+//
+// 		ready(Ok(headers))
+// 	}
+// }
 
 // --------------------------------------------------
 // Tuples

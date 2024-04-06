@@ -12,14 +12,15 @@ use std::{
 
 use argan_core::{body::Body, BoxedFuture};
 use bytes::Bytes;
-use http::{Extensions, StatusCode};
+use futures_util::FutureExt;
+use http::{Extensions, Request, StatusCode};
 use tower_service::Service as TowerService;
 
 use crate::{
 	common::{BoxedAny, Uncloneable},
 	data::extensions::NodeExtensions,
 	middleware::Layer,
-	request::{FromRequest, Request, RequestContext, RequestHead},
+	request::{RequestContext, RequestHead},
 	response::{BoxedErrorResponse, IntoResponse, Response},
 	routing::RoutingState,
 };
@@ -61,12 +62,12 @@ where
 	type Future = S::Future;
 
 	fn handle(&self, mut request: RequestContext<B>, mut args: Args) -> Self::Future {
-		let (mut request, routing_state) = request.into_parts();
+		let (mut request, routing_state, some_cookie_key) = request.into_parts();
 		let args = args.to_owned();
 
 		request
 			.extensions_mut()
-			.insert(Uncloneable::from((routing_state, args)));
+			.insert(Uncloneable::from((routing_state, args, some_cookie_key)));
 
 		self.clone().call(request)
 	}
@@ -79,6 +80,13 @@ pub trait IntoHandler<Mark, B = Body, Ext: Clone = ()>: Sized {
 	type Handler: Handler<B, Ext>;
 
 	fn into_handler(self) -> Self::Handler;
+
+	fn with_error_handler<E: ErrorHandler<<Self::Handler as Handler<B, Ext>>::Error>>(
+		self,
+		error_handler: E,
+	) -> ResponseResultHandler<Self::Handler, E> {
+		ResponseResultHandler::new(self.into_handler(), error_handler)
+	}
 
 	fn with_extension(self, handler_extension: Ext) -> ExtendedHandler<Self::Handler, Ext> {
 		ExtendedHandler::new(self.into_handler(), handler_extension)
@@ -104,6 +112,61 @@ where
 
 	fn into_handler(self) -> Self::Handler {
 		self
+	}
+}
+
+// --------------------------------------------------
+// ErrorHandler
+
+pub trait ErrorHandler<E> {
+	// ??? We may have a problem with shared ref.
+	fn handle_error(&self, error: E) -> impl Future<Output = Result<Response, E>> + Send;
+}
+
+impl<Func, Fut, E> ErrorHandler<E> for Func
+where
+	Func: Fn(E) -> Fut,
+	Fut: Future<Output = Result<Response, E>>,
+{
+	fn handle_error(&self, error: E) -> impl Future<Output = Result<Response, E>> + Send {
+		self(error)
+	}
+}
+
+// -------------------------
+// ResponseResultHandler
+
+#[derive(Clone)]
+pub struct ResponseResultHandler<H, E> {
+	inner: H,
+	error_handler: E,
+}
+
+impl<H, E> ResponseResultHandler<H, E> {
+	pub(crate) fn new(inner: H, error_handler: E) -> Self {
+		Self {
+			inner,
+			error_handler,
+		}
+	}
+}
+
+impl<H, B, Ext, E> Handler<B, Ext> for ResponseResultHandler<H, E>
+where
+	H: Handler<B, Ext>,
+	Ext: Clone,
+	E: ErrorHandler<H::Error>,
+{
+	type Response = H::Response;
+	type Error = H::Error;
+	type Future = H::Future;
+
+	#[inline]
+	fn handle(&self, mut request: RequestContext<B>, mut args: Args<'_, Ext>) -> Self::Future {
+		self.inner.handle(request, args).map(|result| match result {
+			Ok(response) => Ok(response),
+			Err(error) => self.error_handler(error),
+		})
 	}
 }
 
@@ -246,11 +309,11 @@ where
 
 	#[inline]
 	fn call(&mut self, mut request: Request<B>) -> Self::Future {
-		let (routing_state, args) = request
+		let (routing_state, args, some_cookie_key) = request
 			.extensions_mut()
-			.remove::<Uncloneable<(RoutingState, Args)>>()
+			.remove::<Uncloneable<(RoutingState, Args, Option<cookie::Key>)>>()
 			.expect(
-				"Uncloneable<(RoutingState, Args)> should be inserted in the Handler implementation for the Service",
+				"Uncloneable<(RoutingState, Args, Option<cookie::Key>)> should be inserted in the Handler implementation for the Service",
 			)
 			.into_inner()
 			.expect("Uncloneable must always have a valid value");

@@ -6,19 +6,19 @@ use std::{
 	marker::PhantomData,
 };
 
-use argan_core::{request::FromRequestRef, IntoArray};
+use argan_core::{request::RequestHeadParts, response::ResponseHeadParts, IntoArray};
 use bytes::Bytes;
 use cookie::{prefix::Prefix, CookieJar as InnerCookieJar};
 use http::{
 	header::{COOKIE, SET_COOKIE},
-	HeaderValue,
+	HeaderMap, HeaderValue,
 };
 
 use crate::{
 	common::SCOPE_VALIDITY,
 	handler::Args,
-	request::{FromRequest, Request, RequestHead},
-	response::{BoxedErrorResponse, IntoResponse, IntoResponseHead, Response, ResponseHead},
+	request::RequestHead,
+	response::{BoxedErrorResponse, IntoResponse, IntoResponseHead, Response},
 	routing::RoutingState,
 };
 
@@ -186,24 +186,20 @@ impl CookieJar {
 // 	}
 // }
 
-impl<B> FromRequest<B> for CookieJar
-where
-	B: Send,
-{
-	type Error = Infallible;
+// impl<B> FromRequestBody<B> for CookieJar
+// where
+// 	B: Send,
+// {
+// 	type Error = Infallible;
+//
+// 	async fn from_request_body(mut head_parts: RequestHeadParts, body: B) -> (RequestHeadParts, Result<Self, Self::Error>) {
+// 		Ok(cookies_from_request(&head_parts, None))
+// 	}
+// }
 
-	async fn from_request(mut request: Request<B>) -> Result<Self, Self::Error> {
-		Ok(cookies_from_request(&mut request, None))
-	}
-}
-
-pub(crate) fn cookies_from_request<B>(
-	request: &mut Request<B>,
-	some_key: Option<Key>,
-) -> CookieJar {
-	let cookie_jar = request
-		.headers_mut()
-		.remove(COOKIE)
+pub(crate) fn cookies_from_request(head: &HeaderMap, some_key: Option<Key>) -> CookieJar {
+	let cookie_jar = head
+		.get(COOKIE)
 		.and_then(|value| {
 			value
 				.to_str()
@@ -232,7 +228,10 @@ pub(crate) fn cookies_from_request<B>(
 // -------------------------
 
 impl IntoResponseHead for CookieJar {
-	fn into_response_head(self, mut head: ResponseHead) -> Result<ResponseHead, BoxedErrorResponse> {
+	fn into_response_head(
+		self,
+		mut head: ResponseHeadParts,
+	) -> Result<ResponseHeadParts, BoxedErrorResponse> {
 		for cookie in self.inner.delta() {
 			match HeaderValue::try_from(cookie.encoded().to_string()) {
 				Ok(header_value) => head.headers.append(SET_COOKIE, header_value),
@@ -318,21 +317,24 @@ impl PrivateCookieJar {
 // 	}
 // }
 
-impl<B> FromRequest<B> for PrivateCookieJar
-where
-	B: Send,
-{
-	type Error = Infallible;
-
-	async fn from_request(request: Request<B>) -> Result<Self, Self::Error> {
-		<CookieJar as FromRequest<B>>::from_request(request)
-			.await
-			.map(|jar| jar.into_private_jar())
-	}
-}
+// impl<B> FromRequest<B> for PrivateCookieJar
+// where
+// 	B: Send,
+// {
+// 	type Error = Infallible;
+//
+// 	async fn from_request(request: Request<B>) -> Result<Self, Self::Error> {
+// 		<CookieJar as FromRequest<B>>::from_request(request)
+// 			.await
+// 			.map(|jar| jar.into_private_jar())
+// 	}
+// }
 
 impl IntoResponseHead for PrivateCookieJar {
-	fn into_response_head(self, mut head: ResponseHead) -> Result<ResponseHead, BoxedErrorResponse> {
+	fn into_response_head(
+		self,
+		mut head: ResponseHeadParts,
+	) -> Result<ResponseHeadParts, BoxedErrorResponse> {
 		self.into_jar().into_response_head(head)
 	}
 }
@@ -411,21 +413,24 @@ impl SignedCookieJar {
 // 	}
 // }
 
-impl<B> FromRequest<B> for SignedCookieJar
-where
-	B: Send,
-{
-	type Error = Infallible;
-
-	async fn from_request(request: Request<B>) -> Result<Self, Self::Error> {
-		<CookieJar as FromRequest<B>>::from_request(request)
-			.await
-			.map(|jar| jar.into_signed_jar())
-	}
-}
+// impl<B> FromRequest<B> for SignedCookieJar
+// where
+// 	B: Send,
+// {
+// 	type Error = Infallible;
+//
+// 	async fn from_request(request: Request<B>) -> Result<Self, Self::Error> {
+// 		<CookieJar as FromRequest<B>>::from_request(request)
+// 			.await
+// 			.map(|jar| jar.into_signed_jar())
+// 	}
+// }
 
 impl IntoResponseHead for SignedCookieJar {
-	fn into_response_head(self, mut head: ResponseHead) -> Result<ResponseHead, BoxedErrorResponse> {
+	fn into_response_head(
+		self,
+		mut head: ResponseHeadParts,
+	) -> Result<ResponseHeadParts, BoxedErrorResponse> {
 		self.into_jar().into_response_head(head)
 	}
 }
@@ -460,6 +465,8 @@ mod private {
 }
 
 use private::CookieKind;
+
+use super::header::HeaderMapExt;
 
 #[inline(always)]
 pub fn _plain<C: Into<Cookie<'static>>>(cookie: C) -> CookieKind {
@@ -519,6 +526,7 @@ where
 
 #[cfg(test)]
 mod test {
+	use http::Request;
 	use http_body_util::Empty;
 
 	use super::*;
@@ -534,7 +542,7 @@ mod test {
 			.body(Empty::<Bytes>::default())
 			.unwrap();
 
-		let cookies = super::cookies_from_request(&mut request, None);
+		let cookies = super::cookies_from_request(request.headers(), None);
 		assert_eq!(cookies.inner.iter().count(), 2);
 		assert_eq!(cookies.plain_cookie("key1").unwrap().value(), "value1");
 		assert_eq!(cookies.plain_cookie("key2").unwrap().value(), "value2");
@@ -566,8 +574,10 @@ mod test {
 			.body(Empty::<Bytes>::default())
 			.unwrap();
 
-		let key = cookies.clone_key();
-		let cookies = super::cookies_from_request(&mut request, Some(key));
+		// let mut head = request.into_parts().0.into();
+		// head = head.with_cookie_key(cookies.clone_key());
+
+		let cookies = super::cookies_from_request(request.headers(), Some(cookies.clone_key()));
 		assert_eq!(cookies.inner.iter().count(), 4);
 
 		assert_eq!(cookies.private_cookie("key1").unwrap().value(), "value1");
