@@ -5,9 +5,13 @@ use std::{
 	task::{Context, Poll},
 };
 
+use argan_core::response::IntoResponse;
+use futures_util::FutureExt;
 use pin_project::pin_project;
 
 use crate::response::{BoxedErrorResponse, Response};
+
+use super::ErrorHandler;
 
 // --------------------------------------------------------------------------------
 // --------------------------------------------------------------------------------
@@ -79,3 +83,41 @@ impl Future for DefaultResponseFuture {
 }
 
 // --------------------------------------------------------------------------------
+
+#[pin_project]
+pub struct ResponseResultHandlerFuture<Fut, ErrH> {
+	#[pin]
+	inner: Fut,
+	error_handler: ErrH,
+}
+
+impl<Fut, ErrH> ResponseResultHandlerFuture<Fut, ErrH> {
+	pub(crate) fn new(inner: Fut, error_handler: ErrH) -> Self {
+		Self {
+			inner,
+			error_handler,
+		}
+	}
+}
+
+impl<Fut, R, E, ErrH> Future for ResponseResultHandlerFuture<Fut, ErrH>
+where
+	Fut: Future<Output = Result<R, E>>,
+	R: IntoResponse,
+	E: Into<BoxedErrorResponse>,
+	ErrH: ErrorHandler<E>,
+{
+	type Output = Result<Response, E>;
+
+	fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+		let self_projection = self.project();
+
+		match self_projection.inner.poll(cx) {
+			Poll::Ready(result) => match result {
+				Ok(response) => Poll::Ready(Ok(response.into_response())),
+				Err(error) => pin!(self_projection.error_handler.handle_error(error)).poll(cx),
+			},
+			Poll::Pending => Poll::Pending,
+		}
+	}
+}

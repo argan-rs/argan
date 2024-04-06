@@ -36,6 +36,8 @@ pub(crate) use impls::*;
 mod kind;
 pub use kind::*;
 
+use self::futures::ResponseResultHandlerFuture;
+
 pub(crate) mod request_handlers;
 
 // --------------------------------------------------------------------------------
@@ -120,15 +122,15 @@ where
 
 pub trait ErrorHandler<E> {
 	// ??? We may have a problem with shared ref.
-	fn handle_error(&self, error: E) -> impl Future<Output = Result<Response, E>> + Send;
+	fn handle_error(&mut self, error: E) -> impl Future<Output = Result<Response, E>> + Send;
 }
 
 impl<Func, Fut, E> ErrorHandler<E> for Func
 where
-	Func: Fn(E) -> Fut,
-	Fut: Future<Output = Result<Response, E>>,
+	Func: FnMut(E) -> Fut,
+	Fut: Future<Output = Result<Response, E>> + Send,
 {
-	fn handle_error(&self, error: E) -> impl Future<Output = Result<Response, E>> + Send {
+	fn handle_error(&mut self, error: E) -> impl Future<Output = Result<Response, E>> + Send {
 		self(error)
 	}
 }
@@ -151,57 +153,25 @@ impl<H, E> ResponseResultHandler<H, E> {
 	}
 }
 
-impl<H, B, Ext, E> Handler<B, Ext> for ResponseResultHandler<H, E>
+impl<H, B, Ext, ErrH> Handler<B, Ext> for ResponseResultHandler<H, ErrH>
 where
 	H: Handler<B, Ext>,
+	H::Response: IntoResponse,
+	H::Error: Into<BoxedErrorResponse>,
 	Ext: Clone,
-	E: ErrorHandler<H::Error>,
+	ErrH: ErrorHandler<H::Error> + Clone,
 {
-	type Response = H::Response;
+	type Response = Response;
 	type Error = H::Error;
-	type Future = H::Future;
+	type Future = ResponseResultHandlerFuture<H::Future, ErrH>;
 
 	#[inline]
-	fn handle(&self, mut request: RequestContext<B>, mut args: Args<'_, Ext>) -> Self::Future {
-		self.inner.handle(request, args).map(|result| match result {
-			Ok(response) => Ok(response),
-			Err(error) => self.error_handler(error),
-		})
+	fn handle(&self, request: RequestContext<B>, args: Args<'_, Ext>) -> Self::Future {
+		let future = self.inner.handle(request, args);
+
+		ResponseResultHandlerFuture::new(future, self.error_handler.clone())
 	}
 }
-
-// --------------------------------------------------
-// IntoWrappedHandler
-
-// pub trait IntoWrappedHandler<Mark>: IntoHandler<Mark> + Sized {
-// 	fn wrapped_in<L: Layer<Self::Handler>>(self, layer: L) -> L::Handler;
-// }
-//
-// impl<H, Mark> IntoWrappedHandler<Mark> for H
-// where
-// 	H: IntoHandler<Mark>,
-// {
-// 	fn wrapped_in<L: Layer<H::Handler>>(self, layer: L) -> L::Handler {
-// 		layer.wrap(self.into_handler())
-// 	}
-// }
-
-// --------------------------------------------------
-// IntoExtendedHandler
-
-// pub trait IntoExtendedHandler<Mark, B, Ext: Clone>: IntoHandler<Mark, B, Ext> + Sized {
-// 	fn with_extension(self, handler_extension: Ext) -> ExtendedHandler<Self::Handler, Ext>;
-// }
-//
-// impl<H, Mark, B, Ext> IntoExtendedHandler<Mark, B, Ext> for H
-// where
-// 	H: IntoHandler<Mark, B, Ext>,
-// 	Ext: Clone + Send + Sync + 'static,
-// {
-// 	fn with_extension(self, handler_extension: Ext) -> ExtendedHandler<Self::Handler, Ext> {
-// 		ExtendedHandler::new(self.into_handler(), handler_extension)
-// 	}
-// }
 
 // --------------------------------------------------
 // ExtendedHandler
