@@ -12,6 +12,7 @@ use std::{
 
 use argan_core::{
 	body::{Body, HttpBody},
+	request::RequestHeadParts,
 	BoxedError,
 };
 use bytes::Bytes;
@@ -27,7 +28,7 @@ use serde_json::error::Category;
 use crate::{
 	handler::Args,
 	request::{FromRequest, Request, RequestHead},
-	response::{IntoResponse, IntoResponseHead, Response, ResponseError, ResponseHead},
+	response::{IntoResponse, IntoResponseHead, Response, ResponseError, ResponseHeadParts},
 	routing::RoutingState,
 	ImplError,
 };
@@ -63,26 +64,30 @@ where
 {
 	type Error = TextExtractorError;
 
-	async fn from_request(request: Request<B>) -> Result<Self, Self::Error> {
-		request_into_text_data(request, SIZE_LIMIT).await.map(Self)
+	async fn from_request(
+		head_parts: RequestHeadParts,
+		body: B,
+	) -> (RequestHeadParts, Result<Self, Self::Error>) {
+		let result = request_into_text_data(&head_parts, body, SIZE_LIMIT).await;
+
+		(head_parts, result.map(Self))
 	}
 }
 
-// ----------
-
 #[inline(always)]
 pub(crate) async fn request_into_text_data<B>(
-	request: Request<B>,
+	head_parts: &RequestHeadParts,
+	body: B,
 	size_limit: usize,
 ) -> Result<String, TextExtractorError>
 where
 	B: HttpBody,
 	B::Error: Into<BoxedError>,
 {
-	let content_type = content_type(&request)?;
+	let content_type = content_type(head_parts)?;
 
 	if content_type == mime::TEXT_PLAIN_UTF_8 || content_type == mime::TEXT_PLAIN {
-		match Limited::new(request, size_limit).collect().await {
+		match Limited::new(body, size_limit).collect().await {
 			Ok(body) => String::from_utf8(body.to_bytes().into())
 				.map(|value| value)
 				.map_err(Into::<TextExtractorError>::into),
@@ -123,28 +128,30 @@ where
 {
 	type Error = BinaryExtractorError;
 
-	async fn from_request(request: Request<B>) -> Result<Self, Self::Error> {
-		request_into_binary_data(request, SIZE_LIMIT)
-			.await
-			.map(Self)
+	async fn from_request(
+		head_parts: RequestHeadParts,
+		body: B,
+	) -> (RequestHeadParts, Result<Self, Self::Error>) {
+		let result = request_into_binary_data(&head_parts, body, SIZE_LIMIT).await;
+
+		(head_parts, result.map(Self))
 	}
 }
 
-// ----------
-
 #[inline(always)]
 pub(crate) async fn request_into_binary_data<B>(
-	request: Request<B>,
+	head_parts: &RequestHeadParts,
+	body: B,
 	size_limit: usize,
 ) -> Result<Bytes, BinaryExtractorError>
 where
 	B: HttpBody,
 	B::Error: Into<BoxedError>,
 {
-	let content_type = content_type(&request)?;
+	let content_type = content_type(head_parts)?;
 
 	if content_type == mime::APPLICATION_OCTET_STREAM || content_type == mime::OCTET_STREAM {
-		match Limited::new(request, size_limit).collect().await {
+		match Limited::new(body, size_limit).collect().await {
 			Ok(body) => Ok(body.to_bytes()),
 			Err(error) => Err(
 				error
@@ -180,23 +187,26 @@ where
 {
 	type Error = FullBodyExtractorError;
 
-	async fn from_request(request: Request<B>) -> Result<Self, Self::Error> {
-		request_into_full_body(request, SIZE_LIMIT).await.map(Self)
+	async fn from_request(
+		head_parts: RequestHeadParts,
+		body: B,
+	) -> (RequestHeadParts, Result<Self, Self::Error>) {
+		let result = request_into_full_body(body, SIZE_LIMIT).await;
+
+		(head_parts, result.map(Self))
 	}
 }
 
-// ----------
-
 #[inline(always)]
 pub(crate) async fn request_into_full_body<B>(
-	request: Request<B>,
+	body: B,
 	size_limit: usize,
 ) -> Result<Bytes, FullBodyExtractorError>
 where
 	B: HttpBody,
 	B::Error: Into<BoxedError>,
 {
-	match Limited::new(request, size_limit).collect().await {
+	match Limited::new(body, size_limit).collect().await {
 		Ok(body) => Ok(body.to_bytes()),
 		Err(error) => Err(
 			error
@@ -245,25 +255,32 @@ mod test {
 
 	#[tokio::test]
 	async fn text_extractor() {
-		let body = "Hello, World!".to_string();
+		let test_body = "Hello, World!".to_string();
 
-		let request = Request::builder()
+		let (head_parts, body) = Request::builder()
 			.header(
 				CONTENT_TYPE,
 				HeaderValue::from_static(mime::TEXT_PLAIN_UTF_8.as_ref()),
 			)
-			.body(body.clone())
+			.body(test_body.clone())
+			.unwrap()
+			.into_parts();
+
+		let Text(data) = Text::<1024>::from_request(head_parts, body)
+			.await
+			.1
 			.unwrap();
 
-		let Text(data) = Text::<1024>::from_request(request).await.unwrap();
-
-		assert_eq!(data, body.as_ref());
+		assert_eq!(data, test_body.as_ref());
 
 		// ----------
 
-		let request = Request::new(body.clone());
+		let (head_parts, body) = Request::new(test_body.clone()).into_parts();
 
-		let error = Text::<1024>::from_request(request).await.unwrap_err();
+		let error = Text::<1024>::from_request(head_parts, body)
+			.await
+			.1
+			.unwrap_err();
 
 		match error {
 			TextExtractorError::MissingContentType => {}
@@ -272,15 +289,19 @@ mod test {
 
 		// ----------
 
-		let request = Request::builder()
+		let (head_parts, body) = Request::builder()
 			.header(
 				CONTENT_TYPE,
 				HeaderValue::from_static(mime::OCTET_STREAM.as_ref()),
 			)
-			.body(body.clone())
-			.unwrap();
+			.body(test_body.clone())
+			.unwrap()
+			.into_parts();
 
-		let error = Text::<1024>::from_request(request).await.unwrap_err();
+		let error = Text::<1024>::from_request(head_parts, body)
+			.await
+			.1
+			.unwrap_err();
 
 		match error {
 			TextExtractorError::UnsupportedMediaType => {}
@@ -289,15 +310,19 @@ mod test {
 
 		// ----------
 
-		let request = Request::builder()
+		let (head_parts, body) = Request::builder()
 			.header(
 				CONTENT_TYPE,
 				HeaderValue::from_static(mime::TEXT_PLAIN_UTF_8.as_ref()),
 			)
-			.body(body.clone())
-			.unwrap();
+			.body(test_body.clone())
+			.unwrap()
+			.into_parts();
 
-		let error = Text::<8>::from_request(request).await.unwrap_err();
+		let error = Text::<8>::from_request(head_parts, body)
+			.await
+			.1
+			.unwrap_err();
 
 		match error {
 			TextExtractorError::ContentTooLarge => {}
@@ -307,25 +332,32 @@ mod test {
 
 	#[tokio::test]
 	async fn binary_extractor() {
-		let body = &b"Hello, World!"[..];
-		let full_body = Full::new(body);
-		let request = Request::builder()
+		let test_body = &b"Hello, World!"[..];
+		let full_body = Full::new(test_body);
+
+		let (head_parts, body) = Request::builder()
 			.header(
 				CONTENT_TYPE,
 				HeaderValue::from_static(mime::APPLICATION_OCTET_STREAM.as_ref()),
 			)
 			.body(full_body.clone())
+			.unwrap()
+			.into_parts();
+
+		let Binary(data) = Binary::<1024>::from_request(head_parts, body)
+			.await
+			.1
 			.unwrap();
-
-		let Binary(data) = Binary::<1024>::from_request(request).await.unwrap();
-
-		assert_eq!(&data, body);
+		assert_eq!(&data, test_body);
 
 		// ----------
 
-		let request = Request::new(full_body.clone());
+		let (head_parts, body) = Request::new(full_body.clone()).into_parts();
 
-		let error = Binary::<1024>::from_request(request).await.unwrap_err();
+		let error = Binary::<1024>::from_request(head_parts, body)
+			.await
+			.1
+			.unwrap_err();
 
 		match error {
 			BinaryExtractorError::MissingContentType => {}
@@ -334,16 +366,20 @@ mod test {
 
 		// ----------
 
-		let full_body = Full::new(body);
-		let request = Request::builder()
+		let full_body = Full::new(test_body);
+		let (head_parts, body) = Request::builder()
 			.header(
 				CONTENT_TYPE,
 				HeaderValue::from_static(mime::TEXT_PLAIN.as_ref()),
 			)
 			.body(full_body.clone())
-			.unwrap();
+			.unwrap()
+			.into_parts();
 
-		let error = Binary::<1024>::from_request(request).await.unwrap_err();
+		let error = Binary::<1024>::from_request(head_parts, body)
+			.await
+			.1
+			.unwrap_err();
 
 		match error {
 			BinaryExtractorError::UnsupportedMediaType => {}
@@ -352,16 +388,20 @@ mod test {
 
 		// ----------
 
-		let full_body = Full::new(body);
-		let request = Request::builder()
+		let full_body = Full::new(test_body);
+		let (head_parts, body) = Request::builder()
 			.header(
 				CONTENT_TYPE,
 				HeaderValue::from_static(mime::APPLICATION_OCTET_STREAM.as_ref()),
 			)
 			.body(full_body.clone())
-			.unwrap();
+			.unwrap()
+			.into_parts();
 
-		let error = Binary::<8>::from_request(request).await.unwrap_err();
+		let error = Binary::<8>::from_request(head_parts, body)
+			.await
+			.1
+			.unwrap_err();
 
 		match error {
 			BinaryExtractorError::ContentTooLarge => {}
@@ -371,55 +411,67 @@ mod test {
 
 	#[tokio::test]
 	async fn full_body_bytes_extractor() {
-		let body = &b"Hello, World!"[..];
-		let full_body = Full::new(body);
+		let test_body = &b"Hello, World!"[..];
+		let full_body = Full::new(test_body);
 
-		let request = Request::builder()
+		let (head_parts, body) = Request::builder()
 			.header(
 				CONTENT_TYPE,
 				HeaderValue::from_static(mime::TEXT_PLAIN_UTF_8.as_ref()),
 			)
 			.body(full_body.clone())
+			.unwrap()
+			.into_parts();
+
+		let FullBody(data) = FullBody::<1024>::from_request(head_parts, body)
+			.await
+			.1
 			.unwrap();
-
-		let FullBody(data) = FullBody::<1024>::from_request(request).await.unwrap();
-
-		assert_eq!(&data, body);
+		assert_eq!(&data, test_body);
 
 		// ----------
 
-		let request = Request::builder()
+		let (head_parts, body) = Request::builder()
 			.header(
 				CONTENT_TYPE,
 				HeaderValue::from_static(mime::APPLICATION_OCTET_STREAM.as_ref()),
 			)
 			.body(full_body.clone())
+			.unwrap()
+			.into_parts();
+
+		let FullBody(data) = FullBody::<1024>::from_request(head_parts, body)
+			.await
+			.1
 			.unwrap();
-
-		let FullBody(data) = FullBody::<1024>::from_request(request).await.unwrap();
-
-		assert_eq!(&data, body);
+		assert_eq!(&data, test_body);
 
 		// ----------
 
-		let request = Request::new(full_body.clone());
+		let (head_parts, body) = Request::new(full_body.clone()).into_parts();
 
-		let FullBody(data) = FullBody::<1024>::from_request(request).await.unwrap();
-
-		assert_eq!(&data, body);
+		let FullBody(data) = FullBody::<1024>::from_request(head_parts, body)
+			.await
+			.1
+			.unwrap();
+		assert_eq!(&data, test_body);
 
 		// ----------
 
-		let full_body = Full::new(body);
-		let request = Request::builder()
+		let full_body = Full::new(test_body);
+		let (head_parts, body) = Request::builder()
 			.header(
 				CONTENT_TYPE,
 				HeaderValue::from_static(mime::APPLICATION_OCTET_STREAM.as_ref()),
 			)
 			.body(full_body.clone())
-			.unwrap();
+			.unwrap()
+			.into_parts();
 
-		let error = FullBody::<8>::from_request(request).await.unwrap_err();
+		let error = FullBody::<8>::from_request(head_parts, body)
+			.await
+			.1
+			.unwrap_err();
 
 		match error {
 			FullBodyExtractorError::ContentTooLarge => {}
@@ -428,9 +480,12 @@ mod test {
 
 		// ----------
 
-		let request = Request::new(full_body.clone());
+		let (head_parts, body) = Request::new(full_body.clone()).into_parts();
 
-		let error = FullBody::<8>::from_request(request).await.unwrap_err();
+		let error = FullBody::<8>::from_request(head_parts, body)
+			.await
+			.1
+			.unwrap_err();
 
 		match error {
 			FullBodyExtractorError::ContentTooLarge => {}

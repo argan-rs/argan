@@ -4,11 +4,15 @@ use super::*;
 // --------------------------------------------------------------------------------
 
 // --------------------------------------------------
-// SizeLimit
+// ExtractorGuard
 
-pub enum SizeLimit {
-	Default,
-	Value(usize),
+pub trait ExtractorGuard<B = Body, Ext: Clone = ()>: Sized {
+	type Error: Into<BoxedErrorResponse>;
+
+	fn from_request_context_and_args(
+		request: &mut RequestContext<B>,
+		args: &Args<'static, Ext>,
+	) -> impl Future<Output = Result<Self, Self::Error>> + Send;
 }
 
 // --------------------------------------------------
@@ -69,7 +73,7 @@ where
 // 			.map_err(Into::into)
 // 	}
 // }
-//
+
 // impl<B, T> FromRequest<B> for PathParams<T>
 // where
 // 	B: Send,
@@ -159,15 +163,24 @@ where
 {
 	type Error = QueryParamsError;
 
-	async fn from_request(request: Request<B>) -> Result<Self, Self::Error> {
-		let query_string = request
-			.uri()
+	async fn from_request(
+		head_parts: RequestHeadParts,
+		_: B,
+	) -> (RequestHeadParts, Result<Self, Self::Error>) {
+		let query_string = match head_parts
+			.uri
 			.query()
-			.ok_or(QueryParamsError::NoDataIsAvailable)?;
+			.ok_or(QueryParamsError::NoDataIsAvailable)
+		{
+			Ok(query_string) => query_string,
+			Err(error) => return (head_parts, Err(error)),
+		};
 
-		serde_urlencoded::from_str::<T>(query_string)
+		let result = serde_urlencoded::from_str::<T>(query_string)
 			.map(|value| Self(value))
-			.map_err(|error| QueryParamsError::InvalidData(error.into()))
+			.map_err(|error| QueryParamsError::InvalidData(error.into()));
+
+		(head_parts, result)
 	}
 }
 

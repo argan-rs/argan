@@ -13,7 +13,7 @@ use crate::{
 	data::json::Json,
 	handler::{_get, _method, _post, _wildcard_method},
 	pattern::DeserializerError,
-	request::{Extract, PathParams, PathParamsError, Request, RequestContext},
+	request::{PathParams, PathParamsError, Request, RequestContext, RequestHead},
 	resource::Resource,
 	response::{IntoResponseResult, Response},
 };
@@ -90,8 +90,8 @@ pub(crate) fn new_root() -> Resource {
 	//																			|	->	/st_2_1
 
 	let mut root = Resource::new("/");
-	root.set_handler_for(_get(|request: RequestContext| async move {
-		let result = request.path_params_as::<String>();
+	root.set_handler_for(_get(|head: RequestHead| async move {
+		let result = head.path_params_as::<String>();
 
 		dbg!(&result);
 
@@ -113,37 +113,35 @@ pub(crate) fn new_root() -> Resource {
 
 	root
 		.subresource_mut("/st_0_0/{wl_1_0}/{rx_2_0:p_0}/")
-		.set_handler_for(_get(|request: RequestContext| async move {
-			let data = request.path_params_as::<Rx_2_0>().unwrap();
+		.set_handler_for(_get(|head: RequestHead| async move {
+			let data = head.path_params_as::<Rx_2_0>().unwrap();
 
 			Json(data)
 		}));
 
 	root
 		.subresource_mut("/st_0_0/{wl_1_0}/{rx_2_1:p_1}-abc/{wl_3_0}")
-		.set_handler_for(_post(|request: RequestContext| async move {
-			let data = request.path_params_as::<Wl_3_0>().unwrap();
+		.set_handler_for(_post(|head: RequestHead| async move {
+			let data = head.path_params_as::<Wl_3_0>().unwrap();
 
 			Json(data)
 		}));
 
 	root
 		.subresource_mut("/st_0_0/{rx_1_1:p_0}-abc/st_2_0")
-		.set_handler_for(_get(|request: RequestContext| async move {
-			let data = request.path_params_as::<Rx_1_1>().unwrap();
+		.set_handler_for(_get(|head: RequestHead| async move {
+			let data = head.path_params_as::<Rx_1_1>().unwrap();
 
 			Json(data)
 		}));
 
 	root
 		.subresource_mut("/st_0_0/{rx_1_1:p_0}-abc/")
-		.set_handler_for(_wildcard_method(Some(
-			|request: RequestContext| async move {
-				let data = request.path_params_as::<Rx_1_1>().unwrap();
+		.set_handler_for(_wildcard_method(Some(|head: RequestHead| async move {
+			let data = head.path_params_as::<Rx_1_1>().unwrap();
 
-				Json(data)
-			},
-		)));
+			Json(data)
+		})));
 
 	root
 		.subresource_mut("/st_0_0/{rx_1_1:p_0}-abc/st_2_1")

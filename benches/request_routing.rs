@@ -38,7 +38,7 @@ pub fn request_routing(c: &mut Criterion) {
 
 	// Last static resource will have a handler and subresources.
 	fn add_static_resources(resource: &mut Resource, params: (u8, &Param)) {
-		let handler = |_request: RequestContext| async {};
+		let handler = || async {};
 		// println!("\nsegment index: {}", params.0);
 		let next_segment_index = params.0 + 1;
 
@@ -72,7 +72,7 @@ pub fn request_routing(c: &mut Criterion) {
 
 	// Last regex resource will have a handler and subresources.
 	fn add_regex_resources(resource: &mut Resource, params: (u8, &Param)) {
-		let handler = |_request: RequestContext| async {};
+		let handler = || async {};
 		// println!("\nsegment index: {}", params.0);
 		let next_segment_index = params.0 + 1;
 
@@ -114,7 +114,7 @@ pub fn request_routing(c: &mut Criterion) {
 
 	// Each wildcard resource will have a handler and subresources.
 	fn add_wildcard_resources(resource: &mut Resource, params: (u8, &Param)) {
-		let handler = |_request: RequestContext| async {};
+		let handler = || async {};
 		// println!("\nsegment index: {}", params.0);
 		let next_segment_index = params.0 + 1;
 

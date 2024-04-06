@@ -1,7 +1,4 @@
-use std::{
-	convert::Infallible,
-	future::{ready, Future},
-};
+use std::future::{ready, Future};
 
 use crate::{body::Body, response::BoxedErrorResponse};
 
@@ -17,25 +14,10 @@ mod impls;
 // --------------------------------------------------------------------------------
 
 pub type Request<B = Body> = http::request::Request<B>;
-pub type RequestHead = http::request::Parts;
-
-// --------------------------------------------------------------------------------
-
-// TODO: Create FromRequest traits with and without args. Create a Request type with routing state.
+pub type RequestHeadParts = http::request::Parts;
 
 // --------------------------------------------------
-// FromRequestHead trait
-
-// pub trait FromMutRequestHead: Sized {
-// 	type Error: Into<BoxedErrorResponse>;
-//
-// 	fn from_request_head(
-// 		head: &mut RequestHead,
-// 	) -> impl Future<Output = Result<Self, Self::Error>> + Send;
-// }
-
-// --------------------------------------------------
-// FromRequestRef trait
+// FromRequestRef
 
 pub trait FromRequestRef<'r, B>: Sized {
 	type Error: Into<BoxedErrorResponse>;
@@ -46,23 +28,15 @@ pub trait FromRequestRef<'r, B>: Sized {
 }
 
 // --------------------------------------------------
-// FromRequest<B> trait
+// FromRequest<B>
 
-pub trait FromRequest<B>: Sized {
+pub trait FromRequest<B = Body>: Sized {
 	type Error: Into<BoxedErrorResponse>;
 
-	fn from_request(request: Request<B>) -> impl Future<Output = Result<Self, Self::Error>> + Send;
-}
-
-impl<B> FromRequest<B> for Request<B>
-where
-	B: Send,
-{
-	type Error = Infallible;
-
-	fn from_request(request: Request<B>) -> impl Future<Output = Result<Self, Self::Error>> {
-		ready(Ok(request))
-	}
+	fn from_request(
+		head_parts: RequestHeadParts,
+		body: B,
+	) -> impl Future<Output = (RequestHeadParts, Result<Self, Self::Error>)> + Send;
 }
 
 // --------------------------------------------------------------------------------

@@ -6,7 +6,8 @@ use http::{Extensions, StatusCode};
 use crate::{
 	request::{FromRequest, Request, RequestHead},
 	response::{
-		BoxedErrorResponse, IntoResponse, IntoResponseHead, IntoResponseResult, Response, ResponseHead,
+		BoxedErrorResponse, IntoResponse, IntoResponseHead, IntoResponseResult, Response,
+		ResponseHeadParts,
 	},
 };
 
@@ -214,7 +215,10 @@ where
 	T: Clone + Send + Sync + 'static,
 {
 	#[inline]
-	fn into_response_head(self, mut head: ResponseHead) -> Result<ResponseHead, BoxedErrorResponse> {
+	fn into_response_head(
+		self,
+		mut head: ResponseHeadParts,
+	) -> Result<ResponseHeadParts, BoxedErrorResponse> {
 		let ResponseExtension(value) = self;
 
 		if head.extensions.insert(value).is_some() {

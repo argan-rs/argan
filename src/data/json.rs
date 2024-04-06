@@ -1,5 +1,6 @@
 use std::{str::FromStr, string::FromUtf8Error};
 
+use argan_core::request::RequestHeadParts;
 use http::{header::CONTENT_TYPE, HeaderValue, StatusCode};
 use http_body_util::{BodyExt, LengthLimitError, Limited};
 use serde::{de::DeserializeOwned, Serialize};
@@ -18,14 +19,37 @@ use super::*;
 // --------------------------------------------------------------------------------
 
 // --------------------------------------------------
+// Json
 
 pub(crate) const JSON_BODY_SIZE_LIMIT: usize = { 2 * 1024 * 1024 };
 
 // ----------
 
+pub struct Json<T, const SIZE_LIMIT: usize = JSON_BODY_SIZE_LIMIT>(pub T);
+
+impl<B, T, const SIZE_LIMIT: usize> FromRequest<B> for Json<T, SIZE_LIMIT>
+where
+	B: HttpBody + Send,
+	B::Data: Send,
+	B::Error: Into<BoxedError>,
+	T: DeserializeOwned,
+{
+	type Error = JsonError;
+
+	async fn from_request(
+		head_parts: RequestHeadParts,
+		body: B,
+	) -> (RequestHeadParts, Result<Self, Self::Error>) {
+		let result = request_into_json_data::<T, B>(&head_parts, body, SIZE_LIMIT).await;
+
+		(head_parts, result.map(Self))
+	}
+}
+
 #[inline(always)]
 pub(crate) async fn request_into_json_data<T, B>(
-	request: Request<B>,
+	head_parts: &RequestHeadParts,
+	body: B,
 	size_limit: usize,
 ) -> Result<T, JsonError>
 where
@@ -33,10 +57,10 @@ where
 	B::Error: Into<BoxedError>,
 	T: DeserializeOwned,
 {
-	let content_type = content_type(&request)?;
+	let content_type = content_type(head_parts)?;
 
 	if content_type == mime::APPLICATION_JSON {
-		match Limited::new(request, size_limit).collect().await {
+		match Limited::new(body, size_limit).collect().await {
 			Ok(body) => serde_json::from_slice::<T>(&body.to_bytes())
 				.map(|value| value)
 				.map_err(Into::<JsonError>::into),
@@ -51,26 +75,7 @@ where
 	}
 }
 
-// --------------------------------------------------
-// Json
-
-pub struct Json<T, const SIZE_LIMIT: usize = JSON_BODY_SIZE_LIMIT>(pub T);
-
-impl<B, T, const SIZE_LIMIT: usize> FromRequest<B> for Json<T, SIZE_LIMIT>
-where
-	B: HttpBody + Send,
-	B::Data: Send,
-	B::Error: Into<BoxedError>,
-	T: DeserializeOwned,
-{
-	type Error = JsonError;
-
-	async fn from_request(request: Request<B>) -> Result<Self, Self::Error> {
-		request_into_json_data::<T, B>(request, SIZE_LIMIT)
-			.await
-			.map(Self)
-	}
-}
+// ----------
 
 impl<T> IntoResponseResult for Json<T>
 where
@@ -160,15 +165,19 @@ mod test {
 
 		// ----------
 
-		let request = Request::builder()
+		let (head_parts, body) = Request::builder()
 			.header(
 				CONTENT_TYPE,
 				HeaderValue::from_static(mime::APPLICATION_JSON.as_ref()),
 			)
 			.body(json_data_string)
-			.unwrap();
+			.unwrap()
+			.into_parts();
 
-		let Json(mut json_data) = Json::<Data>::from_request(request).await.unwrap();
+		let Json(mut json_data) = Json::<Data>::from_request(head_parts, body)
+			.await
+			.1
+			.unwrap();
 
 		assert_eq!(json_data.login, login.as_ref());
 		assert_eq!(json_data.password, password.as_ref());
@@ -181,15 +190,19 @@ mod test {
 
 		// -----
 
-		let request = Request::builder()
+		let (head_parts, body) = Request::builder()
 			.header(
 				CONTENT_TYPE,
 				HeaderValue::from_static(mime::APPLICATION_JSON.as_ref()),
 			)
 			.body(json_body)
-			.unwrap();
+			.unwrap()
+			.into_parts();
 
-		let Json(json_data) = Json::<Data>::from_request(request).await.unwrap();
+		let Json(json_data) = Json::<Data>::from_request(head_parts, body)
+			.await
+			.1
+			.unwrap();
 
 		assert_eq!(json_data.some_id, Some(1));
 		assert_eq!(json_data.login, login.as_ref());

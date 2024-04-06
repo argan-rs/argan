@@ -1,5 +1,6 @@
 use std::io;
 
+use argan_core::request::RequestHeadParts;
 use futures_util::{Stream, StreamExt};
 use http::HeaderMap;
 use http_body_util::{BodyStream, Limited};
@@ -20,14 +21,37 @@ use super::*;
 // --------------------------------------------------------------------------------
 
 // --------------------------------------------------
+// Form
 
 pub(crate) const FORM_BODY_SIZE_LIMIT: usize = { 2 * 1024 * 1024 };
 
 // ----------
 
+pub struct Form<T, const SIZE_LIMIT: usize = FORM_BODY_SIZE_LIMIT>(pub T);
+
+impl<B, T, const SIZE_LIMIT: usize> FromRequest<B> for Form<T, SIZE_LIMIT>
+where
+	B: HttpBody + Send,
+	B::Data: Send,
+	B::Error: Into<BoxedError>,
+	T: DeserializeOwned,
+{
+	type Error = FormError;
+
+	async fn from_request(
+		head_parts: RequestHeadParts,
+		body: B,
+	) -> (RequestHeadParts, Result<Self, Self::Error>) {
+		let result = request_into_form_data(&head_parts, body, SIZE_LIMIT).await;
+
+		(head_parts, result.map(Self))
+	}
+}
+
 #[inline(always)]
 pub(crate) async fn request_into_form_data<T, B>(
-	request: Request<B>,
+	head_parts: &RequestHeadParts,
+	body: B,
 	size_limit: usize,
 ) -> Result<T, FormError>
 where
@@ -35,10 +59,10 @@ where
 	B::Error: Into<BoxedError>,
 	T: DeserializeOwned,
 {
-	let content_type_str = content_type(&request)?;
+	let content_type_str = content_type(head_parts)?;
 
 	if content_type_str == mime::APPLICATION_WWW_FORM_URLENCODED {
-		match Limited::new(request, size_limit).collect().await {
+		match Limited::new(body, size_limit).collect().await {
 			Ok(body) => Ok(
 				serde_urlencoded::from_bytes::<T>(&body.to_bytes())
 					.map(|value| value)
@@ -55,24 +79,7 @@ where
 	}
 }
 
-// --------------------------------------------------
-// Form
-
-pub struct Form<T, const SIZE_LIMIT: usize = FORM_BODY_SIZE_LIMIT>(pub T);
-
-impl<B, T, const SIZE_LIMIT: usize> FromRequest<B> for Form<T, SIZE_LIMIT>
-where
-	B: HttpBody + Send,
-	B::Data: Send,
-	B::Error: Into<BoxedError>,
-	T: DeserializeOwned,
-{
-	type Error = FormError;
-
-	async fn from_request(request: Request<B>) -> Result<Self, Self::Error> {
-		request_into_form_data(request, SIZE_LIMIT).await.map(Self)
-	}
-}
+// ----------
 
 impl<T> IntoResponseResult for Form<T>
 where
@@ -109,46 +116,24 @@ data_extractor_error! {
 // --------------------------------------------------------------------------------
 // --------------------------------------------------------------------------------
 
+// --------------------------------------------------
+// MultipartForm
+
 const MULTIPART_FORM_BODY_SIZE_LIMIT: usize = { 8 * 1024 * 1024 };
 
 // ----------
 
-#[inline(always)]
-pub(crate) fn request_into_multipart_form<B>(
-	request: Request<B>,
-) -> Result<MultipartForm, MultipartFormError>
-where
-	B: HttpBody<Data = Bytes> + Send + Sync + 'static,
-	B::Error: Into<BoxedError>,
-{
-	let content_type_str = content_type(&request)?;
-
-	parse_boundary(content_type_str)
-		.map(|boundary| {
-			let incoming_body = Body::new(request.into_body());
-			let body_stream = BodyStream::new(incoming_body);
-
-			let multipart_form = MultipartForm {
-				body_stream,
-				boundary,
-				some_constraints: None,
-			};
-
-			multipart_form
-		})
-		.map_err(Into::<MultipartFormError>::into)
-}
-
-// --------------------------------------------------
-// MultipartForm
-
-pub struct MultipartForm {
-	body_stream: BodyStream<Body>,
+pub struct MultipartForm<B> {
+	body_stream: BodyStream<B>,
 	boundary: String,
 	some_constraints: Option<Constraints>,
 }
 
-impl MultipartForm {
+impl<B> MultipartForm<B>
+where
+	B: HttpBody<Data = Bytes> + Send + 'static,
+	B::Error: Into<BoxedError> + 'static,
+{
 	fn with_constraints(mut self, constraints: Constraints) -> Self {
 		self.some_constraints = Some(constraints);
 
@@ -209,16 +194,47 @@ impl MultipartForm {
 	}
 }
 
-impl<B> FromRequest<B> for MultipartForm
+impl<B> FromRequest<B> for MultipartForm<B>
 where
 	B: HttpBody<Data = Bytes> + Send + Sync + 'static,
 	B::Error: Into<BoxedError>,
 {
 	type Error = MultipartFormError;
 
-	async fn from_request(request: Request<B>) -> Result<Self, Self::Error> {
-		request_into_multipart_form(request)
+	async fn from_request(
+		head_parts: RequestHeadParts,
+		body: B,
+	) -> (RequestHeadParts, Result<Self, Self::Error>) {
+		let result = request_into_multipart_form(&head_parts, body);
+
+		(head_parts, result)
 	}
+}
+
+#[inline(always)]
+pub(crate) fn request_into_multipart_form<B>(
+	head_parts: &RequestHeadParts,
+	body: B,
+) -> Result<MultipartForm<B>, MultipartFormError>
+where
+	B: HttpBody<Data = Bytes> + Send + Sync + 'static,
+	B::Error: Into<BoxedError>,
+{
+	let content_type_str = content_type(head_parts)?;
+
+	parse_boundary(content_type_str)
+		.map(|boundary| {
+			let body_stream = BodyStream::new(body);
+
+			let multipart_form = MultipartForm {
+				body_stream,
+				boundary,
+				some_constraints: None,
+			};
+
+			multipart_form
+		})
+		.map_err(Into::<MultipartFormError>::into)
 }
 
 // ----------
@@ -487,15 +503,19 @@ mod test {
 
 		// ----------
 
-		let request = Request::builder()
+		let (head_parts, body) = Request::builder()
 			.header(
 				CONTENT_TYPE,
 				HeaderValue::from_static(mime::APPLICATION_WWW_FORM_URLENCODED.as_ref()),
 			)
 			.body(form_data_string)
-			.unwrap();
+			.unwrap()
+			.into_parts();
 
-		let Form(mut form_data) = Form::<Data>::from_request(request).await.unwrap();
+		let Form(mut form_data) = Form::<Data>::from_request(head_parts, body)
+			.await
+			.1
+			.unwrap();
 
 		assert_eq!(form_data.login, login.as_ref());
 		assert_eq!(form_data.password, password.as_ref());
@@ -508,15 +528,19 @@ mod test {
 
 		// -----
 
-		let request = Request::builder()
+		let (head_parts, body) = Request::builder()
 			.header(
 				CONTENT_TYPE,
 				HeaderValue::from_static(mime::APPLICATION_WWW_FORM_URLENCODED.as_ref()),
 			)
 			.body(form_body)
-			.unwrap();
+			.unwrap()
+			.into_parts();
 
-		let Form(form_data) = Form::<Data>::from_request(request).await.unwrap();
+		let Form(form_data) = Form::<Data>::from_request(head_parts, body)
+			.await
+			.1
+			.unwrap();
 
 		assert_eq!(form_data.some_id, Some(1));
 		assert_eq!(form_data.login, login.as_ref());

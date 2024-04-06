@@ -1,12 +1,13 @@
 use std::{convert::Infallible, io::BufRead, num::ParseFloatError};
 
+use argan_core::request::RequestHeadParts;
 use tokio::io::AsyncBufReadExt;
 
 use crate::{
 	common::{marker::Sealed, trim, SCOPE_VALIDITY},
 	handler::Args,
 	request::{FromRequest, Request, RequestHead},
-	response::{BoxedErrorResponse, IntoResponse, IntoResponseHead, Response, ResponseHead},
+	response::{BoxedErrorResponse, IntoResponse, IntoResponseHead, Response, ResponseHeadParts},
 	ImplError,
 };
 
@@ -19,9 +20,9 @@ pub use http::header::*;
 
 // --------------------------------------------------------------------------------
 
-pub(crate) fn content_type<B>(request: &Request<B>) -> Result<&str, ContentTypeError> {
-	let content_type = request
-		.headers()
+pub(crate) fn content_type(head_parts: &RequestHeadParts) -> Result<&str, ContentTypeError> {
+	let content_type = head_parts
+		.headers
 		.get(CONTENT_TYPE)
 		.ok_or(ContentTypeError::Missing)?;
 
