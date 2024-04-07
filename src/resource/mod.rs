@@ -11,15 +11,15 @@ use http::{Extensions, Uri};
 use crate::{
 	common::{config::ConfigOption, marker::Private, patterns_to_route, IntoArray, Uncloneable},
 	handler::{
+		kind::HandlerKind,
 		request_handlers::{
 			handle_mistargeted_request, wrap_mistargeted_request_handler, ImplementedMethods,
 			MethodHandlers,
 		},
-		BoxedHandler, HandlerKind, IntoHandler,
+		BoxedHandler, IntoHandler,
 	},
 	middleware::{
-		layer_targets::LayerTarget, IntoResponseResultAdapter, ResponseResultFutureBoxer,
-		_request_receiver,
+		targets::LayerTarget, IntoResponseResultAdapter, ResponseResultFutureBoxer, _request_receiver,
 	},
 	pattern::{split_uri_host_and_path, Pattern, Similarity},
 	request::{FromRequest, Request, RequestHead},

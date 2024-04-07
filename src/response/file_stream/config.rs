@@ -18,8 +18,8 @@ bit_flags! {
 // --------------------------------------------------
 // FileStreamConfigOptions
 
-config_option! {
-	FileStreamConfigOption {
+option! {
+	pub(super) FileStreamConfigOption {
 		Attachment,
 		PartialContentSupport,
 		ContentEncoding(HeaderValue),
@@ -28,8 +28,6 @@ config_option! {
 		FileName(Box<str>),
 	}
 }
-
-pub(super) use config_private::FileStreamConfigOption;
 
 // ----------
 

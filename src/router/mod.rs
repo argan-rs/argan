@@ -9,7 +9,7 @@ use crate::{
 	host::Host,
 	middleware::{
 		BoxedLayer, IntoLayer, Layer, RequestExtensionsModifierLayer, _request_passer,
-		layer_targets::LayerTarget,
+		targets::LayerTarget,
 	},
 	pattern::{split_uri_host_and_path, Pattern, Similarity},
 	resource::{Iteration, Resource},

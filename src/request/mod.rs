@@ -36,7 +36,7 @@ use crate::{
 	},
 	handler::Args,
 	pattern::{self, FromParamsList, ParamsList},
-	response::{BoxedErrorResponse, IntoResponse, IntoResponseHead, Response},
+	response::{BoxedErrorResponse, IntoResponse, IntoResponseHeadParts, Response},
 	routing::RoutingState,
 	ImplError, StdError,
 };

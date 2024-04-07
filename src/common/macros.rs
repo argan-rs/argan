@@ -4,10 +4,10 @@
 // --------------------------------------------------------------------------------
 // Config Options
 
-macro_rules! config_option {
+macro_rules! option {
 	(
 		$(#[$metas:meta])*
-		$config_name:ident$(<$($lt:lifetime),* $($tp:ident),*>)? {
+		$vis:vis $config_name:ident$(<$($lt:lifetime),* $($tp:ident),*>)? {
 			$($option_name:ident $(($($tokens:ty),+))?,)+
 		}
 	) => {
@@ -28,6 +28,8 @@ macro_rules! config_option {
 				}
 			}
 		}
+
+		$vis use config_private::$config_name;
 	};
 }
 

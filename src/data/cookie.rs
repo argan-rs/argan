@@ -18,7 +18,7 @@ use crate::{
 	common::{IntoArray, SCOPE_VALIDITY},
 	handler::Args,
 	request::RequestHead,
-	response::{BoxedErrorResponse, IntoResponse, IntoResponseHead, Response},
+	response::{BoxedErrorResponse, IntoResponse, IntoResponseHeadParts, Response},
 	routing::RoutingState,
 };
 
@@ -179,7 +179,7 @@ pub(crate) fn cookies_from_request(head: &HeaderMap, some_key: Option<Key>) -> C
 
 // -------------------------
 
-impl IntoResponseHead for CookieJar {
+impl IntoResponseHeadParts for CookieJar {
 	fn into_response_head(
 		self,
 		mut head: ResponseHeadParts,
@@ -243,7 +243,7 @@ impl PrivateCookieJar {
 	}
 }
 
-impl IntoResponseHead for PrivateCookieJar {
+impl IntoResponseHeadParts for PrivateCookieJar {
 	fn into_response_head(
 		self,
 		mut head: ResponseHeadParts,
@@ -300,7 +300,7 @@ impl SignedCookieJar {
 	}
 }
 
-impl IntoResponseHead for SignedCookieJar {
+impl IntoResponseHeadParts for SignedCookieJar {
 	fn into_response_head(
 		self,
 		mut head: ResponseHeadParts,

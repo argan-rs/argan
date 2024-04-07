@@ -13,7 +13,7 @@ use crate::{
 	data::extensions::NodeExtensions,
 	handler::{futures::ResponseToResultFuture, Args, BoxedHandler, Handler},
 	host::{Host, HostService},
-	middleware::{layer_targets::LayerTarget, Layer},
+	middleware::{targets::LayerTarget, Layer},
 	pattern::ParamsList,
 	request::{Request, RequestContext},
 	resource::{Resource, ResourceService},

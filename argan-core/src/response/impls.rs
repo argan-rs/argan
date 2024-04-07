@@ -63,7 +63,7 @@ impl<T: IntoResponse> IntoResponse for Option<T> {
 // --------------------------------------------------
 // HeaderMap
 
-impl IntoResponseHead for HeaderMap {
+impl IntoResponseHeadParts for HeaderMap {
 	#[inline]
 	fn into_response_head(
 		self,
@@ -198,11 +198,11 @@ impl IntoResponse for Cow<'static, [u8]> {
 macro_rules! impl_into_response_for_tuples {
 	($t1:ident, $(($($t:ident),*),)? $tl:ident) => {
 		#[allow(non_snake_case)]
-		impl<$t1, $($($t,)*)? $tl> IntoResponseHead for ($t1, $($($t,)*)? $tl)
+		impl<$t1, $($($t,)*)? $tl> IntoResponseHeadParts for ($t1, $($($t,)*)? $tl)
 		where
-			$t1: IntoResponseHead,
-			$($($t: IntoResponseHead,)*)?
-			$tl: IntoResponseHead,
+			$t1: IntoResponseHeadParts,
+			$($($t: IntoResponseHeadParts,)*)?
+			$tl: IntoResponseHeadParts,
 		{
 			fn into_response_head(self, mut head: ResponseHeadParts) -> Result<ResponseHeadParts, BoxedErrorResponse> {
 				let ($t1, $($($t,)*)? $tl) = self;
@@ -220,7 +220,7 @@ macro_rules! impl_into_response_for_tuples {
 		#[allow(non_snake_case)]
 		impl<$($($t,)*)? $tl> IntoResponseResult for (StatusCode, $($($t,)*)? $tl)
 		where
-			$($($t: IntoResponseHead,)*)?
+			$($($t: IntoResponseHeadParts,)*)?
 			$tl: IntoResponseResult,
 		{
 			fn into_response_result(self) -> Result<Response, BoxedErrorResponse> {
@@ -242,8 +242,8 @@ macro_rules! impl_into_response_for_tuples {
 		#[allow(non_snake_case)]
 		impl<$t1, $($($t,)*)? $tl> IntoResponseResult for ($t1, $($($t,)*)? $tl)
 		where
-			$t1: IntoResponseHead,
-			$($($t: IntoResponseHead,)*)?
+			$t1: IntoResponseHeadParts,
+			$($($t: IntoResponseHeadParts,)*)?
 			$tl: IntoResponseResult,
 		{
 			fn into_response_result(self) -> Result<Response, BoxedErrorResponse> {

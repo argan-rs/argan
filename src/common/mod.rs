@@ -28,7 +28,7 @@ pub use argan_core::{BoxedError, BoxedFuture};
 pub(crate) mod macros;
 
 pub mod config;
-pub use config::{_cookie_key, _with_request_extensions_modifier};
+pub use config::{_with_cookie_key, _with_request_extensions_modifier};
 
 pub(crate) mod timer;
 
