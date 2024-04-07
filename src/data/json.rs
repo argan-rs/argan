@@ -36,13 +36,10 @@ where
 {
 	type Error = JsonError;
 
-	async fn from_request(
-		head_parts: RequestHeadParts,
-		body: B,
-	) -> (RequestHeadParts, Result<Self, Self::Error>) {
-		let result = request_into_json_data::<T, B>(&head_parts, body, SIZE_LIMIT).await;
-
-		(head_parts, result.map(Self))
+	async fn from_request(head_parts: &mut RequestHeadParts, body: B) -> Result<Self, Self::Error> {
+		request_into_json_data::<T, B>(head_parts, body, SIZE_LIMIT)
+			.await
+			.map(Self)
 	}
 }
 
@@ -165,7 +162,7 @@ mod test {
 
 		// ----------
 
-		let (head_parts, body) = Request::builder()
+		let (mut head_parts, body) = Request::builder()
 			.header(
 				CONTENT_TYPE,
 				HeaderValue::from_static(mime::APPLICATION_JSON.as_ref()),
@@ -174,9 +171,8 @@ mod test {
 			.unwrap()
 			.into_parts();
 
-		let Json(mut json_data) = Json::<Data>::from_request(head_parts, body)
+		let Json(mut json_data) = Json::<Data>::from_request(&mut head_parts, body)
 			.await
-			.1
 			.unwrap();
 
 		assert_eq!(json_data.login, login.as_ref());
@@ -190,7 +186,7 @@ mod test {
 
 		// -----
 
-		let (head_parts, body) = Request::builder()
+		let (mut head_parts, body) = Request::builder()
 			.header(
 				CONTENT_TYPE,
 				HeaderValue::from_static(mime::APPLICATION_JSON.as_ref()),
@@ -199,9 +195,8 @@ mod test {
 			.unwrap()
 			.into_parts();
 
-		let Json(json_data) = Json::<Data>::from_request(head_parts, body)
+		let Json(json_data) = Json::<Data>::from_request(&mut head_parts, body)
 			.await
-			.1
 			.unwrap();
 
 		assert_eq!(json_data.some_id, Some(1));

@@ -18,13 +18,17 @@ use crate::{
 	routing::RouteSegments,
 };
 
+// ----------
+
+pub use argan_core::{BoxedError, BoxedFuture};
+
 // --------------------------------------------------
 
 #[macro_use]
 pub(crate) mod macros;
 
 pub mod config;
-pub use config::_with_request_extensions_modifier;
+pub use config::{_cookie_key, _with_request_extensions_modifier};
 
 pub(crate) mod timer;
 
@@ -33,6 +37,22 @@ pub(crate) mod test_helpers;
 
 // --------------------------------------------------------------------------------
 // --------------------------------------------------------------------------------
+
+// --------------------------------------------------
+// IntoArray trait
+
+pub trait IntoArray<T, const N: usize> {
+	fn into_array(self) -> [T; N];
+}
+
+impl<T, const N: usize> IntoArray<T, N> for [T; N]
+where
+	T: IntoArray<T, 1>,
+{
+	fn into_array(self) -> [T; N] {
+		self
+	}
+}
 
 // --------------------------------------------------
 // Markers

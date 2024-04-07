@@ -6,11 +6,10 @@ use std::{
 	sync::Arc,
 };
 
-use argan_core::IntoArray;
 use http::{Extensions, Uri};
 
 use crate::{
-	common::{config::ConfigOption, marker::Private, patterns_to_route, Uncloneable},
+	common::{config::ConfigOption, marker::Private, patterns_to_route, IntoArray, Uncloneable},
 	handler::{
 		request_handlers::{
 			handle_mistargeted_request, wrap_mistargeted_request_handler, ImplementedMethods,

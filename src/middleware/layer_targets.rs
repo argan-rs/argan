@@ -1,7 +1,8 @@
-use argan_core::{BoxedFuture, IntoArray};
+use argan_core::BoxedFuture;
 use http::Method;
 
 use crate::{
+	common::IntoArray,
 	handler::{AdaptiveHandler, Handler},
 	middleware::{BoxedLayer, IntoLayer, Layer},
 	resource::Resource,
@@ -13,8 +14,6 @@ use crate::{
 
 mod private {
 	use std::marker::PhantomData;
-
-	use argan_core::IntoArray;
 
 	use super::*;
 

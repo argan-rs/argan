@@ -38,13 +38,10 @@ where
 {
 	type Error = FormError;
 
-	async fn from_request(
-		head_parts: RequestHeadParts,
-		body: B,
-	) -> (RequestHeadParts, Result<Self, Self::Error>) {
-		let result = request_into_form_data(&head_parts, body, SIZE_LIMIT).await;
-
-		(head_parts, result.map(Self))
+	async fn from_request(head_parts: &mut RequestHeadParts, body: B) -> Result<Self, Self::Error> {
+		request_into_form_data(head_parts, body, SIZE_LIMIT)
+			.await
+			.map(Self)
 	}
 }
 
@@ -201,13 +198,8 @@ where
 {
 	type Error = MultipartFormError;
 
-	async fn from_request(
-		head_parts: RequestHeadParts,
-		body: B,
-	) -> (RequestHeadParts, Result<Self, Self::Error>) {
-		let result = request_into_multipart_form(&head_parts, body);
-
-		(head_parts, result)
+	async fn from_request(head_parts: &mut RequestHeadParts, body: B) -> Result<Self, Self::Error> {
+		request_into_multipart_form(head_parts, body)
 	}
 }
 
@@ -503,7 +495,7 @@ mod test {
 
 		// ----------
 
-		let (head_parts, body) = Request::builder()
+		let (mut head_parts, body) = Request::builder()
 			.header(
 				CONTENT_TYPE,
 				HeaderValue::from_static(mime::APPLICATION_WWW_FORM_URLENCODED.as_ref()),
@@ -512,9 +504,8 @@ mod test {
 			.unwrap()
 			.into_parts();
 
-		let Form(mut form_data) = Form::<Data>::from_request(head_parts, body)
+		let Form(mut form_data) = Form::<Data>::from_request(&mut head_parts, body)
 			.await
-			.1
 			.unwrap();
 
 		assert_eq!(form_data.login, login.as_ref());
@@ -528,7 +519,7 @@ mod test {
 
 		// -----
 
-		let (head_parts, body) = Request::builder()
+		let (mut head_parts, body) = Request::builder()
 			.header(
 				CONTENT_TYPE,
 				HeaderValue::from_static(mime::APPLICATION_WWW_FORM_URLENCODED.as_ref()),
@@ -537,9 +528,8 @@ mod test {
 			.unwrap()
 			.into_parts();
 
-		let Form(form_data) = Form::<Data>::from_request(head_parts, body)
+		let Form(form_data) = Form::<Data>::from_request(&mut head_parts, body)
 			.await
-			.1
 			.unwrap();
 
 		assert_eq!(form_data.some_id, Some(1));

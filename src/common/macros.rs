@@ -21,7 +21,7 @@ macro_rules! config_option {
 				$($option_name $(($($tokens),+))?,)+
 			}
 
-			impl$(<$($lt),* $($tp),*>)? argan_core::IntoArray<$config_name$(<$($lt),* $($tp),*>)?, 1>
+			impl$(<$($lt),* $($tp),*>)? crate::common::IntoArray<$config_name$(<$($lt),* $($tp),*>)?, 1>
 			for $config_name$(<$($lt),* $($tp),*>)? {
 				fn into_array(self) -> [$config_name$(<$($lt),* $($tp),*>)?; 1] {
 					[self]
