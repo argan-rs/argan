@@ -10,7 +10,7 @@ use http::{header::InvalidHeaderValue, Extensions, HeaderName, HeaderValue, Meth
 use crate::{
 	common::{marker::Private, Uncloneable},
 	data::extensions::NodeExtensions,
-	middleware::{layer_targets::LayerTarget, BoxedLayer, Layer, ResponseResultFutureBoxer},
+	middleware::{targets::LayerTarget, BoxedLayer, Layer, ResponseResultFutureBoxer},
 	request::{Request, RequestContext},
 	resource::Resource,
 	response::{BoxedErrorResponse, IntoResponse, Response, ResponseError},

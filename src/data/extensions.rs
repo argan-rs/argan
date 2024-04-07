@@ -6,7 +6,7 @@ use http::{Extensions, StatusCode};
 use crate::{
 	request::{FromRequest, Request, RequestHead},
 	response::{
-		BoxedErrorResponse, IntoResponse, IntoResponseHead, IntoResponseResult, Response,
+		BoxedErrorResponse, IntoResponse, IntoResponseHeadParts, IntoResponseResult, Response,
 		ResponseHeadParts,
 	},
 };
@@ -195,7 +195,7 @@ impl<'n> NodeExtensions<'n> {
 
 pub struct ResponseExtension<T>(pub T);
 
-impl<T> IntoResponseHead for ResponseExtension<T>
+impl<T> IntoResponseHeadParts for ResponseExtension<T>
 where
 	T: Clone + Send + Sync + 'static,
 {

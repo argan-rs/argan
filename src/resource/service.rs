@@ -31,7 +31,7 @@ use crate::{
 		},
 		ArcHandler, Args, BoxedHandler, Handler, IntoHandler,
 	},
-	middleware::{layer_targets::LayerTarget, BoxedLayer, Layer, ResponseResultFutureBoxer},
+	middleware::{targets::LayerTarget, BoxedLayer, Layer, ResponseResultFutureBoxer},
 	pattern::{ParamsList, Pattern},
 	request::{Request, RequestContext},
 	response::{BoxedErrorResponse, InfallibleResponseFuture, IntoResponse, Redirect, Response},

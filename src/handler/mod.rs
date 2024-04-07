@@ -17,7 +17,7 @@ use http::{Extensions, Request, StatusCode};
 use tower_service::Service as TowerService;
 
 use crate::{
-	common::{BoxedAny, Uncloneable},
+	common::{config::ConfigOption, BoxedAny, IntoArray, Uncloneable},
 	data::extensions::NodeExtensions,
 	middleware::Layer,
 	request::{RequestContext, RequestHead},
@@ -33,8 +33,11 @@ use futures::{DefaultResponseFuture, ResponseToResultFuture, ResultToResponseFut
 mod impls;
 pub(crate) use impls::*;
 
-mod kind;
-pub use kind::*;
+pub mod kind;
+pub use kind::{
+	_connect, _delete, _get, _head, _method, _mistargeted_request, _options, _patch, _post, _put,
+	_trace, _wildcard_method,
+};
 
 use self::futures::ResponseResultHandlerFuture;
 
@@ -83,10 +86,10 @@ pub trait IntoHandler<Mark, B = Body, Ext: Clone = ()>: Sized {
 
 	fn into_handler(self) -> Self::Handler;
 
-	fn with_error_handler<E: ErrorHandler<<Self::Handler as Handler<B, Ext>>::Error>>(
-		self,
-		error_handler: E,
-	) -> ResponseResultHandler<Self::Handler, E> {
+	fn with_error_handler<E>(self, error_handler: E) -> ResponseResultHandler<Self::Handler, E>
+	where
+		E: ErrorHandler<<Self::Handler as Handler<B, Ext>>::Error>,
+	{
 		ResponseResultHandler::new(self.into_handler(), error_handler)
 	}
 
@@ -94,10 +97,28 @@ pub trait IntoHandler<Mark, B = Body, Ext: Clone = ()>: Sized {
 		ExtendedHandler::new(self.into_handler(), handler_extension)
 	}
 
-	fn with_cookie_key(self, cookie_key: cookie::Key) -> ContextProviderHandler<Self::Handler> {
-		let handler_context = HandlerContext { cookie_key };
+	fn with_context<C, const N: usize>(
+		self,
+		context_elems: C,
+	) -> ContextProviderHandler<Self::Handler>
+	where
+		C: IntoArray<HandlerContextElem, N>,
+	{
+		let context_elems = context_elems.into_array();
 
-		ContextProviderHandler::new(self.into_handler(), handler_context)
+		let mut context = HandlerContext::default();
+
+		for context_elem in context_elems {
+			use HandlerContextElem::*;
+
+			match context_elem {
+				CookieKey(cookie_key) => {
+					context.some_cookie_key = Some(cookie_key);
+				}
+			}
+		}
+
+		ContextProviderHandler::new(self.into_handler(), context)
 	}
 
 	fn wrapped_in<L: Layer<Self::Handler>>(self, layer: L) -> L::Handler {
@@ -219,7 +240,7 @@ pub struct ContextProviderHandler<H> {
 }
 
 impl<H> ContextProviderHandler<H> {
-	pub(crate) fn new(handler: H, context: HandlerContext) -> Self {
+	fn new(handler: H, context: HandlerContext) -> Self {
 		Self {
 			inner: handler,
 			context,
@@ -238,7 +259,9 @@ where
 
 	#[inline]
 	fn handle(&self, mut request: RequestContext<B>, mut args: Args<'_, Ext>) -> Self::Future {
-		let request = request.with_cookie_key(self.context.cookie_key.clone());
+		if let Some(cookie_key) = self.context.some_cookie_key.clone() {
+			request = request.with_cookie_key(cookie_key);
+		}
 
 		self.inner.handle(request, args)
 	}
@@ -247,9 +270,24 @@ where
 // -------------------------
 // HandlerContext
 
-pub(crate) struct HandlerContext {
-	pub(crate) cookie_key: cookie::Key,
+pub mod context {
+	#[derive(Default)]
+	pub(super) struct HandlerContext {
+		pub some_cookie_key: Option<cookie::Key>,
+	}
+
+	option! {
+		pub(super) HandlerContextElem {
+			CookieKey(cookie::Key),
+		}
+	}
+
+	pub fn _cookie_key<K>(cookie_key: cookie::Key) -> HandlerContextElem {
+		HandlerContextElem::CookieKey(cookie_key)
+	}
 }
+
+use context::{HandlerContext, HandlerContextElem};
 
 // --------------------------------------------------
 // HandlerService
@@ -283,7 +321,7 @@ where
 			.extensions_mut()
 			.remove::<Uncloneable<(RoutingState, Args, Option<cookie::Key>)>>()
 			.expect(
-				"Uncloneable<(RoutingState, Args, Option<cookie::Key>)> should be inserted in the Handler implementation for the Service",
+				"request context data should be inserted in the Handler implementation for the Service",
 			)
 			.into_inner()
 			.expect("Uncloneable must always have a valid value");

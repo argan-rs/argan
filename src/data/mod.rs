@@ -28,7 +28,7 @@ use serde_json::error::Category;
 use crate::{
 	handler::Args,
 	request::{FromRequest, Request, RequestHead},
-	response::{IntoResponse, IntoResponseHead, Response, ResponseError, ResponseHeadParts},
+	response::{IntoResponse, IntoResponseHeadParts, Response, ResponseError, ResponseHeadParts},
 	routing::RoutingState,
 	ImplError,
 };

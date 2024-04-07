@@ -26,7 +26,7 @@ pub type BoxedErrorResponse = Box<dyn ErrorResponse + Send + Sync>;
 // --------------------------------------------------
 // IntoResponseHead trait
 
-pub trait IntoResponseHead {
+pub trait IntoResponseHeadParts {
 	fn into_response_head(
 		self,
 		head: ResponseHeadParts,
@@ -75,7 +75,7 @@ where
 // --------------------------------------------------
 // Array of header (name, value) tuples
 
-impl<N, V, const C: usize> IntoResponseHead for [(N, V); C]
+impl<N, V, const C: usize> IntoResponseHeadParts for [(N, V); C]
 where
 	N: TryInto<HeaderName>,
 	N::Error: crate::StdError + Send + Sync + 'static,
