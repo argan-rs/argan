@@ -34,9 +34,9 @@ pub trait FromRequest<B = Body>: Sized {
 	type Error: Into<BoxedErrorResponse>;
 
 	fn from_request(
-		head_parts: RequestHeadParts,
+		head_parts: &mut RequestHeadParts,
 		body: B,
-	) -> impl Future<Output = (RequestHeadParts, Result<Self, Self::Error>)> + Send;
+	) -> impl Future<Output = Result<Self, Self::Error>> + Send;
 }
 
 // --------------------------------------------------------------------------------

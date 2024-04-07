@@ -3,7 +3,7 @@
 
 // --------------------------------------------------
 
-pub use argan_core::{body, StdError};
+pub(crate) use argan_core::{body, StdError};
 pub(crate) use thiserror::Error as ImplError;
 
 // --------------------------------------------------------------------------------

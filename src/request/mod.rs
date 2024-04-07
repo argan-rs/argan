@@ -22,7 +22,7 @@ use serde::{
 };
 
 use crate::{
-	common::{marker::Sealed, Uncloneable},
+	common::{marker::Sealed, IntoArray, Uncloneable, SCOPE_VALIDITY},
 	data::{
 		cookie::{cookies_from_request, CookieJar},
 		form::{
@@ -264,10 +264,13 @@ impl<B> RequestContext<B> {
 	where
 		T: FromRequest<B>,
 	{
-		let (head_parts, body) = self.request.into_parts();
-		let (head_parts, result) = T::from_request(head_parts, body).await;
+		let (mut head_parts, body) = self.request.into_parts();
+		let result = T::from_request(&mut head_parts, body).await;
+		let mut request_head = RequestHead::new(head_parts, self.routing_state);
 
-		let request_head = RequestHead::new(head_parts, self.routing_state);
+		if self.some_cookie_key.is_some() {
+			request_head = request_head.with_cookie_key(self.some_cookie_key.expect(SCOPE_VALIDITY));
+		}
 
 		(request_head, result)
 	}
@@ -506,6 +509,14 @@ impl RequestHead {
 pub enum SizeLimit {
 	Default,
 	Value(usize),
+}
+
+// --------------------------------------------------
+
+impl IntoArray<Method, 1> for Method {
+	fn into_array(self) -> [Method; 1] {
+		[self]
+	}
 }
 
 // --------------------------------------------------------------------------------

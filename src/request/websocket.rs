@@ -160,12 +160,10 @@ impl<B> FromRequest<B> for WebSocketUpgrade {
 	type Error = WebSocketUpgradeError;
 
 	fn from_request(
-		mut head_parts: RequestHeadParts,
+		mut head_parts: &mut RequestHeadParts,
 		_: B,
-	) -> impl Future<Output = (RequestHeadParts, Result<Self, Self::Error>)> {
-		let result = request_into_websocket_upgrade(&mut head_parts);
-
-		ready((head_parts, result))
+	) -> impl Future<Output = Result<Self, Self::Error>> {
+		ready(request_into_websocket_upgrade(head_parts))
 	}
 }
 

@@ -64,13 +64,10 @@ where
 {
 	type Error = TextExtractorError;
 
-	async fn from_request(
-		head_parts: RequestHeadParts,
-		body: B,
-	) -> (RequestHeadParts, Result<Self, Self::Error>) {
-		let result = request_into_text_data(&head_parts, body, SIZE_LIMIT).await;
-
-		(head_parts, result.map(Self))
+	async fn from_request(head_parts: &mut RequestHeadParts, body: B) -> Result<Self, Self::Error> {
+		request_into_text_data(&head_parts, body, SIZE_LIMIT)
+			.await
+			.map(Self)
 	}
 }
 
@@ -128,13 +125,10 @@ where
 {
 	type Error = BinaryExtractorError;
 
-	async fn from_request(
-		head_parts: RequestHeadParts,
-		body: B,
-	) -> (RequestHeadParts, Result<Self, Self::Error>) {
-		let result = request_into_binary_data(&head_parts, body, SIZE_LIMIT).await;
-
-		(head_parts, result.map(Self))
+	async fn from_request(head_parts: &mut RequestHeadParts, body: B) -> Result<Self, Self::Error> {
+		request_into_binary_data(head_parts, body, SIZE_LIMIT)
+			.await
+			.map(Self)
 	}
 }
 
@@ -187,13 +181,8 @@ where
 {
 	type Error = FullBodyExtractorError;
 
-	async fn from_request(
-		head_parts: RequestHeadParts,
-		body: B,
-	) -> (RequestHeadParts, Result<Self, Self::Error>) {
-		let result = request_into_full_body(body, SIZE_LIMIT).await;
-
-		(head_parts, result.map(Self))
+	async fn from_request(head_parts: &mut RequestHeadParts, body: B) -> Result<Self, Self::Error> {
+		request_into_full_body(body, SIZE_LIMIT).await.map(Self)
 	}
 }
 
@@ -257,7 +246,7 @@ mod test {
 	async fn text_extractor() {
 		let test_body = "Hello, World!".to_string();
 
-		let (head_parts, body) = Request::builder()
+		let (mut head_parts, body) = Request::builder()
 			.header(
 				CONTENT_TYPE,
 				HeaderValue::from_static(mime::TEXT_PLAIN_UTF_8.as_ref()),
@@ -266,20 +255,18 @@ mod test {
 			.unwrap()
 			.into_parts();
 
-		let Text(data) = Text::<1024>::from_request(head_parts, body)
+		let Text(data) = Text::<1024>::from_request(&mut head_parts, body)
 			.await
-			.1
 			.unwrap();
 
 		assert_eq!(data, test_body.as_ref());
 
 		// ----------
 
-		let (head_parts, body) = Request::new(test_body.clone()).into_parts();
+		let (mut head_parts, body) = Request::new(test_body.clone()).into_parts();
 
-		let error = Text::<1024>::from_request(head_parts, body)
+		let error = Text::<1024>::from_request(&mut head_parts, body)
 			.await
-			.1
 			.unwrap_err();
 
 		match error {
@@ -289,7 +276,7 @@ mod test {
 
 		// ----------
 
-		let (head_parts, body) = Request::builder()
+		let (mut head_parts, body) = Request::builder()
 			.header(
 				CONTENT_TYPE,
 				HeaderValue::from_static(mime::OCTET_STREAM.as_ref()),
@@ -298,9 +285,8 @@ mod test {
 			.unwrap()
 			.into_parts();
 
-		let error = Text::<1024>::from_request(head_parts, body)
+		let error = Text::<1024>::from_request(&mut head_parts, body)
 			.await
-			.1
 			.unwrap_err();
 
 		match error {
@@ -310,7 +296,7 @@ mod test {
 
 		// ----------
 
-		let (head_parts, body) = Request::builder()
+		let (mut head_parts, body) = Request::builder()
 			.header(
 				CONTENT_TYPE,
 				HeaderValue::from_static(mime::TEXT_PLAIN_UTF_8.as_ref()),
@@ -319,9 +305,8 @@ mod test {
 			.unwrap()
 			.into_parts();
 
-		let error = Text::<8>::from_request(head_parts, body)
+		let error = Text::<8>::from_request(&mut head_parts, body)
 			.await
-			.1
 			.unwrap_err();
 
 		match error {
@@ -335,7 +320,7 @@ mod test {
 		let test_body = &b"Hello, World!"[..];
 		let full_body = Full::new(test_body);
 
-		let (head_parts, body) = Request::builder()
+		let (mut head_parts, body) = Request::builder()
 			.header(
 				CONTENT_TYPE,
 				HeaderValue::from_static(mime::APPLICATION_OCTET_STREAM.as_ref()),
@@ -344,19 +329,18 @@ mod test {
 			.unwrap()
 			.into_parts();
 
-		let Binary(data) = Binary::<1024>::from_request(head_parts, body)
+		let Binary(data) = Binary::<1024>::from_request(&mut head_parts, body)
 			.await
-			.1
 			.unwrap();
+
 		assert_eq!(&data, test_body);
 
 		// ----------
 
-		let (head_parts, body) = Request::new(full_body.clone()).into_parts();
+		let (mut head_parts, body) = Request::new(full_body.clone()).into_parts();
 
-		let error = Binary::<1024>::from_request(head_parts, body)
+		let error = Binary::<1024>::from_request(&mut head_parts, body)
 			.await
-			.1
 			.unwrap_err();
 
 		match error {
@@ -367,7 +351,7 @@ mod test {
 		// ----------
 
 		let full_body = Full::new(test_body);
-		let (head_parts, body) = Request::builder()
+		let (mut head_parts, body) = Request::builder()
 			.header(
 				CONTENT_TYPE,
 				HeaderValue::from_static(mime::TEXT_PLAIN.as_ref()),
@@ -376,9 +360,8 @@ mod test {
 			.unwrap()
 			.into_parts();
 
-		let error = Binary::<1024>::from_request(head_parts, body)
+		let error = Binary::<1024>::from_request(&mut head_parts, body)
 			.await
-			.1
 			.unwrap_err();
 
 		match error {
@@ -389,7 +372,7 @@ mod test {
 		// ----------
 
 		let full_body = Full::new(test_body);
-		let (head_parts, body) = Request::builder()
+		let (mut head_parts, body) = Request::builder()
 			.header(
 				CONTENT_TYPE,
 				HeaderValue::from_static(mime::APPLICATION_OCTET_STREAM.as_ref()),
@@ -398,9 +381,8 @@ mod test {
 			.unwrap()
 			.into_parts();
 
-		let error = Binary::<8>::from_request(head_parts, body)
+		let error = Binary::<8>::from_request(&mut head_parts, body)
 			.await
-			.1
 			.unwrap_err();
 
 		match error {
@@ -414,7 +396,7 @@ mod test {
 		let test_body = &b"Hello, World!"[..];
 		let full_body = Full::new(test_body);
 
-		let (head_parts, body) = Request::builder()
+		let (mut head_parts, body) = Request::builder()
 			.header(
 				CONTENT_TYPE,
 				HeaderValue::from_static(mime::TEXT_PLAIN_UTF_8.as_ref()),
@@ -423,15 +405,15 @@ mod test {
 			.unwrap()
 			.into_parts();
 
-		let FullBody(data) = FullBody::<1024>::from_request(head_parts, body)
+		let FullBody(data) = FullBody::<1024>::from_request(&mut head_parts, body)
 			.await
-			.1
 			.unwrap();
+
 		assert_eq!(&data, test_body);
 
 		// ----------
 
-		let (head_parts, body) = Request::builder()
+		let (mut head_parts, body) = Request::builder()
 			.header(
 				CONTENT_TYPE,
 				HeaderValue::from_static(mime::APPLICATION_OCTET_STREAM.as_ref()),
@@ -440,26 +422,26 @@ mod test {
 			.unwrap()
 			.into_parts();
 
-		let FullBody(data) = FullBody::<1024>::from_request(head_parts, body)
+		let FullBody(data) = FullBody::<1024>::from_request(&mut head_parts, body)
 			.await
-			.1
 			.unwrap();
+
 		assert_eq!(&data, test_body);
 
 		// ----------
 
-		let (head_parts, body) = Request::new(full_body.clone()).into_parts();
+		let (mut head_parts, body) = Request::new(full_body.clone()).into_parts();
 
-		let FullBody(data) = FullBody::<1024>::from_request(head_parts, body)
+		let FullBody(data) = FullBody::<1024>::from_request(&mut head_parts, body)
 			.await
-			.1
 			.unwrap();
+
 		assert_eq!(&data, test_body);
 
 		// ----------
 
 		let full_body = Full::new(test_body);
-		let (head_parts, body) = Request::builder()
+		let (mut head_parts, body) = Request::builder()
 			.header(
 				CONTENT_TYPE,
 				HeaderValue::from_static(mime::APPLICATION_OCTET_STREAM.as_ref()),
@@ -468,9 +450,8 @@ mod test {
 			.unwrap()
 			.into_parts();
 
-		let error = FullBody::<8>::from_request(head_parts, body)
+		let error = FullBody::<8>::from_request(&mut head_parts, body)
 			.await
-			.1
 			.unwrap_err();
 
 		match error {
@@ -480,11 +461,10 @@ mod test {
 
 		// ----------
 
-		let (head_parts, body) = Request::new(full_body.clone()).into_parts();
+		let (mut head_parts, body) = Request::new(full_body.clone()).into_parts();
 
-		let error = FullBody::<8>::from_request(head_parts, body)
+		let error = FullBody::<8>::from_request(&mut head_parts, body)
 			.await
-			.1
 			.unwrap_err();
 
 		match error {

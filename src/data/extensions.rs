@@ -21,21 +21,6 @@ use super::*;
 
 pub struct RequestExtension<'r, T>(pub &'r T);
 
-// impl<T> FromMutRequestHead for RequestExtension<T>
-// where
-// 	T: Clone + Send + Sync + 'static,
-// {
-// 	type Error = ExtensionExtractorError<T>;
-//
-// 	async fn from_request_head(head: &mut RequestHead) -> Result<Self, Self::Error> {
-// 		head
-// 			.extensions
-// 			.get::<T>()
-// 			.map(|value| Self(value.clone()))
-// 			.ok_or(ExtensionExtractorError(PhantomData))
-// 	}
-// }
-
 impl<'r, B, T> FromRequestRef<'r, B> for RequestExtension<'r, T>
 where
 	B: Sync,

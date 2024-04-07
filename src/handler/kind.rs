@@ -14,7 +14,7 @@ use super::{BoxedHandler, FinalHandler, Handler, IntoHandler};
 // --------------------------------------------------------------------------------
 
 mod private {
-	use argan_core::IntoArray;
+	use crate::common::IntoArray;
 
 	use super::*;
 

@@ -13,7 +13,7 @@ use std::{
 
 use argan_core::{
 	body::{Body, Frame, HttpBody},
-	BoxedError, IntoArray,
+	BoxedError,
 };
 use bytes::{BufMut, Bytes, BytesMut};
 use flate2::{read::GzEncoder, Compression};
@@ -29,7 +29,7 @@ use percent_encoding::{percent_encode, NON_ALPHANUMERIC};
 use rand::{rngs::SmallRng, Rng, SeedableRng};
 
 use crate::{
-	common::SCOPE_VALIDITY,
+	common::{IntoArray, SCOPE_VALIDITY},
 	response::{IntoResponse, Response},
 };
 

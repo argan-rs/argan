@@ -26,22 +26,6 @@ pub type BoxedFuture<T> = Pin<Box<dyn Future<Output = T> + Send>>;
 // --------------------------------------------------------------------------------
 
 // --------------------------------------------------
-// IntoArray trait
-
-pub trait IntoArray<T, const N: usize> {
-	fn into_array(self) -> [T; N];
-}
-
-impl<T, const N: usize> IntoArray<T, N> for [T; N]
-where
-	T: IntoArray<T, 1>,
-{
-	fn into_array(self) -> [T; N] {
-		self
-	}
-}
-
-// --------------------------------------------------
 // Marker
 
 pub(crate) mod marker {
