@@ -15,6 +15,7 @@ use super::{BoxedErrorResponse, IntoResponse, Response};
 // --------------------------------------------------
 // ResponseError
 
+/// Error response type that implements both [Error][std::error::Error] and [IntoResponse] traits.
 #[derive(Debug)]
 pub struct ResponseError {
 	status_code: StatusCode,
@@ -92,6 +93,7 @@ impl IntoResponse for ResponseError {
 // --------------------------------------------------
 // ErrorResponse
 
+/// Implemented by error types that can be converted into the [Response] type.
 pub trait ErrorResponse: StdError + IntoResponse + 'static {
 	#[doc(hidden)]
 	fn concrete_type_id(&self, _: marker::Private) -> TypeId {
@@ -324,3 +326,5 @@ mod test {
 		);
 	}
 }
+
+// --------------------------------------------------------------------------------

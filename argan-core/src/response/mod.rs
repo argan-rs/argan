@@ -1,3 +1,7 @@
+//! Response types and conversion traits into them.
+
+// ----------
+
 use http::{HeaderName, HeaderValue, StatusCode};
 
 use crate::body::Body;
@@ -26,6 +30,8 @@ pub type BoxedErrorResponse = Box<dyn ErrorResponse + Send + Sync>;
 // --------------------------------------------------
 // IntoResponseHead trait
 
+/// Implemented by types that form or can be converted into a type that forms the
+/// [ResponseHeadParts].
 pub trait IntoResponseHeadParts {
 	fn into_response_head(
 		self,
@@ -36,6 +42,7 @@ pub trait IntoResponseHeadParts {
 // --------------------------------------------------
 // IntoResponse trait
 
+/// Implemented by types that can be converted into the [Response] type.
 pub trait IntoResponse {
 	fn into_response(self) -> Response;
 }
@@ -49,6 +56,7 @@ impl IntoResponse for Response {
 // --------------------------------------------------
 // IntoResponseResult trait
 
+/// Implemented by types or error types that can be converted into the [Response] type.
 pub trait IntoResponseResult {
 	fn into_response_result(self) -> Result<Response, BoxedErrorResponse>;
 }
@@ -117,9 +125,7 @@ where
 }
 
 #[derive(Debug, crate::ImplError)]
-pub enum HeaderError<NE, VE> {
-	#[error("missing {0} header")]
-	MissingHeader(HeaderName),
+enum HeaderError<NE, VE> {
 	#[error(transparent)]
 	InvalidName(NE),
 	#[error(transparent)]
@@ -127,10 +133,6 @@ pub enum HeaderError<NE, VE> {
 }
 
 impl<NE, VE> HeaderError<NE, VE> {
-	// pub(crate) fn from_missing_header(header_name: HeaderName) -> Self {
-	// 	Self::MissingHeader(header_name)
-	// }
-
 	pub(crate) fn from_name_error(name_error: NE) -> Self {
 		Self::InvalidName(name_error)
 	}
@@ -145,3 +147,5 @@ impl<NE, VE> IntoResponse for HeaderError<NE, VE> {
 		StatusCode::INTERNAL_SERVER_ERROR.into_response()
 	}
 }
+
+// --------------------------------------------------------------------------------
