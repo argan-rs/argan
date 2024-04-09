@@ -204,7 +204,10 @@ macro_rules! impl_into_response_for_tuples {
 			$($($t: IntoResponseHeadParts,)*)?
 			$tl: IntoResponseHeadParts,
 		{
-			fn into_response_head(self, mut head: ResponseHeadParts) -> Result<ResponseHeadParts, BoxedErrorResponse> {
+			fn into_response_head(
+				self,
+				mut head: ResponseHeadParts,
+			) -> Result<ResponseHeadParts, BoxedErrorResponse> {
 				let ($t1, $($($t,)*)? $tl) = self;
 
 				head = $t1.into_response_head(head)?;

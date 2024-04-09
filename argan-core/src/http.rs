@@ -1,3 +1,5 @@
+//! Types related to the HTTP protocol.
+
 // ----------
 
 pub use http::{header, method, status, uri, version};

@@ -1,15 +1,19 @@
+//! Types and traits for request and response bodies.
+
+// ----------
+
 use std::{
 	pin::{pin, Pin},
 	task::{Context, Poll},
 };
 
-use bytes::Bytes;
 use http_body_util::BodyExt;
 
 use crate::BoxedError;
 
 // ----------
 
+pub use bytes::*;
 pub use http_body::Body as HttpBody;
 pub use http_body::{Frame, SizeHint};
 
@@ -20,6 +24,7 @@ type BoxedBody = http_body_util::combinators::BoxBody<Bytes, BoxedError>;
 
 // --------------------------------------------------
 
+/// Body type used in requests and responses.
 #[derive(Debug, Default)]
 pub struct Body(BoxedBody);
 

@@ -1,3 +1,7 @@
+//! Request types and conversion trait for data extractors.
+
+// ----------
+
 use std::future::{ready, Future};
 
 use crate::{body::Body, response::BoxedErrorResponse};
@@ -19,17 +23,21 @@ pub type RequestHeadParts = http::request::Parts;
 // --------------------------------------------------
 // FromRequestRef
 
-pub trait FromRequestRef<'r, B>: Sized {
-	type Error: Into<BoxedErrorResponse>;
-
-	fn from_request_ref(
-		request: &'r Request<B>,
-	) -> impl Future<Output = Result<Self, Self::Error>> + Send;
-}
+// pub trait FromRequestRef<'r, B>: Sized {
+// 	type Error: Into<BoxedErrorResponse>;
+//
+// 	fn from_request_ref(
+// 		request: &'r Request<B>,
+// 	) -> impl Future<Output = Result<Self, Self::Error>> + Send;
+// }
 
 // --------------------------------------------------
 // FromRequest<B>
 
+/// Implemented by extractor types.
+///
+/// Implementors of the `FromRequest` consume the request body and mostly convert it
+/// to some form of data.
 pub trait FromRequest<B = Body>: Sized {
 	type Error: Into<BoxedErrorResponse>;
 
