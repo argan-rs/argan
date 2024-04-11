@@ -3,6 +3,10 @@ use super::{IntoLayer, Layer};
 // --------------------------------------------------------------------------------
 // --------------------------------------------------------------------------------
 
+// --------------------------------------------------
+// LayerStack
+
+#[derive(Clone)]
 pub struct LayerStack<Outer, Inner>(Outer, Inner);
 
 impl<Outer, Inner, H> Layer<H> for LayerStack<Outer, Inner>
@@ -16,8 +20,6 @@ where
 		self.0.wrap(self.1.wrap(handler))
 	}
 }
-
-// --------------------------------------------------
 
 macro_rules! stack_layer_type {
 	($l1:ident, $($l:ident,)+ ($ll:ident)) => {

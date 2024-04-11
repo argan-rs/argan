@@ -5,11 +5,18 @@ use std::{
 	task::{Context, Poll},
 };
 
-use argan_core::response::IntoResponse;
+use argan_core::{
+	body::{Body, Bytes, HttpBody},
+	response::{ErrorResponse, IntoResponse, ResponseError},
+	BoxedError,
+};
 use futures_util::FutureExt;
 use pin_project::pin_project;
 
-use crate::response::{BoxedErrorResponse, Response};
+use crate::{
+	response::{BoxedErrorResponse, Response},
+	StdError,
+};
 
 use super::ErrorHandler;
 
@@ -61,6 +68,43 @@ where
 	#[inline]
 	fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
 		self.project().0.poll(cx).map(|output| Ok(output))
+	}
+}
+
+// --------------------------------------------------------------------------------
+
+#[pin_project]
+pub struct ResponseBodyAdapterFuture<Fut>(#[pin] Fut);
+
+impl<Fut, B, E> Future for ResponseBodyAdapterFuture<Fut>
+where
+	Fut: Future<Output = Result<Response<B>, E>>,
+	B: HttpBody<Data = Bytes> + Send + Sync + 'static,
+	B::Error: Into<BoxedError>,
+	E: Into<BoxedErrorResponse>,
+{
+	type Output = Result<Response, BoxedErrorResponse>;
+
+	fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+		match self.project().0.poll(cx) {
+			Poll::Ready(result) => Poll::Ready(
+				result
+					.map(|response| {
+						let (head_parts, body) = response.into_parts();
+						let body = Body::new(body);
+
+						Response::from_parts(head_parts, body)
+					})
+					.map_err(Into::into),
+			),
+			Poll::Pending => Poll::Pending,
+		}
+	}
+}
+
+impl<Fut> From<Fut> for ResponseBodyAdapterFuture<Fut> {
+	fn from(inner: Fut) -> Self {
+		Self(inner)
 	}
 }
 
