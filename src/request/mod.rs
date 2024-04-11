@@ -253,12 +253,12 @@ impl<B> RequestContext<B> {
 		request_into_websocket_upgrade(&mut head)
 	}
 
-	pub async fn extract<'r, T>(&'r self) -> Result<T, T::Error>
-	where
-		T: FromRequestRef<'r, B>,
-	{
-		T::from_request_ref(&self.request).await
-	}
+	// pub async fn extract<'r, T>(&'r self) -> Result<T, T::Error>
+	// where
+	// 	T: FromRequestRef<'r, B>,
+	// {
+	// 	T::from_request_ref(&self.request).await
+	// }
 
 	pub async fn extract_into<T>(self) -> (RequestHead, Result<T, T::Error>)
 	where

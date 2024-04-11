@@ -137,24 +137,24 @@ pub struct QueryParams<T>(pub T);
 // 	}
 // }
 
-impl<'r, B, T> FromRequestRef<'r, B> for QueryParams<T>
-where
-	B: Sync,
-	T: Deserialize<'r> + Send + 'r,
-{
-	type Error = QueryParamsError;
-
-	async fn from_request_ref(request: &'r Request<B>) -> Result<Self, Self::Error> {
-		let query_string = request
-			.uri()
-			.query()
-			.ok_or(QueryParamsError::NoDataIsAvailable)?;
-
-		serde_urlencoded::from_str::<T>(query_string)
-			.map(|value| Self(value))
-			.map_err(|error| QueryParamsError::InvalidData(error.into()))
-	}
-}
+// impl<'r, B, T> FromRequestRef<'r, B> for QueryParams<T>
+// where
+// 	B: Sync,
+// 	T: Deserialize<'r> + Send + 'r,
+// {
+// 	type Error = QueryParamsError;
+//
+// 	async fn from_request_ref(request: &'r Request<B>) -> Result<Self, Self::Error> {
+// 		let query_string = request
+// 			.uri()
+// 			.query()
+// 			.ok_or(QueryParamsError::NoDataIsAvailable)?;
+//
+// 		serde_urlencoded::from_str::<T>(query_string)
+// 			.map(|value| Self(value))
+// 			.map_err(|error| QueryParamsError::InvalidData(error.into()))
+// 	}
+// }
 
 impl<B, T> FromRequest<B> for QueryParams<T>
 where

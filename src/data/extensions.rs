@@ -1,6 +1,5 @@
 use std::{any::type_name, convert::Infallible, fmt::Debug, fmt::Display, marker::PhantomData};
 
-use argan_core::request::FromRequestRef;
 use http::{Extensions, StatusCode};
 
 use crate::{
@@ -21,21 +20,21 @@ use super::*;
 
 pub struct RequestExtension<'r, T>(pub &'r T);
 
-impl<'r, B, T> FromRequestRef<'r, B> for RequestExtension<'r, T>
-where
-	B: Sync,
-	T: Clone + Send + Sync + 'static,
-{
-	type Error = ExtensionExtractorError<T>;
-
-	async fn from_request_ref(request: &'r Request<B>) -> Result<Self, Self::Error> {
-		request
-			.extensions()
-			.get::<T>()
-			.map(|value| Self(value))
-			.ok_or(ExtensionExtractorError(PhantomData))
-	}
-}
+// impl<'r, B, T> FromRequestRef<'r, B> for RequestExtension<'r, T>
+// where
+// 	B: Sync,
+// 	T: Clone + Send + Sync + 'static,
+// {
+// 	type Error = ExtensionExtractorError<T>;
+//
+// 	async fn from_request_ref(request: &'r Request<B>) -> Result<Self, Self::Error> {
+// 		request
+// 			.extensions()
+// 			.get::<T>()
+// 			.map(|value| Self(value))
+// 			.ok_or(ExtensionExtractorError(PhantomData))
+// 	}
+// }
 
 // impl<B, T> FromRequest<B> for RequestExtension<T>
 // where
