@@ -707,14 +707,16 @@ mod test {
 	use std::future::Ready;
 
 	use argan_core::response::IntoResponseResult;
+	use http::header::{ACCEPT_ENCODING, CONTENT_ENCODING};
 	use http_body_util::Empty;
+	use tower_http::compression::CompressionLayer;
 
 	use crate::{
 		common::{
 			config::_with_request_extensions_modifier,
 			test_helpers::{new_root, test_service, Case, DataKind, Rx_1_1, Rx_2_0, Wl_3_0},
 		},
-		handler::{DummyHandler, _get},
+		handler::{DummyHandler, _get, _post, futures::DefaultResponseFuture},
 		middleware::{IntoResponseResultAdapter, _request_handler, _request_passer, _request_receiver},
 		request::RequestHead,
 		resource::Resource,
@@ -918,11 +920,47 @@ mod test {
 	#[tokio::test]
 	async fn resource_handler_layer() {
 		let mut root = Resource::new("/");
-		root.subresource_mut("/st_0_0/st_1_0").set_handler_for(_get(
-			(|_: RequestHead, _: Args<'_, usize>| async { "Hello from Handler!" })
-				.with_extension(42)
-				.wrapped_in(Middleware),
-		));
+		root.subresource_mut("/st_0_0/st_1_0").set_handler_for([
+			_get((|| async { "Hello from Handler!" }).wrapped_in(CompressionLayer::new())),
+			_post(
+				(|_: RequestHead, _: Args<'_, usize>| async { "Hello from Handler!" })
+					.with_extension(42)
+					.wrapped_in(Middleware),
+			),
+		]);
+
+		// ----------
+
+		let service = root.into_service();
+
+		let request = Request::post("/st_0_0/st_1_0")
+			.body(Empty::default())
+			.unwrap();
+
+		let response = service.call(request).await.unwrap();
+		assert_eq!(response.status(), StatusCode::OK);
+
+		let body = response.collect().await.unwrap().to_bytes();
+		assert_eq!(body, "Hello from Middleware!");
+
+		// ----------
+
+		let request = Request::get("/st_0_0/st_1_0")
+			.header(ACCEPT_ENCODING, "gzip")
+			.body(Empty::default())
+			.unwrap();
+
+		let response = service.call(request).await.unwrap();
+		assert_eq!(response.status(), StatusCode::OK);
+		assert_eq!(response.headers()[CONTENT_ENCODING.as_str()], "gzip");
+	}
+
+	#[tokio::test]
+	async fn resource_request_handler_layer() {
+		let mut root = Resource::new("/");
+		let mut st_1_0 = root.subresource_mut("/st_0_0/st_1_0");
+		st_1_0.set_handler_for(_get(|| async { "Hello from Handler!" }));
+		st_1_0.add_layer_to(_request_handler(Middleware));
 
 		// ----------
 
@@ -941,18 +979,24 @@ mod test {
 	}
 
 	#[tokio::test]
-	async fn resource_request_handler_layer() {
+	async fn resource_request_handler_tower_layer() {
 		let mut root = Resource::new("/");
+
 		let mut st_1_0 = root.subresource_mut("/st_0_0/st_1_0");
 		st_1_0.set_handler_for(_get(|| async { "Hello from Handler!" }));
-		st_1_0.add_layer_to(_request_handler(Middleware));
+		st_1_0.add_layer_to(_request_handler((CompressionLayer::new(), Middleware)));
+
+		let mut st_1_1 = root.subresource_mut("/st_0_0/st_1_1");
+		st_1_1.set_handler_for(_get(|| async { "Hello from Handler!" }));
+		st_1_1.add_layer_to(_request_handler((Middleware, CompressionLayer::new())));
 
 		// ----------
 
 		let service = root.into_service();
 
 		let request = Request::builder()
-			.uri("/st_0_0/st_1_0")
+			.uri("/st_0_0/st_1_1")
+			.header(ACCEPT_ENCODING, "gzip")
 			.body(Empty::default())
 			.unwrap();
 

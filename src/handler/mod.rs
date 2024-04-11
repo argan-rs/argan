@@ -10,8 +10,11 @@ use std::{
 	task::{Context, Poll},
 };
 
-use argan_core::{body::Body, BoxedFuture};
-use bytes::Bytes;
+use argan_core::{
+	body::{Body, Bytes, HttpBody},
+	response::ResponseError,
+	BoxedError, BoxedFuture,
+};
 use futures_util::FutureExt;
 use http::{Extensions, Request, StatusCode};
 use tower_service::Service as TowerService;
@@ -23,6 +26,7 @@ use crate::{
 	request::{RequestContext, RequestHead},
 	response::{BoxedErrorResponse, IntoResponse, Response},
 	routing::RoutingState,
+	StdError,
 };
 
 // --------------------------------------------------
@@ -39,7 +43,7 @@ pub use kind::{
 	_trace, _wildcard_method,
 };
 
-use self::futures::ResponseResultHandlerFuture;
+use self::futures::{ResponseBodyAdapterFuture, ResponseResultHandlerFuture};
 
 pub(crate) mod request_handlers;
 
@@ -56,25 +60,29 @@ pub trait Handler<B = Body, Ext: Clone = ()> {
 
 // -------------------------
 
-impl<S, B> Handler<B> for S
+impl<S, B> Handler for S
 where
-	S: TowerService<Request<B>> + Clone,
-	S::Response: IntoResponse,
+	S: TowerService<Request<Body>, Response = Response<B>> + Clone,
 	S::Error: Into<BoxedErrorResponse>,
+	S::Future: Send + 'static,
+	B: HttpBody<Data = Bytes> + Send + Sync + 'static,
+	B::Error: Into<BoxedError>,
 {
-	type Response = S::Response;
-	type Error = S::Error;
-	type Future = S::Future;
+	type Response = Response;
+	type Error = BoxedErrorResponse;
+	type Future = BoxedFuture<Result<Response, BoxedErrorResponse>>;
 
-	fn handle(&self, mut request: RequestContext<B>, mut args: Args) -> Self::Future {
+	fn handle(&self, mut request: RequestContext, mut args: Args) -> Self::Future {
 		let (mut request, routing_state, some_cookie_key) = request.into_parts();
 		let args = args.to_owned();
 
 		request
 			.extensions_mut()
-			.insert(Uncloneable::from((routing_state, args, some_cookie_key)));
+			.insert(Uncloneable::from((routing_state, some_cookie_key, args)));
 
-		self.clone().call(request)
+		let future_response_result = self.clone().call(request);
+
+		Box::pin(ResponseBodyAdapterFuture::from(future_response_result))
 	}
 }
 
@@ -292,6 +300,7 @@ use context::{HandlerContext, HandlerContextElem};
 // --------------------------------------------------
 // HandlerService
 
+#[derive(Clone)]
 pub struct HandlerService<H> {
 	handler: H,
 }
@@ -317,9 +326,9 @@ where
 
 	#[inline]
 	fn call(&mut self, mut request: Request<B>) -> Self::Future {
-		let (routing_state, args, some_cookie_key) = request
+		let (routing_state, some_cookie_key, args) = request
 			.extensions_mut()
-			.remove::<Uncloneable<(RoutingState, Args, Option<cookie::Key>)>>()
+			.remove::<Uncloneable<(RoutingState, Option<cookie::Key>, Args)>>()
 			.expect(
 				"request context data should be inserted in the Handler implementation for the Service",
 			)

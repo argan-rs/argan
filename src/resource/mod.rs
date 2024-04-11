@@ -1203,21 +1203,20 @@ impl Resource {
 	/// passer, and method and other kind of handlers.
 	///
 	/// Middlewares are applied when the resource is baing converted into a service.
-	/// 
+	///
 	/// ```
-	/// use std::future::{Future, ready};
-	///
-	/// // use tower_http::compression::CompressionLayer;
-	/// use http::method::Method;
-	///
-	/// use argan::{
-	///		handler::{Handler, Args},
-	///		middleware::{Layer, _method_handler, _mistargeted_request_handler},
-	///		resource::Resource,
-	///		request::RequestContext,
-	///		response::{Response, IntoResponse, BoxedErrorResponse},
-	///		common::BoxedFuture,
-	///	};
+	/// // use declarations
+	/// # use std::future::{Future, ready};
+	/// # use tower_http::compression::CompressionLayer;
+	/// # use http::method::Method;
+	/// # use argan::{
+	///	# 	handler::{Handler, Args, _get},
+	///	# 	middleware::{Layer, _method_handler, _mistargeted_request_handler},
+	///	# 	resource::Resource,
+	///	# 	request::RequestContext,
+	///	# 	response::{Response, IntoResponse, BoxedErrorResponse},
+	///	# 	common::BoxedFuture,
+	///	# };
 	///
 	/// #[derive(Clone)]
 	/// struct MiddlewareLayer;
@@ -1251,10 +1250,12 @@ impl Resource {
 	///
 	///	let mut resource = Resource::new("/resource");
 	///
-	///	resource.add_layer_to(
+	///	resource.add_layer_to([
 	///		_mistargeted_request_handler(MiddlewareLayer),
-	///		// _method_handler(Method::GET, CompressionLayer::new()),
-	///	);
+	///		_method_handler(Method::GET, CompressionLayer::new()),
+	///	]);
+	///
+	///	resource.set_handler_for(_get(|| async {}));
 	/// ```
 	pub fn add_layer_to<L, const N: usize>(&mut self, layer_targets: L)
 	where
@@ -1264,7 +1265,7 @@ impl Resource {
 	}
 
 	/// Configures the resource with the given options.
-	/// 
+	///
 	/// ```
 	/// use argan::{Resource, common::config::_with_cookie_key, data::cookie};
 	///
