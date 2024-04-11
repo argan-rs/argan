@@ -9,7 +9,10 @@ use std::{
 use http::{Extensions, Uri};
 
 use crate::{
-	common::{config::ConfigOption, marker::Private, patterns_to_route, IntoArray, Uncloneable},
+	common::{
+		config::ConfigOption, marker::Private, patterns_to_route, IntoArray, Uncloneable,
+		SCOPE_VALIDITY,
+	},
 	handler::{
 		kind::HandlerKind,
 		request_handlers::{
@@ -47,6 +50,8 @@ pub use static_files::StaticFiles;
 // --------------------------------------------------------------------------------
 // --------------------------------------------------------------------------------
 
+/// Representation of the web resource that corresponds to the path segment component
+/// of the URI.
 pub struct Resource {
 	pattern: Pattern,
 	prefix_segment_patterns: Vec<Pattern>,
@@ -69,6 +74,23 @@ pub struct Resource {
 // -------------------------
 
 impl Resource {
+	/// Creates a new `Resource` that corresponds to the last path segment component
+	/// of the given URI pattern.
+	///
+	/// Other components of the URI pattern (host and prefix path segments) will be
+	/// used to find the resource's place in the resource tree when it's being added
+	/// to another resource.
+	///
+	/// ```
+	/// use argan::Resource;
+	///
+	///	let mut root = Resource::new("/");
+	///	let resource_2 = Resource::new("/resource_1/resource_2");
+	///
+	///	// When we add `resource_2` to the root, it won't be a direct child of the root.
+	///	// Instead, it will be added under `/resource_1`.
+	///	root.add_subresource(resource_2);
+	/// ```
 	pub fn new<P>(uri_pattern: P) -> Resource
 	where
 		P: AsRef<str>,
@@ -163,11 +185,25 @@ impl Resource {
 
 	// -------------------------
 
+	/// Retuns true if the given host pattern is the one the resource was created with.
+	///
+	/// ```
+	/// use argan::Resource;
+	///
+	/// let resource_2 = Resource::new("http://example.com/resource_1/resource_2");
+	/// assert!(resource_2.host_is("http://example.com"));
+	/// assert!(resource_2.host_is("example.com"));
+	/// ```
 	#[inline(always)]
 	pub fn host_is<P: AsRef<str>>(&self, host_pattern: P) -> bool {
-		let host_pattern = Pattern::parse(host_pattern.as_ref());
+		let host_pattern_str = host_pattern.as_ref();
 
-		dbg!(self.some_host_pattern.is_some());
+		let host_pattern_str = host_pattern_str
+			.strip_prefix("https://")
+			.or_else(|| host_pattern_str.strip_prefix("http://"))
+			.unwrap_or(host_pattern_str);
+
+		let host_pattern = Pattern::parse(host_pattern_str);
 
 		self
 			.some_host_pattern
@@ -179,12 +215,33 @@ impl Resource {
 			})
 	}
 
+	/// Retuns true if the given pattern is the resource's pattern.
+	///
+	/// ```
+	/// use argan::Resource;
+	///
+	/// let resource_2 = Resource::new("http://example.com/resource_1/resource_2");
+	/// assert!(resource_2.is("/resource_2"));
+	/// assert!(resource_2.is("resource_2"));
+	/// ```
 	#[inline(always)]
 	pub fn is<P: AsRef<str>>(&self, pattern: P) -> bool {
-		let pattern = Pattern::parse(pattern.as_ref());
+		let pattern_str = pattern.as_ref();
+
+		let pattern_str = if pattern_str != "/" {
+			let pattern_str = pattern_str.strip_prefix('/').unwrap_or(pattern_str);
+
+			pattern_str.strip_suffix('/').unwrap_or(pattern_str)
+		} else {
+			pattern_str
+		};
+
+		let pattern = Pattern::parse(pattern_str);
 
 		self.pattern.compare(&pattern) == Similarity::Same
 	}
+
+	// -------------------------
 
 	#[inline(always)]
 	pub(crate) fn pattern_string(&self) -> String {
@@ -249,6 +306,63 @@ impl Resource {
 
 	// -------------------------
 
+	/// Adds the new resource to the parent's subtree.
+	///
+	/// ```
+	/// use argan::Resource;
+	///
+	/// let mut resource_2 = Resource::new("/resource_1/resource_2");
+	/// let resource_4 = Resource::new("/resource_1/resource_2/resource_3/resource_4");
+	///
+	/// // when we add `resource_`
+	/// resource_2.add_subresource(resource_4);
+	/// ```
+	///
+	/// # Panics
+	///
+	/// - if the resource being added is a root resource
+	/// ```should_panic
+	/// use argan::Resource;
+	///
+	/// let mut parent = Resource::new("/parent");
+	/// let root = Resource::new("/");
+	///
+	/// parent.add_subresource(root);
+	/// ```
+	///
+	/// - if the parent's URI doesn't match the host and/or prefix path segments of the resource
+	/// ```should_panic
+	/// use argan::Resource;
+	///
+	/// let mut resource_2 = Resource::new("/resource_1/resource_2");
+	///
+	/// // resource_3 is supposed to belong to a host `example.com`.
+	/// let resource_3 = Resource::new("http://example.com/resource_1/resource_2/resource_3");
+	///
+	/// resource_2.add_subresource(resource_3);
+	/// ```
+	///
+	/// - if the resource or one of its subresources has a duplicate in the parent's subtree
+	/// and both of them have some handler set or a middleware applied
+	/// ```should_panic
+	/// use argan::Resource;
+	/// use argan::handler::{_get, _post};
+	///
+	/// let mut resource_1 = Resource::new("/resource_1");
+	/// let mut resource_3 = Resource::new("/resource_2/resource_3");
+	/// resource_3.set_handler_for(_get(|| async {}));
+	///
+	/// resource_1.add_subresource(resource_3);
+	///
+	/// let mut resource_2 = Resource::new("/resource_2");
+	/// let mut resource_3 = Resource::new("/resource_3");
+	/// resource_3.set_handler_for(_post(|| async {}));
+	///
+	/// resource_2.add_subresource(resource_3);
+	///
+	/// // This doesn't try to merge the duplicate resources' handler sets.
+	/// resource_1.add_subresource(resource_2);
+	///
 	pub fn add_subresource<R, const N: usize>(&mut self, new_resources: R)
 	where
 		R: IntoArray<Resource, N>,
@@ -626,6 +740,42 @@ impl Resource {
 		prefix_patterns
 	}
 
+	/// Adds the new resource under the prefix path segments relative to the parent.
+	///
+	/// ```
+	/// use argan::Resource;
+	///
+	/// let mut resource_1 = Resource::new("/resource_1");
+	/// let resource_3 = Resource::new("/resource_3");
+	///
+	/// resource_1.add_subresource_under("/resource_2", resource_3);
+	/// ```
+	///
+	/// When a new resource has prefix URI components, it's better to use
+	/// [add_subresource()](Self::add_subresource()). But the following also works:
+	/// ```
+	/// # use argan::Resource;
+	/// # let mut resource_1 = Resource::new("/resource_1");
+	/// let resource_4 = Resource::new("/resource_1/resource_2/resource_3/resource_4");
+	///
+	/// // Note that resource_1 may or may not have an existing subresource resource_2.
+	/// resource_1.add_subresource_under("/resource_2", resource_4);
+	/// ```
+	///
+	/// # Panics
+	/// - if the new resource's URI components don't match the parent's URI components
+	/// and/or the given releative path pattern, respectively
+	/// ```should_panic
+	/// use argan::Resource;
+	///
+	/// let mut resource_1 = Resource::new("/resource_1");
+	/// let resource_4 = Resource::new("/resource_1/resource_2/resource_3/resource_4");
+	///
+	/// resource_1.add_subresource_under("/some_resource", resource_4);
+	/// ```
+	///
+	/// Other **panic** conditions are the same as [add_subresource()](Self::add_subresource())'s
+	/// conditions.
 	pub fn add_subresource_under<P, R, const N: usize>(
 		&mut self,
 		relative_path_pattern: P,
@@ -722,6 +872,39 @@ impl Resource {
 		}
 	}
 
+	/// Returns the resource at the given relative path. If the resource doesn't exist, it
+	/// will be created.
+	///
+	/// The path is relative to the resource the method is called on.
+	///
+	/// ```
+	/// use argan::Resource;
+	///
+	/// let mut resource_1 = Resource::new("/resource_1");
+	/// let resource_3 = resource_1.subresource_mut("/resource_2/resource_3");
+	/// ```
+	///
+	/// # Panics
+	/// - if the given path is empty
+	/// - if the path contains only a slash `/` (root cannot be a subresource)
+	/// - if the path doesn't start with a slash `/`
+	/// - if the resource has some handler set or middleware applied, and the given
+	///   configuration symbols don't match its configuration
+	/// ```should_panic
+	/// use argan::{Resource, handler::{_get, _post}};
+	///
+	/// let mut root = Resource::new("/");
+	/// root.subresource_mut("/resource_1 !*").set_handler_for([
+	///		_get(|| async {}),
+	///		_post(|| async {}),
+	///	]);
+	///
+	/// // ...
+	///
+	/// let resource_1 = root.subresource_mut("/resource_1");
+	/// ```
+	///
+	/// For configuration symbols, see the [`crate documentation`](crate);
 	pub fn subresource_mut<P>(&mut self, relative_path: P) -> &mut Resource
 	where
 		P: AsRef<str>,
@@ -806,7 +989,7 @@ impl Resource {
 						leaf_resource = leaf_resource
 							.some_wildcard_resource
 							.as_deref()
-							.expect("if statement should prove that the wildcard resource exists");
+							.expect(SCOPE_VALIDITY);
 					} else {
 						route_segments.revert_to_segment(segment_index);
 
@@ -986,7 +1169,18 @@ impl Resource {
 	// 	))
 	// }
 
-	// ~set_handler_for $property to $value
+	/// Sets the method and mistargeted request handlers of the resource.
+	///
+	/// ```
+	/// use argan::{Resource, handler::{_get, _method}};
+	///
+	/// let mut root = Resource::new("/");
+	/// root.set_handler_for(_get(|| async {}));
+	/// root.subresource_mut("/resource_1/resource_2").set_handler_for([
+	///  _get(|| async {}),
+	///  _method("LOCK", || async {}),
+	/// ]);
+	/// ```
 	pub fn set_handler_for<H, const N: usize>(&mut self, handler_kinds: H)
 	where
 		H: IntoArray<HandlerKind, N>,
@@ -1005,6 +1199,63 @@ impl Resource {
 		}
 	}
 
+	/// Adds middleware to be applied on the resource's components, like request receiver,
+	/// passer, and method and other kind of handlers.
+	///
+	/// Middlewares are applied when the resource is baing converted into a service.
+	/// 
+	/// ```
+	/// use std::future::{Future, ready};
+	///
+	/// // use tower_http::compression::CompressionLayer;
+	/// use http::method::Method;
+	///
+	/// use argan::{
+	///		handler::{Handler, Args},
+	///		middleware::{Layer, _method_handler, _mistargeted_request_handler},
+	///		resource::Resource,
+	///		request::RequestContext,
+	///		response::{Response, IntoResponse, BoxedErrorResponse},
+	///		common::BoxedFuture,
+	///	};
+	///
+	/// #[derive(Clone)]
+	/// struct MiddlewareLayer;
+	///
+	/// impl<H> Layer<H> for MiddlewareLayer
+	/// where
+	/// 	H: Handler + Clone + Send + Sync,
+	/// {
+	/// 	type Handler = Middleware<H>;
+	///
+	/// 	fn wrap(&self, handler: H) -> Self::Handler {
+	/// 		Middleware(handler)
+	/// 	}
+	/// }
+	///
+	/// #[derive(Clone)]
+	/// struct Middleware<H>(H);
+	///
+	/// impl<B, H> Handler<B> for Middleware<H>
+	/// where
+	/// 	H: Handler + Clone + Send + Sync,
+	/// {
+	/// 	type Response = Response;
+	/// 	type Error = BoxedErrorResponse;
+	/// 	type Future = BoxedFuture<Result<Self::Response, Self::Error>>;
+	///
+	/// 	fn handle(&self, request: RequestContext<B>, args: Args<'_, ()>) -> Self::Future {
+	/// 		Box::pin(ready(Ok("Hello from Middleware!".into_response())))
+	/// 	}
+	/// }
+	///
+	///	let mut resource = Resource::new("/resource");
+	///
+	///	resource.add_layer_to(
+	///		_mistargeted_request_handler(MiddlewareLayer),
+	///		// _method_handler(Method::GET, CompressionLayer::new()),
+	///	);
+	/// ```
 	pub fn add_layer_to<L, const N: usize>(&mut self, layer_targets: L)
 	where
 		L: IntoArray<LayerTarget<Self>, N>,
@@ -1012,6 +1263,14 @@ impl Resource {
 		self.middleware.extend(layer_targets.into_array());
 	}
 
+	/// Configures the resource with the given options.
+	/// 
+	/// ```
+	/// use argan::{Resource, common::config::_with_cookie_key, data::cookie};
+	///
+	/// let mut resource = Resource::new("/resource");
+	/// resource.configure(_with_cookie_key(cookie::Key::generate()));
+	/// ```
 	pub fn configure<C, const N: usize>(&mut self, config_options: C)
 	where
 		C: IntoArray<ConfigOption<Self>, N>,
@@ -1035,6 +1294,11 @@ impl Resource {
 
 	// -------------------------
 
+	/// Calls the given function for each subresource with the mutable reference of parameter.
+	///
+	/// If the function returns `Iteration::Skip` for any resource it's called for, that
+	/// resource's subresources will be skipped. If the function retuns `Iteration::Stop` or
+	/// all the subresources were processed, the parameter is returned in its final state.
 	pub fn for_each_subresource<T, F>(&mut self, mut param: T, mut func: F) -> T
 	where
 		F: FnMut(&mut T, &mut Resource) -> Iteration,
@@ -1065,6 +1329,7 @@ impl Resource {
 		}
 	}
 
+	/// Converts the resource into a service.
 	pub fn into_service(self) -> ResourceService {
 		let Resource {
 			pattern,
@@ -1189,11 +1454,13 @@ impl Resource {
 		)
 	}
 
+	/// Converts the resource into a service that puts it inside the `Arc`.
 	#[inline(always)]
 	pub fn into_arc_service(self) -> ArcResourceService {
 		ArcResourceService::from(self.into_service())
 	}
 
+	/// Converts the resource into a service with a leaked `&'static`.
 	#[inline(always)]
 	pub fn into_leaked_service(self) -> LeakedResourceService {
 		LeakedResourceService::from(self.into_service())
