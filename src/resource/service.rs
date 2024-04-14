@@ -43,6 +43,9 @@ use super::{config::ConfigFlags, Context, Resource};
 // --------------------------------------------------------------------------------
 // --------------------------------------------------------------------------------
 
+/// Resource service that can be used to handle requests.
+///
+/// Created by calling [Resource::into_service()] on some resource.
 #[derive(Clone)]
 pub struct ResourceService {
 	pattern: Pattern,
@@ -197,6 +200,9 @@ where
 
 // -------------------------
 
+/// Resource service that uses Arc.
+///
+/// Created by calling [Resource::into_arc_service()] on some resource.
 pub struct ArcResourceService(Arc<ResourceService>);
 
 impl From<ResourceService> for ArcResourceService {
@@ -229,6 +235,9 @@ where
 
 // -------------------------
 
+/// Resource service that uses leaked `&'static`.
+///
+/// Created by calling [Resource::into_leaked_service()] on some resource.
 #[derive(Clone)]
 pub struct LeakedResourceService(&'static ResourceService);
 
@@ -391,7 +400,7 @@ impl Handler for RequestReceiver {
 					let path = request.uri_ref().path();
 
 					return Box::pin(ready(Ok(
-						Redirect::permanently(&path[..path.len() - 1]).into_response(),
+						Redirect::permanently_to(&path[..path.len() - 1]).into_response(),
 					)));
 				}
 
@@ -409,7 +418,7 @@ impl Handler for RequestReceiver {
 					new_path.push_str(path);
 					new_path.push('/');
 
-					return Box::pin(ready(Ok(Redirect::permanently(new_path).into_response())));
+					return Box::pin(ready(Ok(Redirect::permanently_to(new_path).into_response())));
 				}
 
 				!self
