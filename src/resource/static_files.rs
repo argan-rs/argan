@@ -43,6 +43,33 @@ const ENCODED: &'static str = "encoded";
 
 // --------------------------------------------------
 
+/// Serves static files from a directory. Supports range requests, pre-encoded files,
+/// and also dynamically encoding files while streaming.
+///
+/// The directory to serve files from should contain two child directories, *"encoded"* and
+/// *"unencoded"*. StaticFiles serves unencoded files from the *"unencoded"* directory. But
+/// if the file size is within the allowed bounds, it dynamically encodes these files when
+/// the supported coding is requested, and there is no pre-encoded version in the *"enoced"*
+/// directory. *"encoded"* directory should contain pre-encoded files in the directories
+/// named after their coding (for now only *gzip* is supported).
+///
+/// ```no_run
+/// use argan::resource::StaticFiles;
+///
+/// let static_files = StaticFiles::new("/static", "some_dir");
+/// ```
+///
+/// In the above example, when the request is made to *"/static/docs/README.md"*
+/// without `Accept-Encoding`, StaticFiles tries to serve the file from the directory
+/// *"some_dir/unencoded/docs/"*. If the `gzip` is requested in the`Accept-Encoding`,
+/// StaticFiles first looks for a file *"README.md.gz"* in *"some_dir/encoded/gzip/docs/"*.
+/// If there is no such file, then it tries to serve the file as previously stated, but
+/// dynamically compresses it with `gzip` if the file size is within the allowed bounds.
+/// If the `identity` is forbidden in the `Accept-Encoding` when `gzip` is requested and
+/// there is neither a pre-encoded file nor an unencoded file with the suitable size to
+/// dynamically encode, then `406 Not Acceptable` is returned.
+///
+/// Note that range requests are not supported for dynamically encoded files.
 pub struct StaticFiles {
 	some_resource: Option<Resource>,
 	some_files_dir: Option<Box<Path>>,
@@ -54,8 +81,9 @@ pub struct StaticFiles {
 }
 
 impl StaticFiles {
-	pub fn new(resource_path_patterns: impl AsRef<str>, files_dir: impl AsRef<Path>) -> Self {
-		let resource = Resource::new(resource_path_patterns.as_ref());
+	/// Creates a new instance from the uri pattern and files' directory.
+	pub fn new(uri_pattern: impl AsRef<str>, files_dir: impl AsRef<Path>) -> Self {
+		let resource = Resource::new(uri_pattern.as_ref());
 
 		let files_dir = files_dir.as_ref();
 
@@ -79,49 +107,52 @@ impl StaticFiles {
 		}
 	}
 
-	// pub fn with_tagger(mut self, tagger: Arc<dyn Tagger>) -> Self {
-	// 	self.some_tagger = Some(tagger);
-	//
-	// 	self
-	// }
+	#[doc(hidden)]
+	pub fn with_tagger(mut self, tagger: Arc<dyn Tagger>) -> Self {
+		self.some_tagger = Some(tagger);
 
-	// pub fn with_methods(mut self, allowed_methods: &[Method]) -> Self {
-	// 	for method in allowed_methods {
-	// 		match method {
-	// 			&Method::GET => self.flags.add(Flags::GET),
-	// 			&Method::POST => self.flags.add(Flags::POST),
-	// 			&Method::DELETE => self.flags.add(Flags::DELETE),
-	// 			_ => {}
-	// 		}
-	// 	}
-	//
-	// 	self
-	// }
+		self
+	}
 
+	/// Configures the StaticFiles to serve files as attachments, setting `Content-Disposition`
+	/// to `attachment`.
 	pub fn as_attachments(mut self) -> Self {
 		self.flags.add(Flags::ATTACHMENTS);
 
 		self
 	}
 
+	/// Dynamic compression level.
 	pub fn with_encoding_level(mut self, level: u32) -> Self {
 		self.level_to_encode = level;
 
 		self
 	}
 
+	/// Minimum file size to dynamically encode. Default is 1 KiB.
 	pub fn with_min_size_to_encode(mut self, min_size_to_encode: u64) -> Self {
 		self.min_size_to_encode = min_size_to_encode;
 
 		self
 	}
 
+	/// Maximum file size to dynamically encode. Default is 8 KiB.
 	pub fn with_max_size_to_encode(mut self, max_size_to_encode: u64) -> Self {
 		self.max_size_to_encode = max_size_to_encode;
 
 		self
 	}
 
+	/// Converts the StaticFiles into a resource.
+	///
+	/// ```no_run
+	/// use argan::resource::{Resource, StaticFiles};
+	///
+	/// let static_files = StaticFiles::new("/static", "some_directory").into_resource();
+	///
+	/// let mut pages = Resource::new("/pages");
+	/// pages.add_subresource(static_files);
+	/// ```
 	pub fn into_resource(mut self) -> Resource {
 		let mut resource = self
 			.some_resource
@@ -167,8 +198,8 @@ impl StaticFiles {
 
 // -------------------------
 
-/* pub */
-trait Tagger: Send + Sync {
+#[doc(hidden)]
+pub trait Tagger: Send + Sync {
 	fn get(&self, path: &Path) -> Result<Box<str>, BoxedError>;
 }
 
@@ -177,12 +208,10 @@ trait Tagger: Send + Sync {
 bit_flags! {
 	#[derive(Default, Clone)]
 	Flags: u8 {
-		ATTACHMENTS = 0b00_0001;
-		PARTIAL_CONTENT = 0b00_0010;
-		DYNAMIC_ENCODING = 0b00_0100;
-		GET = 0b00_1000;
-		POST = 0b01_0000;
-		DELETE = 0b10_0000;
+		ATTACHMENTS = 0b_0001;
+		PARTIAL_CONTENT = 0b_0010;
+		DYNAMIC_ENCODING = 0b_0100;
+		GET = 0b_1000;
 	}
 }
 
@@ -652,6 +681,8 @@ impl IntoResponse for StaticFileError {
 			}
 			Self::FileNotFound => *response.status_mut() = StatusCode::NOT_FOUND,
 			Self::AcceptEncoding(codings) => {
+				*response.status_mut() = StatusCode::NOT_ACCEPTABLE;
+
 				response
 					.headers_mut()
 					.insert(ACCEPT_ENCODING, HeaderValue::from_static(codings));
@@ -693,7 +724,7 @@ mod test {
 		// ----------
 		// Dirs
 
-		let root_dir: PathBuf = "test/".into();
+		let root_dir: PathBuf = "test".into();
 		let unencoded_dir = root_dir.join(UNENCODED);
 		let encoded_dir = root_dir.join(ENCODED).join("gzip");
 

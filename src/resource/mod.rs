@@ -36,13 +36,11 @@ mod config;
 
 use self::{
 	config::{resource_config_from, ConfigFlags},
-	service::{
-		ArcResourceService, LeakedResourceService, RequestHandler, RequestPasser, RequestReceiver,
-	},
+	service::{RequestHandler, RequestPasser, RequestReceiver},
 };
 
 mod service;
-pub use service::ResourceService;
+pub use service::{ArcResourceService, LeakedResourceService, ResourceService};
 
 mod static_files;
 pub use static_files::StaticFiles;
@@ -1331,6 +1329,9 @@ impl Resource {
 	}
 
 	/// Converts the resource into a service.
+	///
+	/// This method ignores the parent resources. Thus, it should be called on the first
+	/// resource in the resource tree.
 	pub fn into_service(self) -> ResourceService {
 		let Resource {
 			pattern,
@@ -1455,13 +1456,19 @@ impl Resource {
 		)
 	}
 
-	/// Converts the resource into a service that puts it inside the `Arc`.
+	/// Converts the resource into a service that uses `Arc` internally.
+	///
+	/// This method ignores the parent resources. Thus, it should be called on the first
+	/// resource in the resource tree.
 	#[inline(always)]
 	pub fn into_arc_service(self) -> ArcResourceService {
 		ArcResourceService::from(self.into_service())
 	}
 
 	/// Converts the resource into a service with a leaked `&'static`.
+	///
+	/// This method ignores the parent resources. Thus, it should be called on the first
+	/// resource in the resource tree.
 	#[inline(always)]
 	pub fn into_leaked_service(self) -> LeakedResourceService {
 		LeakedResourceService::from(self.into_service())
@@ -1527,10 +1534,14 @@ struct Context {
 
 // --------------------------------------------------
 
-#[repr(u8)]
+/// Returned by a function given to the [Resource::for_each_subresource()] to control
+/// the iteration on subresources.
 pub enum Iteration {
+	/// Iteration goes on normally.
 	Continue,
+	/// Current resource's subresources are skipped.
 	Skip,
+	/// Iteration stops.
 	Stop,
 }
 
