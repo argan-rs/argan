@@ -52,6 +52,10 @@ const BUFFER_SIZE: usize = 8 * 1024;
 
 // -------------------------
 
+/// Low-level primitive to stream files with support for `multipart/byteranges` and
+/// dynamic encoding.
+///
+/// Can be used as a response or as a response body.
 pub struct FileStream {
 	maybe_encoded_file: MaybeEncoded,
 	file_size: Box<str>,
@@ -67,6 +71,7 @@ pub struct FileStream {
 }
 
 impl FileStream {
+	/// Opens the file at the given path for streaming.
 	pub fn open<P: AsRef<Path>>(path: P) -> Result<Self, FileStreamError> {
 		let file = File::open(path)?;
 
@@ -88,6 +93,7 @@ impl FileStream {
 		})
 	}
 
+	// Opens the file at the given path for streaming with dynamic encoding.
 	pub fn open_with_encoding<P: AsRef<Path>>(
 		path: P,
 		content_coding: ContentCoding,
@@ -119,6 +125,7 @@ impl FileStream {
 		})
 	}
 
+	/// Creates a stream from a given file.
 	pub fn from_file(file: File) -> Result<Self, FileStreamError> {
 		let metadata = file.metadata()?;
 		let file_size = metadata.len();
@@ -138,6 +145,7 @@ impl FileStream {
 		})
 	}
 
+	/// Creates a stream from a given file with dynamic encoding.
 	pub fn from_file_with_encoding(
 		file: File,
 		content_coding: ContentCoding,
@@ -167,6 +175,7 @@ impl FileStream {
 		})
 	}
 
+	/// Opens the file at the given path for streaming some of its parts.
 	pub fn open_ranges<P: AsRef<Path>>(
 		path: P,
 		range_header_value: &str,
@@ -198,6 +207,7 @@ impl FileStream {
 		})
 	}
 
+	/// Creates a stream from some parts of the given file.
 	pub fn from_file_ranges(
 		file: File,
 		range_header_value: &str,
@@ -227,6 +237,7 @@ impl FileStream {
 		})
 	}
 
+	/// Configures the FileStream with the given options.
 	pub fn configure<C, const N: usize>(&mut self, config_options: C)
 	where
 		C: IntoArray<FileStreamConfigOption, N>,
