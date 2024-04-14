@@ -418,7 +418,9 @@ impl Handler for RequestReceiver {
 					new_path.push_str(path);
 					new_path.push('/');
 
-					return Box::pin(ready(Ok(Redirect::permanently_to(new_path).into_response())));
+					return Box::pin(ready(Ok(
+						Redirect::permanently_to(new_path).into_response(),
+					)));
 				}
 
 				!self

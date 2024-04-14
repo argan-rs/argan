@@ -60,27 +60,31 @@ pub(crate) use private::InfallibleResponseFuture;
 // --------------------------------------------------
 // Redirect
 
+/// Returned by handlers to redirect requests.
 pub struct Redirect {
 	status_code: StatusCode,
 	uri: HeaderValue,
 }
 
 impl Redirect {
-	pub fn permanently<U: AsRef<str>>(uri: U) -> Self {
+	/// 308 Permanent Redirect
+	pub fn permanently_to<U: AsRef<str>>(uri: U) -> Self {
 		Self {
 			status_code: StatusCode::PERMANENT_REDIRECT,
 			uri: HeaderValue::from_str(uri.as_ref()).expect("uri must be a valid header value"),
 		}
 	}
 
-	pub fn temporarily<U: AsRef<str>>(uri: U) -> Self {
+	/// 307 Temporary Redirect
+	pub fn temporarily_to<U: AsRef<str>>(uri: U) -> Self {
 		Self {
 			status_code: StatusCode::TEMPORARY_REDIRECT,
 			uri: HeaderValue::from_str(uri.as_ref()).expect("uri must be a valid header value"),
 		}
 	}
 
-	pub fn to<U: AsRef<str>>(uri: U) -> Self {
+	/// 303 See Other
+	pub fn to_see<U: AsRef<str>>(uri: U) -> Self {
 		Self {
 			status_code: StatusCode::SEE_OTHER,
 			uri: HeaderValue::from_str(uri.as_ref()).expect("uri must be a valid header value"),
