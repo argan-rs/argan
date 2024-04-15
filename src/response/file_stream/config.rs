@@ -1,7 +1,21 @@
+//! Configuration options of the FileStream.
+
+// ----------
+
 use super::*;
 
 // --------------------------------------------------------------------------------
 // --------------------------------------------------------------------------------
+
+// --------------------------------------------------
+// ContentCoding
+
+/// Configuration option to choose dynamic content encoding.
+#[non_exhaustive]
+#[derive(Debug, PartialEq)]
+pub enum ContentCoding {
+	Gzip(u32), // Gzip cooding with level.
+}
 
 // --------------------------------------------------
 // ConfigFlags

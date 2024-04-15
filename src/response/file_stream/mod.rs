@@ -1,3 +1,7 @@
+//! Low-level file streaming.
+
+// ----------
+
 use std::{
 	fmt::Display,
 	fs::File,
@@ -37,13 +41,14 @@ use crate::{
 
 pub mod config;
 
-use config::ConfigFlags;
+use config::{ConfigFlags, FileStreamConfigOption};
 pub use config::{
 	_as_attachment, _boundary, _content_encoding, _content_type, _file_name,
 	_to_support_partial_content,
 };
 
-use self::config::FileStreamConfigOption;
+#[doc(inline)]
+pub use config::ContentCoding;
 
 // --------------------------------------------------------------------------------
 // --------------------------------------------------------------------------------
@@ -731,6 +736,10 @@ fn stream_multipart_ranges(
 	Poll::Pending
 }
 
+/// Generates a boundary with the given length.
+///
+/// # Panics
+/// - if the length is greater than 70
 pub fn generate_boundary(length: u8) -> Result<Box<str>, FileStreamError> {
 	if length == 0 || length > 70 {
 		panic!("length is not in the range of 1..=70");
@@ -1262,17 +1271,9 @@ impl PartialEq for RangeValue {
 }
 
 // --------------------------------------------------
-// ContentCoding
-
-#[non_exhaustive]
-#[derive(Debug, PartialEq)]
-pub enum ContentCoding {
-	Gzip(u32), // Contains level.
-}
-
-// --------------------------------------------------
 // FileStreamError
 
+/// An error returned when creating a file stream fails.
 #[non_exhaustive]
 #[derive(Debug, crate::ImplError)]
 pub enum FileStreamError {
