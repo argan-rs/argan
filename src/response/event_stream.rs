@@ -1,3 +1,7 @@
+//! Server-sent events
+
+// ----------
+
 use std::{
 	pin::Pin,
 	task::{Context, Poll},
@@ -26,12 +30,17 @@ use crate::{
 // --------------------------------------------------------------------------------
 // --------------------------------------------------------------------------------
 
+/// Response type to stream server-sent events.
 pub struct EventStream<S> {
 	inner: S,
 	keep_alive_interval: Option<Interval>,
 }
 
-impl<S> EventStream<S> {
+impl<S> EventStream<S>
+where
+	S: Stream<Item = Event> + Send + Sync + 'static,
+{
+	/// Creates an event stream response.
 	pub fn new(stream: S) -> Self {
 		let interval = Interval::try_new(Duration::from_secs(15))
 			.expect("TIMER must be initialized for EventStream");
@@ -42,7 +51,10 @@ impl<S> EventStream<S> {
 		}
 	}
 
-	pub fn with_keep_alive_duration(mut self, some_duration: Option<Duration>) -> Self {
+	/// Sets the interval between keep-alive messages. The default is 15 seconds.
+	///
+	/// None turns off the keep-alive messages.
+	pub fn with_keep_alive_interval(mut self, some_duration: Option<Duration>) -> Self {
 		if let Some(duration) = some_duration {
 			self.keep_alive_interval =
 				self
@@ -76,10 +88,9 @@ impl<S> EventStream<S> {
 	}
 }
 
-impl<S, E> IntoResponse for EventStream<S>
+impl<S> IntoResponse for EventStream<S>
 where
-	S: Stream<Item = Result<Event, E>> + Send + Sync + 'static,
-	E: Into<BoxedError> + Send + Sync,
+	S: Stream<Item = Event> + Send + Sync + 'static,
 {
 	fn into_response(self) -> Response {
 		let mut response = Response::new(Body::new(self.into_body()));
@@ -105,10 +116,9 @@ struct EventStreamBody<S> {
 	keep_alive_interval: Option<Interval>,
 }
 
-impl<S, E> HttpBody for EventStreamBody<S>
+impl<S> HttpBody for EventStreamBody<S>
 where
-	S: Stream<Item = Result<Event, E>>,
-	E: Into<BoxedError>,
+	S: Stream<Item = Event>,
 {
 	type Data = Bytes;
 	type Error = BoxedError;
@@ -121,16 +131,13 @@ where
 
 		match self_projection.inner.poll_next(cx) {
 			Poll::Ready(None) => Poll::Ready(None),
-			Poll::Ready(Some(result)) => match result {
-				Ok(event) => {
-					if let Some(interval) = self_projection.keep_alive_interval {
-						interval.reset();
-					}
-
-					Poll::Ready(Some(Ok(Frame::data(event.into_bytes()))))
+			Poll::Ready(Some(event)) => {
+				if let Some(interval) = self_projection.keep_alive_interval {
+					interval.reset();
 				}
-				Err(error) => Poll::Ready(Some(Err(error.into()))),
-			},
+
+				Poll::Ready(Some(Ok(Frame::data(event.into_bytes()))))
+			}
 			Poll::Pending => {
 				if let Some(interval) = self_projection.keep_alive_interval {
 					interval
@@ -147,6 +154,7 @@ where
 
 // --------------------------------------------------
 
+/// Server-sent event.
 #[derive(Default)]
 pub struct Event {
 	buffer: BytesMut,
@@ -154,11 +162,17 @@ pub struct Event {
 }
 
 impl Event {
+	/// Creates an empty event.
 	#[inline(always)]
 	pub fn new() -> Self {
 		Self::default()
 	}
 
+	/// Sets the `id` field of the event.
+	///
+	/// # Panics
+	/// - if called multiple times
+	/// - if `id` contains '\r' (CR), '\n' (LF), or '\0' (NULL)
 	pub fn with_id<T: AsRef<str>>(mut self, id: T) -> Self {
 		if self.flags.has(EventFlags::ID) {
 			panic!("'id' cannot be set multiple times");
@@ -170,7 +184,12 @@ impl Event {
 		self
 	}
 
-	pub fn with_type<T: AsRef<str>>(mut self, name: T) -> Self {
+	/// Sets the `event` field of the event.
+	///
+	/// # Panics
+	/// - if called multiple times
+	/// - if `name` contains '\r' (CR), '\n' (LF)
+	pub fn with_name<T: AsRef<str>>(mut self, name: T) -> Self {
 		if self.flags.has(EventFlags::NAME) {
 			panic!("'event' cannot be set multiple times")
 		}
@@ -181,6 +200,13 @@ impl Event {
 		self
 	}
 
+	/// Adds a `data` field to the event.
+	///
+	/// For each '\r' (CR), '\n' (LF), or "\r\n" (CRLF), a new `data` field will be added
+	/// with the content following them.
+	///
+	/// # Panics
+	/// - if the event already contains JSON data
 	pub fn with_data<T: AsRef<str>>(mut self, data: T) -> Self {
 		if self.flags.has(EventFlags::SERIALIZED_DATA) {
 			panic!("'data' cannot coexist with serialized data")
@@ -229,7 +255,11 @@ impl Event {
 		self
 	}
 
-	pub fn with_json_data<T: Serialize>(mut self, json_data: T) -> Result<Self, EventStreamError> {
+	/// Sets the `data` field of the event to the JSON data.
+	///
+	/// # Panics
+	/// - if the event already contains any data
+	pub fn with_json_data<T: Serialize>(mut self, json_data: T) -> Result<Self, EventError> {
 		if self
 			.flags
 			.has_any(EventFlags::DATA | EventFlags::SERIALIZED_DATA)
@@ -245,6 +275,10 @@ impl Event {
 		Ok(self)
 	}
 
+	/// Sets the `retry` field of the event.
+	///
+	/// # Panics
+	/// - if called multiple times
 	pub fn with_retry(mut self, duration: Duration) -> Self {
 		if self.flags.has(EventFlags::RETRY) {
 			panic!("'retry' cannot be set multiple times")
@@ -256,6 +290,10 @@ impl Event {
 		self
 	}
 
+	/// Adds a comment to the event.
+	///
+	/// # Panics
+	/// - if `comment` contains '\r' (CR), '\n' (LF)
 	pub fn with_comment<T: AsRef<str>>(mut self, comment: T) -> Self {
 		self.add_field("", comment.as_ref(), &['\r', '\n']);
 
@@ -314,13 +352,14 @@ bit_flags! {
 }
 
 // --------------------------------------------------
-// EventStreamError
+// EventStream
 
+/// Returned when serialization of the JSON data fails.
 #[derive(Debug, crate::ImplError)]
 #[error(transparent)]
-pub struct EventStreamError(#[from] serde_json::Error);
+pub struct EventError(#[from] serde_json::Error);
 
-impl IntoResponse for EventStreamError {
+impl IntoResponse for EventError {
 	fn into_response(self) -> Response {
 		StatusCode::INTERNAL_SERVER_ERROR.into_response()
 	}
@@ -351,7 +390,7 @@ mod test {
 		// ----------
 
 		let mut event_bytes = Event::new()
-			.with_type("e")
+			.with_name("e")
 			.with_id("42")
 			.with_data("data 1")
 			.with_data("data 2\ndata 3")
@@ -392,31 +431,31 @@ mod test {
 	#[test]
 	#[should_panic = "'id' cannot be set multiple times"]
 	fn multiple_ids_1() {
-		let _ = Event::new().with_type("test").with_id("42").with_id("42");
+		let _ = Event::new().with_name("test").with_id("42").with_id("42");
 	}
 
 	#[test]
 	#[should_panic = "'id' cannot be set multiple times"]
 	fn multiple_ids_2() {
-		let _ = Event::new().with_type("test").with_id("42").with_id("");
+		let _ = Event::new().with_name("test").with_id("42").with_id("");
 	}
 
 	#[test]
 	#[should_panic = "'id' field value cannot contain any of these ['\\r', '\\n', '\\0'] characters"]
 	fn id_forbidden_chars_1() {
-		let _ = Event::new().with_type("test").with_id("4\r2");
+		let _ = Event::new().with_name("test").with_id("4\r2");
 	}
 
 	#[test]
 	#[should_panic = "'id' field value cannot contain any of these ['\\r', '\\n', '\\0'] characters"]
 	fn id_forbidden_chars_2() {
-		let _ = Event::new().with_type("test").with_id("4\n2");
+		let _ = Event::new().with_name("test").with_id("4\n2");
 	}
 
 	#[test]
 	#[should_panic = "'id' field value cannot contain any of these ['\\r', '\\n', '\\0'] characters"]
 	fn id_forbidden_chars_3() {
-		let _ = Event::new().with_type("test").with_id("4\02");
+		let _ = Event::new().with_name("test").with_id("4\02");
 	}
 
 	// -------------------------
@@ -425,19 +464,19 @@ mod test {
 	#[test]
 	#[should_panic = "'event' cannot be set multiple times"]
 	fn multiple_events() {
-		let _ = Event::new().with_type("test").with_type("type");
+		let _ = Event::new().with_name("test").with_name("type");
 	}
 
 	#[test]
 	#[should_panic = "'event' field value cannot contain any of these ['\\r', '\\n'] characters"]
 	fn event_forbidden_chars_1() {
-		let _ = Event::new().with_type("test\r").with_id("4\02");
+		let _ = Event::new().with_name("test\r").with_id("4\02");
 	}
 
 	#[test]
 	#[should_panic = "'event' field value cannot contain any of these ['\\r', '\\n'] characters"]
 	fn event_forbidden_chars_2() {
-		let _ = Event::new().with_type("test\n").with_id("4\02");
+		let _ = Event::new().with_name("test\n").with_id("4\02");
 	}
 
 	// -------------------------
@@ -482,7 +521,7 @@ mod test {
 	#[should_panic = "'retry' cannot be set multiple times"]
 	fn multiple_retries() {
 		let _ = Event::new()
-			.with_type("test")
+			.with_name("test")
 			.with_retry(Duration::from_secs(5))
 			.with_retry(Duration::from_secs(10));
 	}
@@ -526,11 +565,11 @@ mod test {
 				tokio::time::sleep(Duration::from_secs(1)).await;
 
 				let mut event = Event::new()
-					.with_type("test")
+					.with_name("test")
 					.with_id("42")
 					.with_data("data 1\ndata 2");
 
-				return Some((Result::<_, EventStreamError>::Ok(event), number + 1));
+				return Some((event, number + 1));
 			}
 
 			if number == 1 {
@@ -543,14 +582,14 @@ mod test {
 					.with_comment("...")
 					.with_retry(Duration::from_secs(1));
 
-				return Some((Ok(event), number + 1));
+				return Some((event, number + 1));
 			}
 
 			None
 		});
 
 		let stream_response = EventStream::new(stream)
-			.with_keep_alive_duration(Some(Duration::from_millis(750)))
+			.with_keep_alive_interval(Some(Duration::from_millis(750)))
 			.into_response();
 
 		assert_eq!(
