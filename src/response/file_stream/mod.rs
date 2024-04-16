@@ -1,4 +1,8 @@
 //! Low-level file streaming.
+//!
+//! Streaming should be used on files that won't be locked, as reading may block the
+//! runtime. Blocking tasks are spawned only to get file descriptors. Files are read
+//! in 8 KiB slices (this may change in the future) and assumed to be fast.
 
 // ----------
 
@@ -31,6 +35,7 @@ use http::{
 use http_body_util::BodyExt;
 use percent_encoding::{percent_encode, NON_ALPHANUMERIC};
 use rand::{rngs::SmallRng, Rng, SeedableRng};
+use tokio::task::JoinError;
 
 use crate::{
 	common::{IntoArray, SCOPE_VALIDITY},
@@ -77,11 +82,21 @@ pub struct FileStream {
 
 impl FileStream {
 	/// Opens the file at the given path for streaming.
-	pub fn open<P: AsRef<Path>>(path: P) -> Result<Self, FileStreamError> {
-		let file = File::open(path)?;
+	pub async fn open<P>(path: P) -> Result<Self, FileStreamError>
+	where
+		P: AsRef<Path> + Send + 'static,
+	{
+		let result = tokio::task::spawn_blocking(move || {
+			let file = File::open(path)?;
 
-		let metadata = file.metadata()?;
-		let file_size = metadata.len();
+			let metadata = file.metadata()?;
+			let file_size = metadata.len();
+
+			Result::<_, FileStreamError>::Ok((file, file_size))
+		})
+		.await?;
+
+		let (file, file_size) = result?;
 
 		Ok(Self {
 			maybe_encoded_file: MaybeEncoded::Identity(file),
@@ -99,14 +114,24 @@ impl FileStream {
 	}
 
 	// Opens the file at the given path for streaming with dynamic encoding.
-	pub fn open_with_encoding<P: AsRef<Path>>(
+	pub async fn open_with_encoding<P>(
 		path: P,
 		content_coding: ContentCoding,
-	) -> Result<Self, FileStreamError> {
-		let file = File::open(path)?;
+	) -> Result<Self, FileStreamError>
+	where
+		P: AsRef<Path> + Send + 'static,
+	{
+		let result = tokio::task::spawn_blocking(move || {
+			let file = File::open(path)?;
 
-		let metadata = file.metadata()?;
-		let file_size = metadata.len();
+			let metadata = file.metadata()?;
+			let file_size = metadata.len();
+
+			Result::<_, FileStreamError>::Ok((file, file_size))
+		})
+		.await?;
+
+		let (file, file_size) = result?;
 
 		let (maybe_encoded_file, content_encoding) = match content_coding {
 			ContentCoding::Gzip(level) => (
@@ -131,9 +156,16 @@ impl FileStream {
 	}
 
 	/// Creates a stream from a given file.
-	pub fn from_file(file: File) -> Result<Self, FileStreamError> {
-		let metadata = file.metadata()?;
-		let file_size = metadata.len();
+	pub async fn from_file(file: File) -> Result<Self, FileStreamError> {
+		let result = tokio::task::spawn_blocking(move || {
+			let metadata = file.metadata()?;
+			let file_size = metadata.len();
+
+			Result::<_, FileStreamError>::Ok((file, file_size))
+		})
+		.await?;
+
+		let (file, file_size) = result?;
 
 		Ok(Self {
 			maybe_encoded_file: MaybeEncoded::Identity(file),
@@ -151,12 +183,19 @@ impl FileStream {
 	}
 
 	/// Creates a stream from a given file with dynamic encoding.
-	pub fn from_file_with_encoding(
+	pub async fn from_file_with_encoding(
 		file: File,
 		content_coding: ContentCoding,
 	) -> Result<Self, FileStreamError> {
-		let metadata = file.metadata()?;
-		let file_size = metadata.len();
+		let result = tokio::task::spawn_blocking(move || {
+			let metadata = file.metadata()?;
+			let file_size = metadata.len();
+
+			Result::<_, FileStreamError>::Ok((file, file_size))
+		})
+		.await?;
+
+		let (file, file_size) = result?;
 
 		let (maybe_encoded_file, content_encoding) = match content_coding {
 			ContentCoding::Gzip(level) => (
@@ -181,19 +220,29 @@ impl FileStream {
 	}
 
 	/// Opens the file at the given path for streaming some of its parts.
-	pub fn open_ranges<P: AsRef<Path>>(
+	pub async fn open_ranges<P>(
 		path: P,
 		range_header_value: &str,
 		allow_descending: bool,
-	) -> Result<Self, FileStreamError> {
+	) -> Result<Self, FileStreamError>
+	where
+		P: AsRef<Path> + Send + 'static,
+	{
 		if range_header_value.is_empty() {
 			return Err(FileStreamError::InvalidRangeValue);
 		}
 
-		let file = File::open(path)?;
+		let result = tokio::task::spawn_blocking(move || {
+			let file = File::open(path)?;
 
-		let metadata = file.metadata()?;
-		let file_size = metadata.len();
+			let metadata = file.metadata()?;
+			let file_size = metadata.len();
+
+			Result::<_, FileStreamError>::Ok((file, file_size))
+		})
+		.await?;
+
+		let (file, file_size) = result?;
 
 		let ranges = parse_range_header_value(range_header_value, file_size, allow_descending)?;
 
@@ -213,7 +262,7 @@ impl FileStream {
 	}
 
 	/// Creates a stream from some parts of the given file.
-	pub fn from_file_ranges(
+	pub async fn from_file_ranges(
 		file: File,
 		range_header_value: &str,
 		allow_descending: bool,
@@ -222,8 +271,15 @@ impl FileStream {
 			return Err(FileStreamError::InvalidRangeValue);
 		}
 
-		let metadata = file.metadata()?;
-		let file_size = metadata.len();
+		let result = tokio::task::spawn_blocking(move || {
+			let metadata = file.metadata()?;
+			let file_size = metadata.len();
+
+			Result::<_, FileStreamError>::Ok((file, file_size))
+		})
+		.await?;
+
+		let (file, file_size) = result?;
 
 		let ranges = parse_range_header_value(range_header_value, file_size, allow_descending)?;
 
@@ -1278,7 +1334,9 @@ impl PartialEq for RangeValue {
 #[derive(Debug, crate::ImplError)]
 pub enum FileStreamError {
 	#[error(transparent)]
-	IoError(#[from] IoError),
+	Io(#[from] IoError),
+	#[error(transparent)]
+	Runtime(#[from] JoinError),
 	#[error("invalid range value")]
 	InvalidRangeValue,
 	#[error("unsatisfiable range")]
@@ -1288,7 +1346,7 @@ pub enum FileStreamError {
 impl IntoResponse for FileStreamError {
 	fn into_response(self) -> Response {
 		match self {
-			Self::IoError(_) => StatusCode::INTERNAL_SERVER_ERROR.into_response(),
+			Self::Io(_) | Self::Runtime(_) => StatusCode::INTERNAL_SERVER_ERROR.into_response(),
 			Self::InvalidRangeValue => StatusCode::BAD_REQUEST.into_response(),
 			Self::UnsatisfiableRange => StatusCode::RANGE_NOT_SATISFIABLE.into_response(),
 		}
@@ -1700,7 +1758,7 @@ mod test {
 
 		// -------------------------
 
-		let mut response = FileStream::open(FILE).unwrap().into_response();
+		let mut response = FileStream::open(FILE).await.unwrap().into_response();
 
 		assert_eq!(StatusCode::OK, response.status());
 		assert!(response.headers().get(CONTENT_TYPE).is_none());
@@ -1717,7 +1775,7 @@ mod test {
 
 		// -------------------------
 
-		let mut file_stream = FileStream::open(FILE).unwrap();
+		let mut file_stream = FileStream::open(FILE).await.unwrap();
 		file_stream.configure([_as_attachment(), _content_type(content_type_value.clone())]);
 
 		// file_stream.configure(_as_attachment());
@@ -1759,7 +1817,7 @@ mod test {
 
 		// -------------------------
 
-		let mut file_stream = FileStream::open(FILE).unwrap();
+		let mut file_stream = FileStream::open(FILE).await.unwrap();
 		file_stream.configure([
 			_as_attachment(),
 			_content_encoding(content_encoding_value.clone()),
@@ -1811,7 +1869,7 @@ mod test {
 
 		// -------------------------
 
-		let mut file_stream = FileStream::open(FILE).unwrap();
+		let mut file_stream = FileStream::open(FILE).await.unwrap();
 		file_stream.configure(_file_name("test-Ω".into()));
 
 		let response = file_stream.into_response();
@@ -1841,7 +1899,7 @@ mod test {
 
 		// -------------------------
 
-		let mut file_stream = FileStream::open(FILE).unwrap();
+		let mut file_stream = FileStream::open(FILE).await.unwrap();
 		file_stream.configure([
 			_content_type(content_type_value.clone()),
 			_to_support_partial_content(),
@@ -1893,7 +1951,9 @@ mod test {
 
 		// -------------------------
 
-		let mut file_stream = FileStream::open_ranges(FILE, "bytes=1024-16383", false).unwrap();
+		let mut file_stream = FileStream::open_ranges(FILE, "bytes=1024-16383", false)
+			.await
+			.unwrap();
 		file_stream.configure([
 			_content_type(content_type_value.clone()),
 			_content_encoding(content_encoding_value.clone()),
@@ -1949,7 +2009,9 @@ mod test {
 
 		// -------------------------
 
-		let mut file_stream = FileStream::open_with_encoding(FILE, ContentCoding::Gzip(6)).unwrap();
+		let mut file_stream = FileStream::open_with_encoding(FILE, ContentCoding::Gzip(6))
+			.await
+			.unwrap();
 		file_stream.configure([
 			_content_type(content_type_value.clone()),
 			_content_encoding(content_encoding_value.clone()),
@@ -2095,7 +2157,7 @@ mod test {
 
 		// -------------------------
 
-		let mut file_stream = FileStream::open(FILE).unwrap();
+		let mut file_stream = FileStream::open(FILE).await.unwrap();
 		file_stream.configure([
 			_boundary("boundary".into()),
 			_content_encoding(content_encoding_value.clone()),
@@ -2142,7 +2204,7 @@ mod test {
 
 		// -------------------------
 
-		let mut file_stream = FileStream::open(FILE).unwrap();
+		let mut file_stream = FileStream::open(FILE).await.unwrap();
 		file_stream.configure([
 			_content_type(content_type_value.clone()),
 			_boundary(boundary_value.into()),
@@ -2184,7 +2246,9 @@ mod test {
 
 		// -------------------------
 
-		let mut file_stream = FileStream::open_ranges(FILE, "bytes=12-24", false).unwrap();
+		let mut file_stream = FileStream::open_ranges(FILE, "bytes=12-24", false)
+			.await
+			.unwrap();
 		file_stream.configure([
 			_content_type(content_type_value.clone()),
 			_content_encoding(content_encoding_value.clone()),
@@ -2239,7 +2303,9 @@ mod test {
 
 		// -------------------------
 
-		let mut file_stream = FileStream::open_ranges(FILE, "bytes=12-24, 1024-4095", false).unwrap();
+		let mut file_stream = FileStream::open_ranges(FILE, "bytes=12-24, 1024-4095", false)
+			.await
+			.unwrap();
 		file_stream.configure([
 			_content_type(content_type_value.clone()),
 			_content_encoding(content_encoding_value.clone()),
@@ -2315,7 +2381,9 @@ mod test {
 
 		// -------------------------
 
-		let mut file_stream = FileStream::open_ranges(FILE, "bytes=1024-4095, 12-24", true).unwrap();
+		let mut file_stream = FileStream::open_ranges(FILE, "bytes=1024-4095, 12-24", true)
+			.await
+			.unwrap();
 		file_stream.configure([
 			_content_type(content_type_value.clone()),
 			_content_encoding(content_encoding_value.clone()),
@@ -2391,8 +2459,9 @@ mod test {
 
 		// -------------------------
 
-		let mut file_stream =
-			FileStream::open_ranges(FILE, "bytes=12-2048, 1024-4095, -512", false).unwrap();
+		let mut file_stream = FileStream::open_ranges(FILE, "bytes=12-2048, 1024-4095, -512", false)
+			.await
+			.unwrap();
 
 		file_stream.configure([
 			_content_type(content_type_value.clone()),
@@ -2461,8 +2530,9 @@ mod test {
 
 		// -------------------------
 
-		let mut file_stream =
-			FileStream::open_ranges(FILE, "bytes=1024-4095, 12-2048, -512", true).unwrap();
+		let mut file_stream = FileStream::open_ranges(FILE, "bytes=1024-4095, 12-2048, -512", true)
+			.await
+			.unwrap();
 
 		file_stream.configure([
 			_content_type(content_type_value.clone()),
@@ -2536,6 +2606,7 @@ mod test {
 			"bytes=100-100, 500-1000, 1100-7000, 5000-6000, -1500, 7000-8000, -500",
 			true,
 		)
+		.await
 		.unwrap();
 
 		file_stream.configure([
@@ -2639,6 +2710,7 @@ mod test {
 			"bytes=-500, 7000-8000, -1500, 5000-6000, 1100-7000, 500-1000, 100-100",
 			true,
 		)
+		.await
 		.unwrap();
 
 		file_stream.configure([
@@ -2742,6 +2814,7 @@ mod test {
 			"bytes=10-11, -0, 1000-7000, -40000, 8000-40000",
 			false,
 		)
+		.await
 		.unwrap();
 
 		file_stream.configure(_boundary(boundary_value.into()));
@@ -2788,6 +2861,7 @@ mod test {
 
 		let mut file_stream =
 			FileStream::open_ranges(FILE, "bytes=8000-40000, -40000, 1000-7000, -0, 10-11", true)
+				.await
 				.unwrap();
 
 		file_stream.configure(_boundary(boundary_value.into()));
@@ -2833,65 +2907,71 @@ mod test {
 
 	// --------------------------------------------------
 
-	#[test]
+	#[tokio::test]
 	#[should_panic = "applied dynamic encoding and Content-Encoding are different"]
-	fn unmatching_encoding() {
+	async fn unmatching_encoding() {
 		const FILE: &str = "panic-1";
 
 		let _ = std::fs::File::create(FILE).unwrap();
 		let _deferred = Deferred::call(|| std::fs::remove_file(FILE).unwrap());
 
-		let mut file_stream = FileStream::open_with_encoding(FILE, ContentCoding::Gzip(6)).unwrap();
+		let mut file_stream = FileStream::open_with_encoding(FILE, ContentCoding::Gzip(6))
+			.await
+			.unwrap();
 		file_stream.configure(_content_encoding(HeaderValue::from_static("br")));
 	}
 
-	#[test]
+	#[tokio::test]
 	#[should_panic = "cannot support partial content with dynamic encoding"]
-	fn support_partial_content_with_dynamic_encoding() {
+	async fn support_partial_content_with_dynamic_encoding() {
 		const FILE: &str = "panic-2";
 
 		let _ = std::fs::File::create(FILE).unwrap();
 		let _deferred = Deferred::call(|| std::fs::remove_file(FILE).unwrap());
 
-		let mut file_stream = FileStream::open_with_encoding(FILE, ContentCoding::Gzip(6)).unwrap();
+		let mut file_stream = FileStream::open_with_encoding(FILE, ContentCoding::Gzip(6))
+			.await
+			.unwrap();
 		file_stream.configure(_to_support_partial_content());
 	}
 
-	#[test]
+	#[tokio::test]
 	#[should_panic = "boundary cannot be set with dynamic encoding"]
-	fn boundary_with_dynamic_encoding() {
+	async fn boundary_with_dynamic_encoding() {
 		const FILE: &str = "panic-3";
 
 		let _ = std::fs::File::create(FILE).unwrap();
 		let _deferred = Deferred::call(|| std::fs::remove_file(FILE).unwrap());
 
-		let mut file_stream = FileStream::open_with_encoding(FILE, ContentCoding::Gzip(6)).unwrap();
+		let mut file_stream = FileStream::open_with_encoding(FILE, ContentCoding::Gzip(6))
+			.await
+			.unwrap();
 		file_stream.configure(_boundary("boundary".into()));
 	}
 
-	#[test]
+	#[tokio::test]
 	#[should_panic = "boundary exceeds 70 characters"]
-	fn boundary_exceeds_character_limit() {
+	async fn boundary_exceeds_character_limit() {
 		const FILE: &str = "panic-4";
 
 		let _ = std::fs::File::create(FILE).unwrap();
 		let _deferred = Deferred::call(|| std::fs::remove_file(FILE).unwrap());
 
-		let mut file_stream = FileStream::open(FILE).unwrap();
+		let mut file_stream = FileStream::open(FILE).await.unwrap();
 		file_stream.configure(_boundary(
 			"boundary-boundary-boundary-boundary-boundary-boundary-boundary-boundary".into(),
 		));
 	}
 
-	#[test]
+	#[tokio::test]
 	#[should_panic = "boundary contains non-graphic character"]
-	fn invalid_boundary() {
+	async fn invalid_boundary() {
 		const FILE: &str = "panic-5";
 
 		let _ = std::fs::File::create(FILE).unwrap();
 		let _deferred = Deferred::call(|| std::fs::remove_file(FILE).unwrap());
 
-		let mut file_stream = FileStream::open(FILE).unwrap();
+		let mut file_stream = FileStream::open(FILE).await.unwrap();
 		file_stream.configure(_boundary("boundary\r".into()));
 	}
 }
