@@ -21,11 +21,9 @@ use http::{
 use http_body_util::BodyExt;
 use pin_project::pin_project;
 use serde::Serialize;
+use tokio::time::{interval, Interval, MissedTickBehavior};
 
-use crate::{
-	common::timer::{Interval, UninitializedTimer},
-	response::{IntoResponse, Response},
-};
+use crate::response::{IntoResponse, Response};
 
 // --------------------------------------------------------------------------------
 // --------------------------------------------------------------------------------
@@ -42,8 +40,8 @@ where
 {
 	/// Creates an event stream response.
 	pub fn new(stream: S) -> Self {
-		let interval = Interval::try_new(Duration::from_secs(15))
-			.expect("TIMER must be initialized for EventStream");
+		let mut interval = interval(Duration::from_secs(15));
+		interval.set_missed_tick_behavior(MissedTickBehavior::Delay);
 
 		Self {
 			inner: stream,
@@ -56,21 +54,10 @@ where
 	/// None turns off the keep-alive messages.
 	pub fn with_keep_alive_interval(mut self, some_duration: Option<Duration>) -> Self {
 		if let Some(duration) = some_duration {
-			self.keep_alive_interval =
-				self
-					.keep_alive_interval
-					.take()
-					.map(|mut interval| {
-						interval.set_duration(duration);
-						interval.reset();
+			let mut interval = interval(duration);
+			interval.set_missed_tick_behavior(MissedTickBehavior::Delay);
 
-						interval
-					})
-					.or_else(|| {
-						Some(Interval::try_new(duration).expect(
-							"a valid instance of EventStream should prove that the TIMER was initialized",
-						))
-					});
+			self.keep_alive_interval = Some(interval);
 
 			return self;
 		}
@@ -141,8 +128,7 @@ where
 			Poll::Pending => {
 				if let Some(interval) = self_projection.keep_alive_interval {
 					interval
-						.pin()
-						.poll(cx)
+						.poll_tick(cx)
 						.map(|_| Some(Ok(Frame::data(Event::keep_alive()))))
 				} else {
 					Poll::Pending
