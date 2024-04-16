@@ -5,7 +5,7 @@
 use std::{
 	pin::Pin,
 	task::{Context, Poll},
-	time::Duration,
+	time::{Duration, Instant},
 };
 
 use argan_core::{
@@ -21,7 +21,7 @@ use http::{
 use http_body_util::BodyExt;
 use pin_project::pin_project;
 use serde::Serialize;
-use tokio::time::{interval, Interval, MissedTickBehavior};
+use tokio::time::{interval_at, Interval, MissedTickBehavior};
 
 use crate::response::{IntoResponse, Response};
 
@@ -40,7 +40,10 @@ where
 {
 	/// Creates an event stream response.
 	pub fn new(stream: S) -> Self {
-		let mut interval = interval(Duration::from_secs(15));
+		let duration = Duration::from_secs(15);
+		let start_time = Instant::now() + duration;
+
+		let mut interval = interval_at(start_time.into(), duration);
 		interval.set_missed_tick_behavior(MissedTickBehavior::Delay);
 
 		Self {
@@ -54,7 +57,9 @@ where
 	/// None turns off the keep-alive messages.
 	pub fn with_keep_alive_interval(mut self, some_duration: Option<Duration>) -> Self {
 		if let Some(duration) = some_duration {
-			let mut interval = interval(duration);
+			let start_time = Instant::now() + duration;
+			let mut interval = interval_at(start_time.into(), duration);
+
 			interval.set_missed_tick_behavior(MissedTickBehavior::Delay);
 
 			self.keep_alive_interval = Some(interval);
@@ -358,8 +363,6 @@ impl IntoResponse for EventError {
 mod test {
 	use core::panic;
 
-	use crate::common::timer::set_timer;
-
 	use super::*;
 
 	// --------------------------------------------------------------------------------
@@ -536,8 +539,6 @@ mod test {
 
 		// --------------------------------------------------------------------------------
 		// --------------------------------------------------------------------------------
-
-		set_timer(TokioTimer::new());
 
 		let data = &Data {
 			name: "C-3PO",
