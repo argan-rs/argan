@@ -20,7 +20,7 @@ pub(crate) fn set_timer<T>(timer: T)
 where
 	T: RuntimeTimer + Send + Sync + 'static,
 {
-	TIMER.get_or_init(|| Timer(Box::new(timer)));
+	TIMER.set(Timer(Box::new(timer)));
 }
 
 // --------------------------------------------------
@@ -111,3 +111,5 @@ impl IntoResponse for UninitializedTimer {
 		StatusCode::INTERNAL_SERVER_ERROR.into_response()
 	}
 }
+
+// --------------------------------------------------------------------------------

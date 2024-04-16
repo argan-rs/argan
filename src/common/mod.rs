@@ -30,8 +30,6 @@ pub(crate) mod macros;
 pub mod config;
 pub use config::{_with_cookie_key, _with_request_extensions_modifier};
 
-pub(crate) mod timer;
-
 #[cfg(test)]
 pub(crate) mod test_helpers;
 
