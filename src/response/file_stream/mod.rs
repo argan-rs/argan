@@ -86,7 +86,7 @@ impl FileStream {
 	where
 		P: AsRef<Path> + Send + 'static,
 	{
-		let result = tokio::task::spawn_blocking(move || {
+		let result = tokio::task::spawn_blocking(|| {
 			let file = File::open(path)?;
 
 			let metadata = file.metadata()?;
@@ -121,7 +121,7 @@ impl FileStream {
 	where
 		P: AsRef<Path> + Send + 'static,
 	{
-		let result = tokio::task::spawn_blocking(move || {
+		let result = tokio::task::spawn_blocking(|| {
 			let file = File::open(path)?;
 
 			let metadata = file.metadata()?;
@@ -157,7 +157,7 @@ impl FileStream {
 
 	/// Creates a stream from a given file.
 	pub async fn from_file(file: File) -> Result<Self, FileStreamError> {
-		let result = tokio::task::spawn_blocking(move || {
+		let result = tokio::task::spawn_blocking(|| {
 			let metadata = file.metadata()?;
 			let file_size = metadata.len();
 
@@ -187,7 +187,7 @@ impl FileStream {
 		file: File,
 		content_coding: ContentCoding,
 	) -> Result<Self, FileStreamError> {
-		let result = tokio::task::spawn_blocking(move || {
+		let result = tokio::task::spawn_blocking(|| {
 			let metadata = file.metadata()?;
 			let file_size = metadata.len();
 
@@ -232,7 +232,7 @@ impl FileStream {
 			return Err(FileStreamError::InvalidRangeValue);
 		}
 
-		let result = tokio::task::spawn_blocking(move || {
+		let result = tokio::task::spawn_blocking(|| {
 			let file = File::open(path)?;
 
 			let metadata = file.metadata()?;
@@ -271,7 +271,7 @@ impl FileStream {
 			return Err(FileStreamError::InvalidRangeValue);
 		}
 
-		let result = tokio::task::spawn_blocking(move || {
+		let result = tokio::task::spawn_blocking(|| {
 			let metadata = file.metadata()?;
 			let file_size = metadata.len();
 

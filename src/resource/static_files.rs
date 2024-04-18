@@ -1,6 +1,7 @@
 use std::{
 	ffi::OsStr,
 	fs::Metadata,
+	future::Future,
 	io::Error as IoError,
 	os::unix::fs::MetadataExt,
 	path::{Path, PathBuf},
@@ -17,6 +18,7 @@ use http::{
 	HeaderMap, HeaderValue, Method, StatusCode,
 };
 use httpdate::HttpDate;
+use tokio::task::JoinError;
 
 use crate::{
 	common::{normalize_path, patterns_to_route, strip_double_quotes, Uncloneable, SCOPE_VALIDITY},
@@ -254,19 +256,15 @@ async fn get_handler(
 
 	let remaining_path = normalize_path(remaining_path.as_ref());
 
-	let (coding, path_buf, should_encode) = evaluate_optimal_coding(
+	let (coding, path_buf, path_metadata, should_encode) = evaluate_optimal_coding(
 		head.headers_ref(),
 		files_dir.as_ref(),
 		&remaining_path,
 		dynamic_encoding_props.enabled,
 		dynamic_encoding_props.min_file_size,
 		dynamic_encoding_props.max_file_size,
-	)?;
-
-	let path_metadata = match path_buf.metadata() {
-		Ok(metadata) => metadata,
-		Err(error) => return Err(StaticFileError::IoError(error)),
-	};
+	)
+	.await?;
 
 	let mime =
 		mime_guess::from_path(&remaining_path).first_or_else(|| mime::APPLICATION_OCTET_STREAM);
@@ -277,6 +275,7 @@ async fn get_handler(
 	let mut file_stream = {
 		if dynamic_encoding_props.enabled && should_encode && coding == "gzip" {
 			FileStream::open_with_encoding(path_buf, ContentCoding::Gzip(dynamic_encoding_props.level))
+				.await
 				.map_err(Into::<StaticFileError>::into)?
 		} else {
 			let mut file_stream = match evaluate_preconditions(
@@ -286,16 +285,16 @@ async fn get_handler(
 				&path_buf,
 				&path_metadata,
 			) {
-				PreconditionsResult::None => {
-					FileStream::open(path_buf).map_err(Into::<StaticFileError>::into)?
-				}
-				PreconditionsResult::Ranges(ranges) => {
-					FileStream::open_ranges(path_buf, ranges, true).map_err(Into::<StaticFileError>::into)?
-				}
+				PreconditionsResult::None => FileStream::open(path_buf)
+					.await
+					.map_err(Into::<StaticFileError>::into)?,
+				PreconditionsResult::Ranges(ranges) => FileStream::open_ranges(path_buf, ranges, true)
+					.await
+					.map_err(Into::<StaticFileError>::into)?,
 				PreconditionsResult::NotModified => return Ok(StatusCode::NOT_MODIFIED.into_response()),
 				PreconditionsResult::Failed => return Ok(StatusCode::PRECONDITION_FAILED.into_response()),
 				PreconditionsResult::InvalidDate => return Err(StaticFileError::InvalidHttpDate),
-				PreconditionsResult::IoError(error) => return Err(StaticFileError::IoError(error)),
+				PreconditionsResult::IoError(error) => return Err(StaticFileError::Io(error)),
 			};
 
 			file_stream.configure(_to_support_partial_content());
@@ -319,21 +318,21 @@ async fn get_handler(
 
 // ----------
 
-fn evaluate_optimal_coding<'h, P1: AsRef<Path>, P2: AsRef<str>>(
+async fn evaluate_optimal_coding<'h, P1: AsRef<Path>, P2: AsRef<str>>(
 	request_headers: &'h HeaderMap,
 	files_dir: P1,
 	relative_path_to_file: P2,
 	dynamic_compression: bool,
 	min_size_to_compress: u64,
 	max_size_to_compress: u64,
-) -> Result<(&'h str, PathBuf, bool), StaticFileError> {
+) -> Result<(&'h str, PathBuf, Metadata, bool), StaticFileError> {
 	let files_dir = files_dir.as_ref();
 	let relative_path_to_file = relative_path_to_file.as_ref();
 
 	if let Some(header_value) = request_headers.get(ACCEPT_ENCODING) {
 		let elements = split_header_value_with_weights(header_value)?;
 
-		let some_path_buf = if let Some(position) = elements.iter().position(
+		let some_path_buf_and_metadata = if let Some(position) = elements.iter().position(
 			|(value, _)| /* value.eq_ignore_ascii_case("br") || */ value.eq_ignore_ascii_case("gzip"),
 		) {
 			let /* encoding */ preferred_encoding = elements[position];
@@ -369,8 +368,17 @@ fn evaluate_optimal_coding<'h, P1: AsRef<Path>, P2: AsRef<str>>(
 					.join(preferred_encoding.0)
 					.join(relative_path_to_file);
 
-				if path_buf.is_file() {
-					return Ok((preferred_encoding.0, path_buf, false));
+				let result = tokio::task::spawn_blocking(|| {
+					let metadata = path_buf.metadata()?;
+
+					Result::<_, IoError>::Ok((path_buf, metadata))
+				})
+				.await?;
+
+				let (path_buf, metadata) = result?;
+
+				if metadata.is_file() {
+					return Ok((preferred_encoding.0, path_buf, metadata, false));
 				}
 
 				// if other_encoding.1 > 0.0 {
@@ -386,10 +394,13 @@ fn evaluate_optimal_coding<'h, P1: AsRef<Path>, P2: AsRef<str>>(
 				// 	}
 				// }
 
+				// We're returning the path_buf just to reuse its allocated memory.
 				Some(path_buf)
 			} else {
 				None
 			};
+
+			// We don't have a pre-encoded file. Now we must see whether there is an unencoded file.
 
 			let path_buf = if let Some(mut path_buf) = some_path_buf {
 				path_buf.clear();
@@ -403,29 +414,33 @@ fn evaluate_optimal_coding<'h, P1: AsRef<Path>, P2: AsRef<str>>(
 				files_dir.join(UNENCODED).join(relative_path_to_file)
 			};
 
-			if !path_buf.is_file() {
+			let result = tokio::task::spawn_blocking(|| {
+				let metadata = path_buf.metadata()?;
+
+				Result::<_, IoError>::Ok((path_buf, metadata))
+			})
+			.await?;
+
+			let (path_buf, metadata) = result?;
+
+			if !metadata.is_file() {
 				return Err(StaticFileError::FileNotFound);
 			}
 
-			match path_buf.metadata() {
-				Ok(metadata) => {
-					if dynamic_compression {
-						let file_size = metadata.size();
-						if file_size >= min_size_to_compress && file_size <= max_size_to_compress {
-							if preferred_encoding.1 > 0.0 {
-								return Ok((preferred_encoding.0, path_buf, true));
-							}
-
-							// if other_encoding.1 > 0.0 {
-							// 	return Ok((other_encoding.0, path_buf, true));
-							// }
-						}
+			if dynamic_compression {
+				let file_size = metadata.size();
+				if file_size >= min_size_to_compress && file_size <= max_size_to_compress {
+					if preferred_encoding.1 > 0.0 {
+						return Ok((preferred_encoding.0, path_buf, metadata, true));
 					}
 
-					Some(path_buf)
+					// if other_encoding.1 > 0.0 {
+					// 	return Ok((other_encoding.0, path_buf, true));
+					// }
 				}
-				Err(io_error) => return Err(io_error.into()),
 			}
+
+			Some((path_buf, metadata))
 		} else {
 			None
 		};
@@ -434,16 +449,26 @@ fn evaluate_optimal_coding<'h, P1: AsRef<Path>, P2: AsRef<str>>(
 			(value.eq_ignore_ascii_case("identity") && *weight == 0.0)
 				|| (value.eq_ignore_ascii_case("*") && *weight == 0.0)
 		}) {
-			if some_path_buf.is_some() {
+			if some_path_buf_and_metadata.is_some() {
 				// Identity is forbidden. Elements cointain gzip, but we don't have
 				// the compressed file, and we can't dynamically compress.
 				return Err(StaticFileError::AcceptEncoding("identity"));
 			}
 
-			// Elements don't have gzip, and identity is forbidden.
+			// We don't have a path, which means elements don't have gzip,
+			// and identity is forbidden.
 
 			let path_buf = files_dir.join(UNENCODED).join(relative_path_to_file);
-			if !path_buf.is_file() {
+			let result = tokio::task::spawn_blocking(move || {
+				let metadata = path_buf.metadata()?;
+
+				Result::<_, IoError>::Ok(metadata)
+			})
+			.await?;
+
+			let metadata = result?;
+
+			if !metadata.is_file() {
 				return Err(StaticFileError::FileNotFound);
 			}
 
@@ -451,17 +476,26 @@ fn evaluate_optimal_coding<'h, P1: AsRef<Path>, P2: AsRef<str>>(
 			return Err(StaticFileError::AcceptEncoding("gzip, identity"));
 		}
 
-		if let Some(path_buf) = some_path_buf {
-			return Ok(("", path_buf, false));
+		if let Some((path_buf, metadata)) = some_path_buf_and_metadata {
+			return Ok(("", path_buf, metadata, false));
 		}
 	}
 
 	let path_buf = files_dir.join(UNENCODED).join(relative_path_to_file);
-	if !path_buf.is_file() {
+
+	let result = tokio::task::spawn_blocking(|| {
+		let metadata = path_buf.metadata()?;
+
+		Result::<_, IoError>::Ok((path_buf, metadata))
+	}).await?;
+
+	let (path_buf, metadata) = result?;
+
+	if !metadata.is_file() {
 		return Err(StaticFileError::FileNotFound);
 	}
 
-	Ok(("", path_buf, false))
+	Ok(("", path_buf, metadata, false))
 }
 
 fn evaluate_preconditions<'r>(
@@ -666,7 +700,9 @@ pub enum StaticFileError {
 	#[error("Accept-Encoding must be {0}")]
 	AcceptEncoding(&'static str),
 	#[error(transparent)]
-	IoError(#[from] IoError),
+	Io(#[from] IoError),
+	#[error(transparent)]
+	Runtime(#[from] JoinError),
 	#[error(transparent)]
 	FileStreamFailure(#[from] FileStreamError),
 }
@@ -687,7 +723,7 @@ impl IntoResponse for StaticFileError {
 					.headers_mut()
 					.insert(ACCEPT_ENCODING, HeaderValue::from_static(codings));
 			}
-			Self::IoError(_) => *response.status_mut() = StatusCode::INTERNAL_SERVER_ERROR,
+			Self::Io(_) | Self::Runtime(_) => *response.status_mut() = StatusCode::INTERNAL_SERVER_ERROR,
 			Self::FileStreamFailure(error) => return error.into_response(),
 		}
 
