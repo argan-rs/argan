@@ -2,7 +2,7 @@ use std::{
 	ffi::OsStr,
 	fs::Metadata,
 	future::Future,
-	io::Error as IoError,
+	io::{Error as IoError, ErrorKind},
 	os::unix::fs::MetadataExt,
 	path::{Path, PathBuf},
 	str::FromStr,
@@ -368,16 +368,9 @@ async fn evaluate_optimal_coding<'h, P1: AsRef<Path>, P2: AsRef<str>>(
 					.join(preferred_encoding.0)
 					.join(relative_path_to_file);
 
-				let result = tokio::task::spawn_blocking(|| {
-					let metadata = path_buf.metadata()?;
+				let (path_buf, some_metadata) = file_metadata(path_buf).await?;
 
-					Result::<_, IoError>::Ok((path_buf, metadata))
-				})
-				.await?;
-
-				let (path_buf, metadata) = result?;
-
-				if metadata.is_file() {
+				if let Some(metadata) = some_metadata {
 					return Ok((preferred_encoding.0, path_buf, metadata, false));
 				}
 
@@ -414,18 +407,11 @@ async fn evaluate_optimal_coding<'h, P1: AsRef<Path>, P2: AsRef<str>>(
 				files_dir.join(UNENCODED).join(relative_path_to_file)
 			};
 
-			let result = tokio::task::spawn_blocking(|| {
-				let metadata = path_buf.metadata()?;
+			let (path_buf, some_metadata) = file_metadata(path_buf).await?;
 
-				Result::<_, IoError>::Ok((path_buf, metadata))
-			})
-			.await?;
-
-			let (path_buf, metadata) = result?;
-
-			if !metadata.is_file() {
+			let Some(metadata) = some_metadata else {
 				return Err(StaticFileError::FileNotFound);
-			}
+			};
 
 			if dynamic_compression {
 				let file_size = metadata.size();
@@ -459,16 +445,9 @@ async fn evaluate_optimal_coding<'h, P1: AsRef<Path>, P2: AsRef<str>>(
 			// and identity is forbidden.
 
 			let path_buf = files_dir.join(UNENCODED).join(relative_path_to_file);
-			let result = tokio::task::spawn_blocking(move || {
-				let metadata = path_buf.metadata()?;
+			let (_, some_metadata) = file_metadata(path_buf).await?;
 
-				Result::<_, IoError>::Ok(metadata)
-			})
-			.await?;
-
-			let metadata = result?;
-
-			if !metadata.is_file() {
+			if some_metadata.is_none() {
 				return Err(StaticFileError::FileNotFound);
 			}
 
@@ -483,19 +462,33 @@ async fn evaluate_optimal_coding<'h, P1: AsRef<Path>, P2: AsRef<str>>(
 
 	let path_buf = files_dir.join(UNENCODED).join(relative_path_to_file);
 
-	let result = tokio::task::spawn_blocking(|| {
-		let metadata = path_buf.metadata()?;
+	let (path_buf, some_metadata) = file_metadata(path_buf).await?;
 
-		Result::<_, IoError>::Ok((path_buf, metadata))
-	}).await?;
-
-	let (path_buf, metadata) = result?;
-
-	if !metadata.is_file() {
+	let Some(metadata) = some_metadata else {
 		return Err(StaticFileError::FileNotFound);
-	}
+	};
 
 	Ok(("", path_buf, metadata, false))
+}
+
+async fn file_metadata(path_buf: PathBuf) -> Result<(PathBuf, Option<Metadata>), StaticFileError> {
+	tokio::task::spawn_blocking(|| match path_buf.metadata() {
+		Ok(metadata) => {
+			if metadata.is_file() {
+				Ok((path_buf, Some(metadata)))
+			} else {
+				Ok((path_buf, None))
+			}
+		}
+		Err(error) => {
+			if error.kind() == ErrorKind::NotFound {
+				Ok((path_buf, None))
+			} else {
+				Err(error.into())
+			}
+		}
+	})
+	.await?
 }
 
 fn evaluate_preconditions<'r>(

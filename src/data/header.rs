@@ -166,7 +166,7 @@ pub enum SplitHeaderValueError {
 // --------------------------------------------------------------------------------
 
 #[cfg(test)]
-mod tempt_test {
+mod test {
 	use http::{header, HeaderMap, HeaderValue};
 
 	use super::HeaderMapExt;
