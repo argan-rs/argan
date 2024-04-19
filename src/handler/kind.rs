@@ -1,12 +1,9 @@
 use std::str::FromStr;
 
-use argan_core::body::Body;
+use argan_core::{body::Body, response::Response, BoxedFuture};
 use http::Method;
 
-use crate::{
-	middleware::{IntoResponseResultAdapter, ResponseResultFutureBoxer},
-	response::{BoxedErrorResponse, IntoResponse},
-};
+use crate::response::{BoxedErrorResponse, IntoResponse};
 
 use super::{BoxedHandler, FinalHandler, Handler, IntoHandler};
 
@@ -41,13 +38,16 @@ macro_rules! handler_kind_by_method {
 		pub fn $func<H, Mark>(handler: H) -> HandlerKind
 		where
 			H: IntoHandler<Mark, Body>,
-			H::Handler: Handler + Clone + Send + Sync + 'static,
-			<H::Handler as Handler>::Response: IntoResponse,
-			<H::Handler as Handler>::Error: Into<BoxedErrorResponse>,
-			<H::Handler as Handler>::Future: Send,
+			H::Handler: Handler<
+					Response = Response,
+					Error = BoxedErrorResponse,
+					Future = BoxedFuture<Result<Response, BoxedErrorResponse>>,
+				> + Clone
+				+ Send
+				+ Sync
+				+ 'static,
 		{
-			let final_handler =
-				ResponseResultFutureBoxer::wrap(IntoResponseResultAdapter::wrap(handler.into_handler()));
+			let final_handler = handler.into_handler();
 
 			HandlerKind::Method($http_method, final_handler.into_boxed_handler())
 		}
@@ -68,16 +68,19 @@ pub fn _method<M, H, Mark>(method: M, handler: H) -> HandlerKind
 where
 	M: AsRef<str>,
 	H: IntoHandler<Mark, Body>,
-	H::Handler: Handler + Clone + Send + Sync + 'static,
-	<H::Handler as Handler>::Response: IntoResponse,
-	<H::Handler as Handler>::Error: Into<BoxedErrorResponse>,
-	<H::Handler as Handler>::Future: Send,
+	H::Handler: Handler<
+			Response = Response,
+			Error = BoxedErrorResponse,
+			Future = BoxedFuture<Result<Response, BoxedErrorResponse>>,
+		> + Clone
+		+ Send
+		+ Sync
+		+ 'static,
 {
 	let method = Method::from_str(method.as_ref())
 		.expect("HTTP method should be a valid token [RFC 9110, 5.6.2 Tokens]");
 
-	let final_handler =
-		ResponseResultFutureBoxer::wrap(IntoResponseResultAdapter::wrap(handler.into_handler()));
+	let final_handler = handler.into_handler();
 
 	HandlerKind::Method(method, final_handler.into_boxed_handler())
 }
@@ -85,15 +88,19 @@ where
 pub fn _wildcard_method<H, Mark>(some_handler: Option<H>) -> HandlerKind
 where
 	H: IntoHandler<Mark, Body>,
-	H::Handler: Handler + Clone + Send + Sync + 'static,
-	<H::Handler as Handler>::Response: IntoResponse,
-	<H::Handler as Handler>::Error: Into<BoxedErrorResponse>,
-	<H::Handler as Handler>::Future: Send,
+	H::Handler: Handler<
+			Response = Response,
+			Error = BoxedErrorResponse,
+			Future = BoxedFuture<Result<Response, BoxedErrorResponse>>,
+		> + Clone
+		+ Send
+		+ Sync
+		+ 'static,
 {
 	let some_final_handler = some_handler.map(|handler| {
-		let handler = handler.into_handler();
+		let final_handler = handler.into_handler();
 
-		ResponseResultFutureBoxer::wrap(IntoResponseResultAdapter::wrap(handler)).into_boxed_handler()
+		final_handler.into_boxed_handler()
 	});
 
 	HandlerKind::WildcardMethod(some_final_handler)
@@ -102,13 +109,16 @@ where
 pub fn _mistargeted_request<H, Mark>(handler: H) -> HandlerKind
 where
 	H: IntoHandler<Mark, Body>,
-	H::Handler: Handler + Clone + Send + Sync + 'static,
-	<H::Handler as Handler>::Response: IntoResponse,
-	<H::Handler as Handler>::Error: Into<BoxedErrorResponse>,
-	<H::Handler as Handler>::Future: Send,
+	H::Handler: Handler<
+			Response = Response,
+			Error = BoxedErrorResponse,
+			Future = BoxedFuture<Result<Response, BoxedErrorResponse>>,
+		> + Clone
+		+ Send
+		+ Sync
+		+ 'static,
 {
-	let final_handler =
-		ResponseResultFutureBoxer::wrap(IntoResponseResultAdapter::wrap(handler.into_handler()));
+	let final_handler = handler.into_handler();
 
 	HandlerKind::MistargetedRequest(final_handler.into_boxed_handler())
 }

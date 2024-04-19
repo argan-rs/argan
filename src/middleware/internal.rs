@@ -51,90 +51,90 @@ use super::Layer;
 
 // --------------------------------------------------------------------------------
 
-#[derive(Clone)]
-pub(crate) struct IntoResponseResultAdapter<H>(H);
-
-impl<H, B> Handler<B> for IntoResponseResultAdapter<H>
-where
-	H: Handler<B>,
-	H::Response: IntoResponse,
-	H::Error: Into<BoxedErrorResponse>,
-{
-	type Response = Response;
-	type Error = BoxedErrorResponse;
-	type Future = IntoResponseResultFuture<H::Future>;
-
-	#[inline]
-	fn handle(&self, request: RequestContext<B>, args: Args) -> Self::Future {
-		let response_future = self.0.handle(request, args);
-
-		IntoResponseResultFuture::from(response_future)
-	}
-}
-
-impl<H> IntoResponseResultAdapter<H> {
-	#[inline]
-	pub(crate) fn wrap(handler: H) -> Self {
-		Self(handler)
-	}
-}
-
-// ----------
-
-#[pin_project]
-pub(crate) struct IntoResponseResultFuture<F>(#[pin] F);
-
-impl<F> From<F> for IntoResponseResultFuture<F> {
-	fn from(inner: F) -> Self {
-		Self(inner)
-	}
-}
-
-impl<F, R, E> Future for IntoResponseResultFuture<F>
-where
-	F: Future<Output = Result<R, E>>,
-	R: IntoResponse,
-	E: Into<BoxedErrorResponse>,
-{
-	type Output = Result<Response, BoxedErrorResponse>;
-
-	#[inline]
-	fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-		self
-			.project()
-			.0
-			.poll(cx)
-			.map(|output| output.map(IntoResponse::into_response).map_err(Into::into))
-	}
-}
+// #[derive(Clone)]
+// pub(crate) struct IntoResponseResultAdapter<H>(H);
+//
+// impl<H, B> Handler<B> for IntoResponseResultAdapter<H>
+// where
+// 	H: Handler<B>,
+// 	H::Response: IntoResponse,
+// 	H::Error: Into<BoxedErrorResponse>,
+// {
+// 	type Response = Response;
+// 	type Error = BoxedErrorResponse;
+// 	type Future = IntoResponseResultFuture<H::Future>;
+//
+// 	#[inline]
+// 	fn handle(&self, request: RequestContext<B>, args: Args) -> Self::Future {
+// 		let response_future = self.0.handle(request, args);
+//
+// 		IntoResponseResultFuture::from(response_future)
+// 	}
+// }
+//
+// impl<H> IntoResponseResultAdapter<H> {
+// 	#[inline]
+// 	pub(crate) fn wrap(handler: H) -> Self {
+// 		Self(handler)
+// 	}
+// }
+//
+// // ----------
+//
+// #[pin_project]
+// pub(crate) struct IntoResponseResultFuture<F>(#[pin] F);
+//
+// impl<F> From<F> for IntoResponseResultFuture<F> {
+// 	fn from(inner: F) -> Self {
+// 		Self(inner)
+// 	}
+// }
+//
+// impl<F, R, E> Future for IntoResponseResultFuture<F>
+// where
+// 	F: Future<Output = Result<R, E>>,
+// 	R: IntoResponse,
+// 	E: Into<BoxedErrorResponse>,
+// {
+// 	type Output = Result<Response, BoxedErrorResponse>;
+//
+// 	#[inline]
+// 	fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+// 		self
+// 			.project()
+// 			.0
+// 			.poll(cx)
+// 			.map(|output| output.map(IntoResponse::into_response).map_err(Into::into))
+// 	}
+// }
 
 // --------------------------------------------------------------------------------
 
-#[derive(Clone)]
-pub(crate) struct ResponseResultFutureBoxer<H>(H);
-
-impl<H, B> Handler<B> for ResponseResultFutureBoxer<H>
-where
-	H: Handler<B, Response = Response, Error = BoxedErrorResponse>,
-	H::Future: Send + 'static,
-{
-	type Response = H::Response;
-	type Error = H::Error;
-	type Future = BoxedFuture<Result<Self::Response, Self::Error>>;
-
-	fn handle(&self, request: RequestContext<B>, args: Args) -> Self::Future {
-		let response_future = self.0.handle(request, args);
-
-		Box::pin(response_future)
-	}
-}
-
-impl<H> ResponseResultFutureBoxer<H> {
-	#[inline]
-	pub(crate) fn wrap(handler: H) -> Self {
-		Self(handler)
-	}
-}
+// #[derive(Clone)]
+// pub(crate) struct ResponseResultFutureBoxer<H>(H);
+//
+// impl<H, B> Handler<B> for ResponseResultFutureBoxer<H>
+// where
+// 	H: Handler<B, Response = Response, Error = BoxedErrorResponse>,
+// 	H::Future: Send + 'static,
+// {
+// 	type Response = H::Response;
+// 	type Error = H::Error;
+// 	type Future = BoxedFuture<Result<Self::Response, Self::Error>>;
+//
+// 	fn handle(&self, request: RequestContext<B>, args: Args) -> Self::Future {
+// 		let response_future = self.0.handle(request, args);
+//
+// 		Box::pin(response_future)
+// 	}
+// }
+//
+// impl<H> ResponseResultFutureBoxer<H> {
+// 	#[inline]
+// 	pub(crate) fn wrap(handler: H) -> Self {
+// 		Self(handler)
+// 	}
+// }
 
 // --------------------------------------------------------------------------------
 

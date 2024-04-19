@@ -10,7 +10,7 @@ use http::{header::InvalidHeaderValue, Extensions, HeaderName, HeaderValue, Meth
 use crate::{
 	common::{marker::Private, Uncloneable},
 	data::extensions::NodeExtensions,
-	middleware::{targets::LayerTarget, BoxedLayer, Layer, ResponseResultFutureBoxer},
+	middleware::{targets::LayerTarget, BoxedLayer, Layer},
 	request::{Request, RequestContext},
 	resource::Resource,
 	response::{BoxedErrorResponse, IntoResponse, Response, ResponseError},
@@ -137,9 +137,7 @@ impl WildcardMethodHandler {
 
 	pub(crate) fn wrap(&mut self, boxed_layer: BoxedLayer) {
 		let boxed_handler = match self {
-			Self::Default => {
-				BoxedHandler::new(ResponseResultFutureBoxer::wrap(UnimplementedMethodHandler))
-			}
+			Self::Default => BoxedHandler::new(UnimplementedMethodHandler),
 			Self::Custom(boxed_handler) => std::mem::take(boxed_handler),
 			Self::None(_) => panic!("middleware was provided for a forbidden wildcard method handler"),
 		};
@@ -264,13 +262,10 @@ impl MistargetedRequestHandler {
 impl Handler for MistargetedRequestHandler {
 	type Response = Response;
 	type Error = BoxedErrorResponse;
-	type Future = Ready<Result<Self::Response, Self::Error>>;
+	type Future = BoxedFuture<Result<Self::Response, Self::Error>>;
 
 	fn handle(&self, _request: RequestContext, _args: Args) -> Self::Future {
-		let mut response = Response::default();
-		*response.status_mut() = StatusCode::NOT_FOUND;
-
-		ready(Ok(response))
+		Box::pin(async { Ok(StatusCode::NOT_FOUND.into_response()) })
 	}
 }
 
@@ -291,7 +286,7 @@ pub(crate) fn wrap_mistargeted_request_handler(
 					Some(boxed_layer.wrap(AdaptiveHandler::from(boxed_mistargeted_request_handler)));
 			} else {
 				let boxed_mistargeted_request_handler =
-					ResponseResultFutureBoxer::wrap(MistargetedRequestHandler::new()).into_boxed_handler();
+					MistargetedRequestHandler::new().into_boxed_handler();
 
 				some_mistargeted_request_handler =
 					Some(boxed_layer.wrap(AdaptiveHandler::from(boxed_mistargeted_request_handler)));
