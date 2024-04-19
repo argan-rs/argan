@@ -32,7 +32,7 @@ use crate::{
 // --------------------------------------------------
 
 pub(crate) mod futures;
-use futures::{DefaultResponseFuture, ResponseToResultFuture, ResultToResponseFuture};
+use futures::{ResponseToResultFuture, ResultToResponseFuture};
 
 mod impls;
 pub(crate) use impls::*;
@@ -43,7 +43,7 @@ pub use kind::{
 	_trace, _wildcard_method,
 };
 
-use self::futures::{ResponseBodyAdapterFuture, ResponseResultHandlerFuture};
+use self::futures::ResponseBodyAdapterFuture;
 
 pub(crate) mod request_handlers;
 
@@ -168,13 +168,13 @@ where
 // ResponseResultHandler
 
 #[derive(Clone)]
-pub struct ResponseResultHandler<H, E> {
+pub struct ResponseResultHandler<H, ErrH> {
 	inner: H,
-	error_handler: E,
+	error_handler: ErrH,
 }
 
-impl<H, E> ResponseResultHandler<H, E> {
-	pub(crate) fn new(inner: H, error_handler: E) -> Self {
+impl<H, ErrH> ResponseResultHandler<H, ErrH> {
+	pub(crate) fn new(inner: H, error_handler: ErrH) -> Self {
 		Self {
 			inner,
 			error_handler,
@@ -184,21 +184,31 @@ impl<H, E> ResponseResultHandler<H, E> {
 
 impl<H, B, Ext, ErrH> Handler<B, Ext> for ResponseResultHandler<H, ErrH>
 where
-	H: Handler<B, Ext>,
-	H::Response: IntoResponse,
-	H::Error: Into<BoxedErrorResponse>,
+	H: Handler<
+		B,
+		Ext,
+		Response = Response,
+		Error = BoxedErrorResponse,
+		Future = BoxedFuture<Result<Response, BoxedErrorResponse>>,
+	>,
 	Ext: Clone,
-	ErrH: ErrorHandler<H::Error> + Clone,
+	ErrH: ErrorHandler<H::Error> + Clone + Send + 'static,
 {
 	type Response = Response;
 	type Error = H::Error;
-	type Future = ResponseResultHandlerFuture<H::Future, ErrH>;
+	type Future = BoxedFuture<Result<Self::Response, Self::Error>>;
 
 	#[inline]
 	fn handle(&self, request: RequestContext<B>, args: Args<'_, Ext>) -> Self::Future {
 		let future = self.inner.handle(request, args);
+		let mut error_handler_clone = self.error_handler.clone();
 
-		ResponseResultHandlerFuture::new(future, self.error_handler.clone())
+		Box::pin(async move {
+			match future.await {
+				Ok(response) => Ok(response.into_response()),
+				Err(error) => error_handler_clone.handle_error(error).await,
+			}
+		})
 	}
 }
 
@@ -392,9 +402,7 @@ impl BoxedHandler {
 impl Default for BoxedHandler {
 	#[inline(always)]
 	fn default() -> Self {
-		Self(Box::new(DummyHandler::<
-			BoxedFuture<Result<Response, BoxedErrorResponse>>,
-		>::new()))
+		Self(Box::new(DummyHandler))
 	}
 }
 
@@ -433,9 +441,7 @@ impl ArcHandler {
 impl Default for ArcHandler {
 	#[inline(always)]
 	fn default() -> Self {
-		Self(Arc::new(DummyHandler::<
-			BoxedFuture<Result<Response, BoxedErrorResponse>>,
-		>::new()))
+		Self(Arc::new(DummyHandler))
 	}
 }
 
@@ -459,61 +465,16 @@ impl Handler for ArcHandler {
 // --------------------------------------------------------------------------------
 // DummyHandler
 
-pub(crate) struct DummyHandler<F> {
-	_future_mark: PhantomData<fn() -> F>,
-}
+#[derive(Clone)]
+pub(crate) struct DummyHandler;
 
-impl DummyHandler<DefaultResponseFuture> {
-	pub(crate) fn new() -> Self {
-		Self {
-			_future_mark: PhantomData,
-		}
-	}
-}
-
-impl Clone for DummyHandler<DefaultResponseFuture> {
-	fn clone(&self) -> Self {
-		Self {
-			_future_mark: PhantomData,
-		}
-	}
-}
-
-impl Handler for DummyHandler<DefaultResponseFuture> {
-	type Response = Response;
-	type Error = BoxedErrorResponse;
-	type Future = DefaultResponseFuture;
-
-	#[inline(always)]
-	fn handle(&self, _req: RequestContext, _args: Args) -> Self::Future {
-		DefaultResponseFuture::new()
-	}
-}
-
-impl DummyHandler<BoxedFuture<Result<Response, BoxedErrorResponse>>> {
-	pub(crate) fn new() -> Self {
-		Self {
-			_future_mark: PhantomData,
-		}
-	}
-}
-
-impl Clone for DummyHandler<BoxedFuture<Result<Response, BoxedErrorResponse>>> {
-	fn clone(&self) -> Self {
-		Self {
-			_future_mark: PhantomData,
-		}
-	}
-}
-
-impl Handler for DummyHandler<BoxedFuture<Result<Response, BoxedErrorResponse>>> {
+impl Handler for DummyHandler {
 	type Response = Response;
 	type Error = BoxedErrorResponse;
 	type Future = BoxedFuture<Result<Self::Response, Self::Error>>;
 
-	#[inline(always)]
-	fn handle(&self, _req: RequestContext, _args: Args) -> Self::Future {
-		Box::pin(DefaultResponseFuture::new())
+	fn handle(&self, request: RequestContext<Body>, args: Args<'_, ()>) -> Self::Future {
+		Box::pin(async { Ok(Response::default()) })
 	}
 }
 
