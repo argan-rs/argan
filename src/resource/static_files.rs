@@ -24,7 +24,7 @@ use crate::{
 	common::{normalize_path, patterns_to_route, strip_double_quotes, Uncloneable, SCOPE_VALIDITY},
 	data::header::{split_header_value_with_weights, SplitHeaderValueError},
 	handler::{_get, request_handlers::handle_mistargeted_request, Handler, IntoHandler},
-	request::{FromRequest, RemainingPath, Request, RequestContext, RequestHead},
+	request::{FromRequest, Request, RequestContext, RequestHead},
 	response::{
 		file_stream::{
 			ContentCoding, FileStream, FileStreamError, _as_attachment, _content_encoding, _content_type,
