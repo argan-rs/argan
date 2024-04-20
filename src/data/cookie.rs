@@ -1,3 +1,7 @@
+//! HTTP cookies.
+
+// ----------
+
 use std::{
 	borrow::{Borrow, BorrowMut, Cow},
 	convert::Infallible,
@@ -25,10 +29,7 @@ use crate::{
 // --------------------------------------------------------------------------------
 // --------------------------------------------------------------------------------
 
-pub use cookie::{
-	prefix::{Host as PrefixHost, Secure as PrefixSecure},
-	Cookie, CookieBuilder, Expiration, Iter, Key, KeyError, ParseError, SameSite,
-};
+pub use cookie::{Cookie, CookieBuilder, Expiration, Iter, Key, KeyError, ParseError, SameSite};
 
 // --------------------------------------------------------------------------------
 
@@ -37,6 +38,7 @@ const NO_KEY: &'static str = "key should have been set";
 // --------------------------------------------------
 // Cookies
 
+/// Cookies extracted from a request and send in a response.
 #[derive(Default)]
 pub struct CookieJar {
 	inner: InnerCookieJar,
@@ -45,6 +47,7 @@ pub struct CookieJar {
 
 impl CookieJar {
 	#[inline(always)]
+	/// Creates a new, empty jar.
 	pub fn new() -> CookieJar {
 		Self {
 			inner: InnerCookieJar::new(),
@@ -52,6 +55,7 @@ impl CookieJar {
 		}
 	}
 
+	/// Sets the cryptographic `Key` used for *private* and *signed* cookies.
 	#[inline(always)]
 	pub fn with_key<K>(mut self, key: K) -> CookieJar
 	where
@@ -62,10 +66,29 @@ impl CookieJar {
 		self
 	}
 
+	/// Clones the `Key`.
 	pub fn clone_key(&mut self) -> Key {
 		self.some_key.as_ref().expect(NO_KEY).clone()
 	}
 
+	/// Adds the cookies into the jar.
+	///
+	/// ```
+	/// use argan::data::cookie::{Cookie, CookieJar, Key, _plain, _private};
+	///
+	/// let mut jar = CookieJar::new().with_key(Key::generate());
+	///
+	/// let cookie = Cookie::new("some_cokie_1", "value");
+	///
+	/// jar.add([
+	///		_plain(cookie),
+	///		_plain(("some_cookie_2", "value")),
+	///		_private(("some_private_cookie", "value")),
+	/// ]);
+	/// ```
+	///
+	/// # Panics
+	/// - when addding a *private* or *signed* `Cookie` if the jar wasn't created with a `Key`.
 	pub fn add<C, const N: usize>(&mut self, cookies: C)
 	where
 		C: IntoArray<CookieKind, N>,
@@ -88,11 +111,18 @@ impl CookieJar {
 		}
 	}
 
+	/// If exists, returns the *plain* `Cookie` with the given `name`. Otherwise, `None` is returned.
 	#[inline(always)]
 	pub fn plain_cookie<S: AsRef<str>>(&self, name: S) -> Option<&Cookie<'static>> {
 		self.inner.get(name.as_ref())
 	}
 
+	/// If exists, retrieves the *private* `Cookie` with the given `name`, authenticates and decrypts
+	/// it with the jar's `Key`, and returns it as a *plain* `Cookie`. If the `Cookie` doesn't exist
+	/// or the authentication and decryption fail, `None` is returned.
+	///
+	/// # Panics
+	/// - if the jar wasn't created with a `Key`.
 	#[inline(always)]
 	pub fn private_cookie<S: AsRef<str>>(&self, name: S) -> Option<Cookie<'static>> {
 		self
@@ -101,6 +131,12 @@ impl CookieJar {
 			.get(name.as_ref())
 	}
 
+	/// If exists, retrieves the *signed* `Cookie` with the given `name`, verifies its
+	/// authenticity and integrity with the jar's `Key`, and returns it as a *plain* `Cookie`.
+	/// If the `Cookie` doesn't exist or the verification fails, `None` is returned.
+	///
+	/// # Panics
+	/// - if the jar wasn't created with a `Key`.
 	#[inline(always)]
 	pub fn signed_cookie<S: AsRef<str>>(&self, name: S) -> Option<Cookie<'static>> {
 		self
@@ -109,6 +145,39 @@ impl CookieJar {
 			.get(name.as_ref())
 	}
 
+	/// Removes the cookies from the jar.
+	///
+	/// If the cookies in the jar were extracted from a request, removing a cookie creates
+	/// a *removal* cookie (a cookie that has the same name as the original but has an empty
+	/// value, a max-age of 0, and an expiration date in the past). If the original cookie
+	/// was set with a `path` and/or `domain`, the cookie passed to `remove()` must have the
+	/// same `path` and/or `domain` to properly create a *removal* cookie.
+	///
+	/// ```
+	/// use argan::{
+	///		resource::Resource,
+	///		request::RequestHead,
+	///		handler::_get,
+	///		data::cookie::{Cookie, CookieJar, Key, _plain, _private},
+	///	};
+	///
+	/// async fn handler(mut request_head: RequestHead) -> CookieJar {
+	///		let mut jar = request_head.cookies();
+	///
+	/// 	let cookie = Cookie::build("some_cookie").path("/resource").domain("example.com");
+	///
+	/// 	jar.remove([
+	///			_plain(cookie),
+	///			_plain("some_cookie_2"),
+	///			_private("some_private_cookie"),
+	/// 	]);
+	///
+	/// 	jar
+	/// }
+	///
+	///	let mut resource = Resource::new("/");
+	///	resource.set_handler_for(_get(handler));
+	/// ```
 	pub fn remove<C, const N: usize>(&mut self, cookies: C)
 	where
 		C: IntoArray<CookieKind, N>,
@@ -127,6 +196,11 @@ impl CookieJar {
 		}
 	}
 
+	/// Converts the `CookieJar` into `PrivateCookieJar`. Can be used when working only with
+	/// private cookies.
+	///
+	/// # Panics
+	/// - if the `CookieJar` wasn't created with a `Key`.
 	#[inline(always)]
 	pub fn into_private_jar(self) -> PrivateCookieJar {
 		PrivateCookieJar {
@@ -135,6 +209,11 @@ impl CookieJar {
 		}
 	}
 
+	/// Converts the `CookieJar` into `SignedCookieJar`. Can be used when working only with
+	/// signed cookies.
+	///
+	/// # Panics
+	/// - if the `CookieJar` wasn't created with a `Key`.
 	#[inline(always)]
 	pub fn into_signed_jar(self) -> SignedCookieJar {
 		SignedCookieJar {
@@ -143,10 +222,11 @@ impl CookieJar {
 		}
 	}
 
-	// #[inline(always)]
-	// pub fn iter(&self) -> Iter<'_> {
-	// 	self.inner.iter()
-	// }
+	/// Returns an iterator over all of the cookies in the jar.
+	#[inline(always)]
+	pub fn iter(&self) -> Iter<'_> {
+		self.inner.iter()
+	}
 }
 
 pub(crate) fn cookies_from_request(head: &HeaderMap, some_key: Option<Key>) -> CookieJar {
@@ -208,32 +288,44 @@ impl IntoResponse for CookieJar {
 
 // -------------------------
 
+/// A private cookie jar that automatically encrypts the added cookies and decrypts
+/// the retrieved cookies.
 pub struct PrivateCookieJar {
 	inner: InnerCookieJar,
 	key: Key,
 }
 
 impl PrivateCookieJar {
+	/// If exists, retrieves the *private* `Cookie` with the given `name`, authenticates and
+	/// decrypts it with the jar's `Key`, and returns it as a *plain* `Cookie`. If the cookie
+	/// doesn't exist or the authentication and decryption fail, `None` is returned.
 	#[inline(always)]
 	pub fn get<S: AsRef<str>>(&self, name: S) -> Option<Cookie<'static>> {
 		self.inner.private(&self.key).get(name.as_ref())
 	}
 
+	/// Adds the given cookie to the jar, encrypting its value.
 	#[inline(always)]
 	pub fn add<C: Into<Cookie<'static>>>(&mut self, cookie: C) {
 		self.inner.private_mut(&self.key).add(cookie.into());
 	}
 
+	/// Removes the *private* `Cookie` from the jar.
+	///
+	/// The creation of the *removal* cookie is the same as for [CookieJar::remove()].
 	#[inline(always)]
 	pub fn remove<C: Into<Cookie<'static>>>(&mut self, cookie: C) {
 		self.inner.private_mut(&self.key).remove(cookie.into());
 	}
 
+	/// Authenticates and decrypts the given cookie. If decryption succeeds, returns it
+	/// as a *plain* `Cookie`. Otherwise `None` is returned.
 	#[inline(always)]
 	pub fn decrypt(&mut self, cookie: Cookie<'static>) -> Option<Cookie<'static>> {
 		self.inner.private_mut(&self.key).decrypt(cookie)
 	}
 
+	/// Converts the `PrivateCookieJar` back to `CookieJar`.
 	#[inline(always)]
 	pub fn into_jar(self) -> CookieJar {
 		CookieJar {
@@ -265,32 +357,44 @@ impl IntoResponse for PrivateCookieJar {
 
 // -------------------------
 
+/// A signed cookie jar that automatically signs the added cookies and verifies the
+/// authenticity and integrity of the retrieved cookies.
 pub struct SignedCookieJar {
 	inner: InnerCookieJar,
 	key: Key,
 }
 
 impl SignedCookieJar {
+	/// If exists, retrieves the *signed* `Cookie` with the given `name`, verifies its
+	/// authenticity and integrity with the jar's `Key`, and returns it as a *plain* `Cookie`.
+	/// If the cookie doesn't exist or the verification fails, `None` is returned.
 	#[inline(always)]
 	pub fn get<S: AsRef<str>>(&self, name: S) -> Option<Cookie<'static>> {
 		self.inner.signed(&self.key).get(name.as_ref())
 	}
 
+	/// Adds the given cookie to the jar, signing its value.
 	#[inline(always)]
 	pub fn add<C: Into<Cookie<'static>>>(&mut self, cookie: C) {
 		self.inner.signed_mut(&self.key).add(cookie.into());
 	}
 
+	/// Removes the *signed* `Cookie` from the jar.
+	///
+	/// The creation of the *removal* cookie is the same as for [CookieJar::remove()].
 	#[inline(always)]
 	pub fn remove<C: Into<Cookie<'static>>>(&mut self, cookie: C) {
 		self.inner.signed_mut(&self.key).remove(cookie.into());
 	}
 
+	/// Verifies the authenticity and integrity of the given cookie. If verification succeeds,
+	/// returns it as a *plain* `Cookie`. Otherwise `None` is returned.
 	#[inline(always)]
 	pub fn verify(&mut self, cookie: Cookie<'static>) -> Option<Cookie<'static>> {
 		self.inner.signed_mut(&self.key).verify(cookie)
 	}
 
+	/// Converts the `SignedCookieJar` back to `CookieJar`.
 	#[inline(always)]
 	pub fn into_jar(self) -> CookieJar {
 		CookieJar {
@@ -342,57 +446,22 @@ use private::CookieKind;
 
 use super::header::HeaderMapExt;
 
+/// Passes the cookie to the jar as a *plain* `Cookie`.
 #[inline(always)]
 pub fn _plain<C: Into<Cookie<'static>>>(cookie: C) -> CookieKind {
 	CookieKind::Plain(cookie.into())
 }
 
+/// Passes the cookie to the jar as a *private* `Cookie`.
 #[inline(always)]
 pub fn _private<C: Into<Cookie<'static>>>(cookie: C) -> CookieKind {
 	CookieKind::Private(cookie.into())
 }
 
+/// Passes the cookie to the jar as a *signed* `Cookie`.
 #[inline(always)]
 pub fn _signed<C: Into<Cookie<'static>>>(cookie: C) -> CookieKind {
 	CookieKind::Signed(cookie.into())
-}
-
-// -------------------------
-
-#[inline(always)]
-pub fn prefixed_name<P, S>(_: P, name: S) -> String
-where
-	P: Prefix,
-	S: AsRef<str>,
-{
-	format!("{}{}", P::PREFIX, name.as_ref())
-}
-
-pub fn prefix<P, C>(_p: P, cookie: C) -> Cookie<'static>
-where
-	P: Prefix,
-	C: Into<Cookie<'static>>,
-{
-	let mut cookie = cookie.into();
-	let name = prefixed_name(_p, cookie.name());
-	cookie.set_name(name);
-
-	<P as Prefix>::conform(cookie)
-}
-
-pub fn strip_prefix<P, C>(_: P, mut cookie: Cookie<'static>) -> Cookie<'static>
-where
-	P: Prefix,
-{
-	if let Some(name) = cookie
-		.name()
-		.strip_prefix(P::PREFIX)
-		.map(|name| name.to_string())
-	{
-		cookie.set_name(name);
-	}
-
-	cookie
 }
 
 // --------------------------------------------------------------------------------
