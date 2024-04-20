@@ -18,7 +18,7 @@ use argan_core::{
 use bytes::Bytes;
 use http::{
 	header::{ToStrError, CONTENT_TYPE, COOKIE, SET_COOKIE},
-	HeaderValue, StatusCode, Version,
+	Extensions, HeaderValue, StatusCode, Version,
 };
 use http_body_util::{BodyExt, Empty, Full, LengthLimitError, Limited};
 use pin_project::pin_project;
@@ -26,7 +26,6 @@ use serde::{de::DeserializeOwned, Serialize};
 use serde_json::error::Category;
 
 use crate::{
-	handler::Args,
 	request::{FromRequest, Request, RequestHead},
 	response::{IntoResponse, IntoResponseHeadParts, Response, ResponseError, ResponseHeadParts},
 	routing::RoutingState,
@@ -36,7 +35,6 @@ use crate::{
 // --------------------------------------------------
 
 pub mod cookie;
-pub mod extensions;
 pub mod form;
 pub mod header;
 pub mod json;

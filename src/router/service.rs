@@ -9,8 +9,7 @@ use http::{Extensions, StatusCode};
 use hyper::service::Service;
 
 use crate::{
-	common::{MaybeBoxed, Uncloneable, SCOPE_VALIDITY},
-	data::extensions::NodeExtensions,
+	common::{MaybeBoxed, NodeExtensions, Uncloneable, SCOPE_VALIDITY},
 	handler::{futures::ResponseToResultFuture, Args, BoxedHandler, Handler},
 	host::{Host, HostService},
 	middleware::{targets::LayerTarget, Layer},

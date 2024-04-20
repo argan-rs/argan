@@ -205,105 +205,33 @@ pub(crate) fn normalize_path(path: &str) -> String {
 	new_path
 }
 
-// --------------------------------------------------------------------------------
-// --------------------------------------------------------------------------------
-// Temp Place
-
-// #[inline]
-// pub(crate) fn node_extensions_replaced<'e>(
-// 	&mut self,
-// 	extensions: &'e Extensions,
-// ) -> Args<'e, PrivateExt> {
-// 	let Args {
-// 		private_extension,
-// 		node_extension: node_extensions,
-// 		handler_extension,
-// 	} = self;
-//
-// 	let mut args = Args {
-// 		private_extension: std::mem::take(private_extension),
-// 		node_extension: NodeExtensions::new_borrowed(extensions),
-// 		handler_extension: &(),
-// 	};
-//
-// 	args
-// }
-
-// --------------------------------------------------
-// NodeExtension
-
-// pub struct NodeExtension<NE>(NE);
-//
-// impl<HE, NE> FromRequestHead<HE> for NodeExtension<NE>
-// where
-// 	HE: Sync,
-// 	NE: Clone + Send + Sync + 'static,
-// {
-// 	type Error = ExtensionExtractorError<NE>;
-//
-// 	#[inline]
-// 	async fn from_request_head(
-// 		head: &mut RequestHead,
-// 		args: &mut impl Args<'_, HE>,
-// 	) -> Result<Self, Self::Error> {
-// 		args
-// 			.node_extension()
-// 			.get_ref::<NE>()
-// 			.map(|value| Self(value.clone()))
-// 			.ok_or(ExtensionExtractorError(PhantomData))
-// 	}
-// }
-//
-// impl<B, HE, NE> FromRequest<B, HE> for NodeExtension<NE>
-// where
-// 	B: Send,
-// 	HE: Sync,
-// 	NE: Clone + Send + Sync + 'static,
-// {
-// 	type Error = ExtensionExtractorError<NE>;
-//
-// 	#[inline]
-// 	async fn from_request(request: Request<B>, args: &mut impl Args<'_, HE>) -> Result<Self, Self::Error> {
-// 		args
-// 			.node_extension()
-// 			.get_ref::<NE>()
-// 			.map(|value| Self(value.clone()))
-// 			.ok_or(ExtensionExtractorError(PhantomData))
-// 	}
-// }
-
 // --------------------------------------------------
 // NodeExtensions
 
-// #[derive(Clone)]
-// pub struct NodeExtensions<'r>(Cow<'r, Extensions>);
-//
-// impl<'r> NodeExtensions<'r> {
-// 	#[inline(always)]
-// 	pub(crate) fn new_borrowed(extensions: &'r Extensions) -> Self {
-// 		Self(Cow::Borrowed(extensions))
-// 	}
-//
-// 	#[inline(always)]
-// 	pub(crate) fn new_owned(extensions: Extensions) -> NodeExtensions<'static> {
-// 		NodeExtensions(Cow::Owned(extensions))
-// 	}
-//
-// 	#[inline(always)]
-// 	pub fn get_ref<T: Send + Sync + 'static>(&self) -> Option<&T> {
-// 		self.0.get::<T>()
-// 	}
-//
-// 	#[inline(always)]
-// 	pub(crate) fn take(&mut self) -> NodeExtensions<'_> {
-// 		NodeExtensions(std::mem::take(&mut self.0))
-// 	}
-//
-// 	#[inline(always)]
-// 	pub(crate) fn into_owned(self) -> NodeExtensions<'static> {
-// 		NodeExtensions(Cow::<'static, _>::Owned(self.0.into_owned()))
-// 	}
-// }
+#[derive(Clone)]
+pub struct NodeExtensions<'n>(Cow<'n, Extensions>);
+
+impl<'n> NodeExtensions<'n> {
+	#[inline(always)]
+	pub(crate) fn new_borrowed(extensions: &'n Extensions) -> Self {
+		Self(Cow::Borrowed(extensions))
+	}
+
+	#[inline(always)]
+	pub(crate) fn new_owned(extensions: Extensions) -> Self {
+		Self(Cow::Owned(extensions))
+	}
+
+	#[inline(always)]
+	pub fn get_ref<T: Send + Sync + 'static>(&self) -> Option<&T> {
+		self.0.get::<T>()
+	}
+
+	#[inline(always)]
+	pub(crate) fn to_owned(self) -> NodeExtensions<'static> {
+		NodeExtensions(Cow::Owned(self.0.into_owned()))
+	}
+}
 
 // --------------------------------------------------
 // BoxedAny
@@ -343,25 +271,6 @@ impl<A: Any + Clone + Send + Sync> AnyCloneable for A {
 		BoxedAny::new(self.clone())
 	}
 }
-
-// --------------------------------------------------
-// NodeExtensions
-
-// pub(crate) enum OptionCow<'a, T> {
-// 	None,
-// 	Borrowed(&'a T),
-// 	Owned(T),
-// }
-//
-// impl<T: Clone + 'static> Clone for OptionCow<'_, T> {
-// 	fn clone(&self) -> OptionCow<'static, T> {
-// 		match self {
-// 			Self::None => Self::None,
-// 			Self::Borrowed(value) => Self::Owned((*value).clone()),
-// 			Self::Owned(value) => Self::Owned(value.clone()),
-// 		}
-// 	}
-// }
 
 // --------------------------------------------------------------------------------
 // --------------------------------------------------------------------------------

@@ -7,7 +7,6 @@ use serde::{de::DeserializeOwned, Serialize};
 use serde_json::error::Category;
 
 use crate::{
-	handler::Args,
 	request::{FromRequest, Request, SizeLimit},
 	response::{BoxedErrorResponse, IntoResponse, IntoResponseResult, Response},
 	routing::RoutingState,

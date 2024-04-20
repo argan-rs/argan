@@ -6,8 +6,7 @@ use http::{Extensions, StatusCode};
 use hyper::service::Service;
 
 use crate::{
-	common::Uncloneable,
-	data::extensions::NodeExtensions,
+	common::{NodeExtensions, Uncloneable},
 	handler::{futures::ResponseToResultFuture, request_handlers::handle_mistargeted_request, Args},
 	pattern::ParamsList,
 	request::{Request, RequestContext},

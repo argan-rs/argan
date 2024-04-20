@@ -34,7 +34,6 @@ use crate::{
 		request_into_binary_data, request_into_full_body, request_into_text_data, BinaryExtractorError,
 		FullBodyExtractorError, TextExtractorError, BODY_SIZE_LIMIT,
 	},
-	handler::Args,
 	pattern::{self, FromParamsList, ParamsList},
 	response::{BoxedErrorResponse, IntoResponse, IntoResponseHeadParts, Response},
 	routing::RoutingState,

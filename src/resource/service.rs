@@ -21,8 +21,7 @@ use hyper::service::Service;
 use percent_encoding::percent_decode_str;
 
 use crate::{
-	common::{marker::Private, MaybeBoxed, Uncloneable, SCOPE_VALIDITY},
-	data::extensions::NodeExtensions,
+	common::{marker::Private, MaybeBoxed, NodeExtensions, Uncloneable, SCOPE_VALIDITY},
 	handler::{
 		futures::ResponseToResultFuture,
 		request_handlers::{

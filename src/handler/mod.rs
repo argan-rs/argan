@@ -20,8 +20,7 @@ use http::{Extensions, Request, StatusCode};
 use tower_service::Service as TowerService;
 
 use crate::{
-	common::{config::ConfigOption, BoxedAny, IntoArray, Uncloneable},
-	data::extensions::NodeExtensions,
+	common::{config::ConfigOption, BoxedAny, IntoArray, NodeExtensions, Uncloneable},
 	middleware::Layer,
 	request::{RequestContext, RequestHead},
 	response::{BoxedErrorResponse, IntoResponse, Response},
