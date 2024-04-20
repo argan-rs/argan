@@ -1,3 +1,5 @@
+use crate::handler::Args;
+
 use super::*;
 
 // --------------------------------------------------------------------------------
@@ -10,7 +12,7 @@ pub trait ExtractorGuard<B = Body, Ext: Clone = ()>: Sized {
 	type Error: Into<BoxedErrorResponse>;
 
 	fn from_request_context_and_args(
-		request: &mut RequestContext<B>,
+		request_context: &mut RequestContext<B>,
 		args: &Args<'static, Ext>,
 	) -> impl Future<Output = Result<Self, Self::Error>> + Send;
 }

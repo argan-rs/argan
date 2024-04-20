@@ -17,7 +17,6 @@ use pin_project::pin_project;
 
 use crate::{
 	common::{marker::Private, SCOPE_VALIDITY},
-	data::extensions::NodeExtensions,
 	request::{ExtractorGuard, FromRequest, Request, RequestContext, RequestHead, RequestHeadParts},
 	response::{BoxedErrorResponse, IntoResponse, IntoResponseResult, Response},
 	routing::RoutingState,

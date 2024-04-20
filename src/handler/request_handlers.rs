@@ -9,7 +9,6 @@ use http::{header::InvalidHeaderValue, Extensions, HeaderName, HeaderValue, Meth
 
 use crate::{
 	common::{marker::Private, Uncloneable},
-	data::extensions::NodeExtensions,
 	middleware::{targets::LayerTarget, BoxedLayer, Layer},
 	request::{Request, RequestContext},
 	resource::Resource,

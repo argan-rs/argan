@@ -1,8 +1,9 @@
 use std::{
-	any::Any,
+	any::{type_name, Any},
 	convert::Infallible,
-	fmt::Display,
+	fmt::{Debug, Display},
 	future::Future,
+	marker::PhantomData,
 	pin::Pin,
 	task::{Context, Poll},
 };
@@ -100,6 +101,76 @@ impl IntoResponse for Redirect {
 		response.headers_mut().insert(LOCATION, self.uri);
 
 		response
+	}
+}
+
+// --------------------------------------------------
+// ResponseExtension
+
+pub struct ResponseExtension<T>(pub T);
+
+impl<T> IntoResponseHeadParts for ResponseExtension<T>
+where
+	T: Clone + Send + Sync + 'static,
+{
+	#[inline]
+	fn into_response_head(
+		self,
+		mut head: ResponseHeadParts,
+	) -> Result<ResponseHeadParts, BoxedErrorResponse> {
+		let ResponseExtension(value) = self;
+
+		if head.extensions.insert(value).is_some() {
+			return Err(ResponseExtensionError::<T>(PhantomData).into());
+		}
+
+		Ok(head)
+	}
+}
+
+impl<T> IntoResponseResult for ResponseExtension<T>
+where
+	T: Clone + Send + Sync + 'static,
+{
+	#[inline]
+	fn into_response_result(self) -> Result<Response, BoxedErrorResponse> {
+		let ResponseExtension(value) = self;
+
+		let mut response = Response::default();
+		if response.extensions_mut().insert(value).is_some() {
+			return Err(ResponseExtensionError::<T>(PhantomData).into());
+		}
+
+		Ok(response)
+	}
+}
+
+// -------------------------
+// ResponseExtensionError
+
+pub struct ResponseExtensionError<T>(PhantomData<T>);
+
+impl<T> Debug for ResponseExtensionError<T> {
+	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+		write!(f, "ResponseExtensionError<{}>", type_name::<T>())
+	}
+}
+
+impl<T> Display for ResponseExtensionError<T> {
+	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+		write!(
+			f,
+			"type {0} has already been used as a response extension",
+			type_name::<T>()
+		)
+	}
+}
+
+impl<T> crate::StdError for ResponseExtensionError<T> {}
+
+impl<T> IntoResponse for ResponseExtensionError<T> {
+	fn into_response(self) -> Response {
+		StatusCode::INTERNAL_SERVER_ERROR.into_response()
 	}
 }
 
