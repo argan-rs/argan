@@ -39,6 +39,7 @@ pub(crate) mod test_helpers;
 // --------------------------------------------------
 // IntoArray trait
 
+#[doc(hidden)]
 pub trait IntoArray<T, const N: usize> {
 	fn into_array(self) -> [T; N];
 }

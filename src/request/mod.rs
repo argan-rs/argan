@@ -34,6 +34,7 @@ use crate::{
 		request_into_binary_data, request_into_full_body, request_into_text_data, BinaryExtractorError,
 		FullBodyExtractorError, TextExtractorError, BODY_SIZE_LIMIT,
 	},
+	handler::Args,
 	pattern::{self, FromParamsList, ParamsList},
 	response::{BoxedErrorResponse, IntoResponse, IntoResponseHeadParts, Response},
 	routing::RoutingState,
@@ -47,9 +48,6 @@ pub use argan_core::request::*;
 // --------------------------------------------------
 
 pub mod websocket;
-
-mod extractors;
-pub use extractors::*;
 
 use self::websocket::{request_into_websocket_upgrade, WebSocketUpgrade, WebSocketUpgradeError};
 
@@ -368,6 +366,18 @@ impl<B> RequestContext<B> {
 }
 
 // --------------------------------------------------
+// ExtractorGuard
+
+pub trait ExtractorGuard<B = Body, Ext: Clone = ()>: Sized {
+	type Error: Into<BoxedErrorResponse>;
+
+	fn from_request_context_and_args(
+		request_context: &mut RequestContext<B>,
+		args: &Args<'static, Ext>,
+	) -> impl Future<Output = Result<Self, Self::Error>> + Send;
+}
+
+// --------------------------------------------------
 // RequestHeead
 
 pub struct RequestHead {
@@ -508,6 +518,39 @@ impl RequestHead {
 pub enum SizeLimit {
 	Default,
 	Value(usize),
+}
+
+// --------------------------------------------------
+// PathParamsError
+
+#[derive(Debug, crate::ImplError)]
+#[error(transparent)]
+pub struct PathParamsError(#[from] pub(crate) pattern::DeserializerError);
+
+impl IntoResponse for PathParamsError {
+	fn into_response(self) -> Response {
+		match self.0 {
+			pattern::DeserializerError::ParsingFailue(_) => StatusCode::NOT_FOUND.into_response(),
+			_ => StatusCode::INTERNAL_SERVER_ERROR.into_response(),
+		}
+	}
+}
+
+// --------------------------------------------------
+// QueryParamsError
+
+#[derive(Debug, crate::ImplError)]
+pub enum QueryParamsError {
+	#[error("no data is available")]
+	NoDataIsAvailable,
+	#[error(transparent)]
+	InvalidData(#[from] serde_urlencoded::de::Error),
+}
+
+impl IntoResponse for QueryParamsError {
+	fn into_response(self) -> Response {
+		StatusCode::BAD_REQUEST.into_response()
+	}
 }
 
 // --------------------------------------------------

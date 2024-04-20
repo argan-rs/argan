@@ -13,7 +13,7 @@ use crate::{
 	data::json::Json,
 	handler::{_get, _method, _post, _wildcard_method},
 	pattern::DeserializerError,
-	request::{PathParams, PathParamsError, Request, RequestContext, RequestHead},
+	request::{PathParamsError, Request, RequestContext, RequestHead},
 	resource::Resource,
 	response::{IntoResponseResult, Response},
 };

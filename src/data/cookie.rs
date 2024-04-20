@@ -286,7 +286,8 @@ impl IntoResponse for CookieJar {
 	}
 }
 
-// -------------------------
+// --------------------------------------------------
+// PrivateCookieJar
 
 /// A private cookie jar that automatically encrypts the added cookies and decrypts
 /// the retrieved cookies.
@@ -335,6 +336,8 @@ impl PrivateCookieJar {
 	}
 }
 
+// -------------------------
+
 impl IntoResponseHeadParts for PrivateCookieJar {
 	fn into_response_head(
 		self,
@@ -355,7 +358,8 @@ impl IntoResponse for PrivateCookieJar {
 	}
 }
 
-// -------------------------
+// --------------------------------------------------
+// SignedCookieJar
 
 /// A signed cookie jar that automatically signs the added cookies and verifies the
 /// authenticity and integrity of the retrieved cookies.
@@ -403,6 +407,8 @@ impl SignedCookieJar {
 		}
 	}
 }
+
+// -------------------------
 
 impl IntoResponseHeadParts for SignedCookieJar {
 	fn into_response_head(
