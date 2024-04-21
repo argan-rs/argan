@@ -1,3 +1,7 @@
+//! Form data types.
+
+// ----------
+
 use std::io;
 
 use argan_core::request::RequestHeadParts;
@@ -26,6 +30,46 @@ pub(crate) const FORM_BODY_SIZE_LIMIT: usize = { 2 * 1024 * 1024 };
 
 // ----------
 
+/// Extractor and response type of the `application/x-www-form-urlencoded` data.
+///
+/// `Form` consumes the request body and deserializes it as type `T`. `T` must be a type
+/// that implements [`serde::Deserialize`].
+///
+/// ```
+///	use argan::data::form::Form;
+/// use serde::Deserialize;
+///
+/// #[derive(Deserialize)]
+/// struct Person {
+///		first_name: String,
+///		last_name: String,
+///		age: u8,
+/// }
+///
+/// async fn add_person(Form(person): Form<Person>) {
+///		// ...
+/// }
+/// ```
+///
+/// By default, `Form` limits the body size to 2MiB. The body size limit can be changed by
+/// specifying the SIZE_LIMIT const type parameter.
+///
+/// ```
+/// use argan::data::form::Form;
+/// use serde::Deserialize;
+///
+/// #[derive(Deserialize)]
+/// struct SurveyData {
+///		// ...
+/// }
+///
+/// async fn save_survey_data(Form(survey_data): Form<SurveyData, { 512 * 1024 }>) {
+///		// ...
+/// }
+/// ```
+///
+/// Usually, `GET` and `HEAD` requests carry the data in a query string. With these
+/// requests, data can be obtained via [`RequestHead::query_params_as<T>`].
 pub struct Form<T, const SIZE_LIMIT: usize = FORM_BODY_SIZE_LIMIT>(pub T);
 
 impl<B, T, const SIZE_LIMIT: usize> FromRequest<B> for Form<T, SIZE_LIMIT>
@@ -97,11 +141,14 @@ where
 // ----------
 
 data_extractor_error! {
+	/// An error type returned on failures when extracting or serializing the `Form`.
 	#[derive(Debug)]
 	pub FormError {
+		/// Returned when deserializing the body fails.
 		#[error("{0}")]
 		(DeserializationFailure(#[from] serde_urlencoded::de::Error)) [(_)];
 		StatusCode::BAD_REQUEST;
+		/// Returned when serializing the data fails.
 		#[error("{0}")]
 		(SerializationFailure(#[from] serde_urlencoded::ser::Error)) [(_)];
 		StatusCode::INTERNAL_SERVER_ERROR;
@@ -119,7 +166,23 @@ const MULTIPART_FORM_BODY_SIZE_LIMIT: usize = { 8 * 1024 * 1024 };
 
 // ----------
 
-pub struct MultipartForm<B> {
+/// Extractor of `multipart/form-data`.
+///
+/// ```
+/// use argan::data::form::{MultipartForm, Constraints, MultipartFormError};
+///
+/// async fn upload_handler(multipart_form: MultipartForm) -> Result<(), MultipartFormError> {
+///		let constraints = Constraints::new().with_allowed_parts(vec!["name", "picture"]);
+///		let mut parts = multipart_form.with_constraints(constraints).into_parts();
+///
+///		while let Some(part) = parts.next().await? {
+///			// ...
+///		}
+///
+///		Ok(())
+/// }
+/// ```
+pub struct MultipartForm<B = Body> {
 	body_stream: BodyStream<B>,
 	boundary: String,
 	some_constraints: Option<Constraints>,
@@ -130,19 +193,23 @@ where
 	B: HttpBody<Data = Bytes> + Send + 'static,
 	B::Error: Into<BoxedError> + 'static,
 {
-	fn with_constraints(mut self, constraints: Constraints) -> Self {
+	/// Sets the constraints on the multipart form.
+	///
+	/// By default, a full body size limit is set, which defaults to 8MiB.
+	pub fn with_constraints(mut self, constraints: Constraints) -> Self {
 		self.some_constraints = Some(constraints);
 
 		self
 	}
 
-	fn into_parts(mut self) -> Parts {
+	/// Converts the `MultipartForm` into an *"async iterator"* over the parts.
+	pub fn into_parts(mut self) -> Parts {
 		let data_stream = self.body_stream.map(|result| {
 			match result {
 				Ok(frame) => {
 					match frame.into_data() {
 						Ok(data) => Ok(data),
-						Err(_) => Ok(Bytes::new()), // ??? Trailers are being ignored for now.
+						Err(_) => Ok(Bytes::new()), // ??? Trailers are being ignored.
 					}
 				}
 				Err(error) => Err(error),
@@ -152,18 +219,14 @@ where
 		let constraints = if let Some(constraints) = self.some_constraints.take() {
 			let Constraints {
 				inner: mut constraints,
-				some_body_size_limit,
+				body_size_limit,
 				some_part_size_limit,
 				some_size_limits_for_parts,
 			} = constraints;
 
 			let mut size_limit = multer::SizeLimit::new();
 
-			if let Some(body_size_limit) = some_body_size_limit {
-				size_limit = size_limit.whole_stream(body_size_limit);
-			} else {
-				size_limit = size_limit.whole_stream(MULTIPART_FORM_BODY_SIZE_LIMIT as u64);
-			}
+			size_limit = size_limit.whole_stream(body_size_limit);
 
 			if let Some(part_size_limit) = some_part_size_limit {
 				size_limit = size_limit.per_field(part_size_limit);
@@ -230,41 +293,47 @@ where
 
 // ----------
 
+/// Constraints to limit the extraction of parts.
 pub struct Constraints {
 	inner: multer::Constraints,
-	some_body_size_limit: Option<u64>,
+	body_size_limit: u64,
 	some_part_size_limit: Option<u64>,
 	some_size_limits_for_parts: Option<Vec<(String, u64)>>,
 }
 
 impl Constraints {
-	fn new() -> Self {
+	/// Creates a new `Constraints` with only a body size limit, which defaults to 8MiB.
+	pub fn new() -> Self {
 		Self {
 			inner: multer::Constraints::new(),
-			some_body_size_limit: None,
+			body_size_limit: MULTIPART_FORM_BODY_SIZE_LIMIT as u64,
 			some_part_size_limit: None,
 			some_size_limits_for_parts: None,
 		}
 	}
 
+	/// Limits the multipart form only to the specified parts.
 	pub fn with_allowed_parts<S: Into<String>>(mut self, allowed_parts: Vec<S>) -> Self {
 		self.inner = self.inner.allowed_fields(allowed_parts);
 
 		self
 	}
 
+	/// Sets the whole body size limit on the multipart form.
 	pub fn with_body_size_limit(mut self, size_limit: u64) -> Self {
-		self.some_body_size_limit = Some(size_limit);
+		self.body_size_limit = size_limit;
 
 		self
 	}
 
+	/// Sets the maximum size limit for each part of the multipart form.
 	pub fn with_part_size_limit(mut self, size_limit: u64) -> Self {
 		self.some_part_size_limit = Some(size_limit);
 
 		self
 	}
 
+	/// Sets size limits on the specified parts.
 	pub fn with_size_limits_for_parts(mut self, size_limits_for_parts: Vec<(String, u64)>) -> Self {
 		self.some_size_limits_for_parts = Some(size_limits_for_parts);
 
@@ -274,134 +343,151 @@ impl Constraints {
 
 // ----------
 
+/// An *"async iterator"* over the parts of the multipart form.
 pub struct Parts(multer::Multipart<'static>);
 
 impl Parts {
-	pub async fn next(&mut self) -> Result<Option<Part>, MultipartFormError> {
+	/// Returns the next part of the multipart form.
+	pub async fn next<'p>(&'p mut self) -> Result<Option<Part<'p>>, MultipartFormError> {
 		self
 			.0
 			.next_field()
 			.await
-			.map(|some_field| some_field.map(|field| Part(field)))
-			.map_err(|error| error.into())
-	}
-
-	pub async fn next_with_index(&mut self) -> Result<Option<(usize, Part)>, MultipartFormError> {
-		self
-			.0
-			.next_field_with_idx()
-			.await
-			.map(|some_field_with_index| some_field_with_index.map(|(index, field)| (index, Part(field))))
+			.map(|some_field| {
+				some_field.map(|field| Part {
+					inner: field,
+					_lifetime_mark: PhantomData,
+				})
+			})
 			.map_err(|error| error.into())
 	}
 }
 
-impl Stream for Parts {
-	type Item = Result<Option<Part>, MultipartFormError>;
-
-	fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-		pin!(self.0.next_field()).poll(cx).map(|result| {
-			Some(
-				result
-					.map(|some_filed| some_filed.map(|field| Part(field)))
-					.map_err(|error| error.into()),
-			)
-		})
-	}
+/// Single part of the multipart form.
+pub struct Part<'p> {
+	inner: multer::Field<'static>,
+	_lifetime_mark: PhantomData<&'p mut Parts>,
 }
 
-pub struct Part(multer::Field<'static>);
-
-impl Part {
+impl<'p> Part<'p> {
+	/// Returns the index of the part in the multipart form.
 	pub fn index(&self) -> usize {
-		self.0.index()
+		self.inner.index()
 	}
 
+	/// Returns the value of the `Content-Disposition` `name` attribute.
 	pub fn name(&self) -> Option<&str> {
-		self.0.name()
+		self.inner.name()
 	}
 
+	/// Returns the content type of the part.
 	pub fn content_type(&self) -> Option<&Mime> {
-		self.0.content_type()
+		self.inner.content_type()
 	}
 
+	/// Returns the headers of the part.
 	pub fn headers(&self) -> &HeaderMap {
-		self.0.headers()
+		self.inner.headers()
 	}
 
+	/// Returns the value of the `Content-Disposition` `filename` attribute.
 	pub fn file_name(&self) -> Option<&str> {
-		self.0.file_name()
+		self.inner.file_name()
 	}
 
+	/// Returns the full payload of the part.
 	pub async fn bytes(self) -> Result<Bytes, MultipartFormError> {
-		self.0.bytes().await.map_err(|error| error.into())
+		self.inner.bytes().await.map_err(|error| error.into())
 	}
 
+	/// Returns the available chunk of the part's payload.
 	pub async fn chunk(&mut self) -> Result<Option<Bytes>, MultipartFormError> {
-		self.0.chunk().await.map_err(|error| error.into())
+		self.inner.chunk().await.map_err(|error| error.into())
 	}
 
+	/// Returns the full payload of the part as text.
 	pub async fn text(self) -> Result<String, MultipartFormError> {
-		self.0.text().await.map_err(|error| error.into())
+		self.inner.text().await.map_err(|error| error.into())
 	}
 
+	/// Tries to convert the full payload to a text with the given charset,
+	/// returning it on success.
 	pub async fn text_with_charset(
 		self,
 		default_charset: &str,
 	) -> Result<String, MultipartFormError> {
 		self
-			.0
+			.inner
 			.text_with_charset(default_charset)
 			.await
 			.map_err(|error| error.into())
 	}
 
+	/// Tries to deserialize the part's payload as JSON data.
 	pub async fn json<T: DeserializeOwned>(self) -> Result<T, MultipartFormError> {
-		self.0.json().await.map_err(|error| error.into())
+		self.inner.json().await.map_err(|error| error.into())
 	}
 }
 
 // ----------
 
 data_extractor_error! {
+	/// An error type returned on failures when extracting the `MultipartForm`.
 	#[derive(Debug)]
 	pub MultipartFormError {
+		/// Returned when the form is constrained to certain parts and an unknown part is detected.
 		#[error("unkown part {part_name}")]
 		(UnknownPart { part_name: String }) [{..}]; StatusCode::BAD_REQUEST;
+		/// Returned when collecting some part's data has failed.
 		#[error("incomplete part {part_name} data")]
 		(IncompletePartData { part_name: String }) [{..}]; StatusCode::BAD_REQUEST;
+		/// Returned when collecting the part's headers has failed.
 		#[error("incomplete part headers")]
 		(IncompletePartHeaders) StatusCode::BAD_REQUEST;
+		/// Returned on failure when reading the part's headers.
 		#[error("part headers read failure")]
 		(PartHeadersReadFailure(httparse::Error)) [(_)]; StatusCode::BAD_REQUEST;
+		/// Returned when invalid part header name is detected.
 		#[error("part header name {header_name} decoding failure")]
 		(InvalidPartHeaderName { header_name: String, cause: Box<dyn StdError + Send + Sync> })  [{..}];
 			StatusCode::BAD_REQUEST;
+		/// Returned when invalid part header value is detected.
 		#[error("part header value decoding failure")]
 		(InvalidPartHeaderValue {
 			value: Vec<u8>,
 			cause: Box<dyn StdError + Send + Sync>,
 		}) [{..}]; StatusCode::BAD_REQUEST;
-		#[error("incomplete stream")]
-		(IncompleteStream) StatusCode::BAD_REQUEST;
-		#[error("part size limit overflow")]
-		(PartSizeLimitOverflow { part_name: String }) [{..}]; StatusCode::PAYLOAD_TOO_LARGE;
-		#[error("stream read failure")]
-		(StreamReadFailure(Box<dyn StdError + Send + Sync>)) [(_)]; StatusCode::BAD_REQUEST;
-		#[error("internal state lock failure")]
-		(InternalStateLockFailure) StatusCode::INTERNAL_SERVER_ERROR;
+		/// Returned when some part's `Content-Type` is invalid.
 		#[error("part Content-Type decoding failure")]
 		(InvlaidPartContentType(mime::FromStrError)) [(_)]; StatusCode::BAD_REQUEST;
+		/// Returned when the multipart form body is incomplete.
+		#[error("incomplete multipart form body")]
+		(IncompleteBody) StatusCode::BAD_REQUEST;
+		/// Returned when some part's size overflows its limit.
+		#[error("part size limit overflow")]
+		(PartSizeLimitOverflow { part_name: String }) [{..}]; StatusCode::PAYLOAD_TOO_LARGE;
+		/// Returned on failure when reading the multipart form body.
+		#[error("failure on reading the multipart form body")]
+		(BodyReadFailure(Box<dyn StdError + Send + Sync>)) [(_)]; StatusCode::BAD_REQUEST;
+		/// Returned on failure when locking the internal shared state.
+		#[error("internal state lock failure")]
+		(InternalStateLockFailure) StatusCode::INTERNAL_SERVER_ERROR;
+		/// Returned when multipart form `Content-Type` has no boundary attribute.
 		#[error("no boundary")]
 		(NoBoundary) StatusCode::BAD_REQUEST;
+		/// Returned on syntax error when deserializing the part's payload as JSON data.
 		#[error("invlaid JSON syntax in line {line}, column {column}")]
 		(InvalidJsonSyntax { line: usize, column: usize}) [{..}]; StatusCode::BAD_REQUEST;
+		/// Returned on semantically incorrect data when deserializing the part's payload as JSON.
 		#[error("invalid JSON semantics in line {line}, column {column}")]
 		(InvalidJsonData { line: usize, column: usize}) [{..}]; StatusCode::UNPROCESSABLE_ENTITY;
+		/// Returned on read failure when deserializing the part's payload as JSON.
 		#[error("JSON I/O stream failure")]
 		(JsonIoFailure(io::ErrorKind)) [{..}]; StatusCode::INTERNAL_SERVER_ERROR;
+		/// Returned on unexpected *end of file* when deserializing the part's payload as JSON.
 		#[error("JSON unexpected end of file")]
 		(JsonUnexpectedEoF) StatusCode::BAD_REQUEST;
+		/// Returned on unknown failure.
 		#[error("unknown failure")]
 		(UnknownFailure) StatusCode::INTERNAL_SERVER_ERROR;
 	}
@@ -424,12 +510,12 @@ impl From<multer::Error> for MultipartFormError {
 				cause,
 			},
 			DecodeHeaderValue { value, cause } => Self::InvalidPartHeaderValue { value, cause },
-			IncompleteStream => Self::IncompleteStream,
+			IncompleteStream => Self::IncompleteBody,
 			FieldSizeExceeded { field_name, .. } => Self::PartSizeLimitOverflow {
 				part_name: field_name.unwrap_or(String::new()),
 			},
 			StreamSizeExceeded { .. } => Self::ContentTooLarge,
-			StreamReadFailed(error) => Self::StreamReadFailure(error),
+			StreamReadFailed(error) => Self::BodyReadFailure(error),
 			LockFailure => Self::InternalStateLockFailure,
 			NoMultipart => Self::UnsupportedMediaType,
 			DecodeContentType(error) => Self::InvlaidPartContentType(error),

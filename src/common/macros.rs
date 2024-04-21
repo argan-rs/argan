@@ -134,14 +134,19 @@ macro_rules! data_extractor_error {
 		$(#[$enum_metas])*
 		#[derive(crate::ImplError)]
 		$vis enum $error_name {
+			/// Returned when the request doesn't have a `Content-Type` header.
 			#[error("missing Content-Type")]
 			MissingContentType,
+			/// Returned when the `Content-Type` value can't be converted to a string.
 			#[error("invalid Content-Type: {0}")]
 			InvalidContentType(http::header::ToStrError),
+			/// Returned when the `Content-Type` has an unsupported media type.
 			#[error("unsupported media type")]
 			UnsupportedMediaType,
+			/// Returned when the content size exceeds the size limit.
 			#[error("content too large")]
 			ContentTooLarge,
+			/// Returned when collecting the request body frames fails.
 			#[error("buffering failure")]
 			BufferingFailure,
 			$(
