@@ -1,3 +1,7 @@
+//! Resource service types.
+
+// ----------
+
 use std::{
 	any::{self, Any, TypeId},
 	convert::Infallible,
@@ -46,7 +50,7 @@ pub use static_files::StaticFiles;
 // --------------------------------------------------------------------------------
 // --------------------------------------------------------------------------------
 
-/// Representation of the web resource that corresponds to the path segment component
+/// Representation of the web *resource* that corresponds to the path segment component
 /// of the URI.
 pub struct Resource {
 	pattern: Pattern,
@@ -1326,7 +1330,7 @@ impl Resource {
 		}
 	}
 
-	/// Converts the resource into a service.
+	/// Converts the `Resource` into a service.
 	///
 	/// This method ignores the parent resources. Thus, it should be called on the first
 	/// resource in the resource tree.
@@ -1454,7 +1458,7 @@ impl Resource {
 		)
 	}
 
-	/// Converts the resource into a service that uses `Arc` internally.
+	/// Converts the `Resource` into a service that uses `Arc` internally.
 	///
 	/// This method ignores the parent resources. Thus, it should be called on the first
 	/// resource in the resource tree.
@@ -1463,7 +1467,7 @@ impl Resource {
 		ArcResourceService::from(self.into_service())
 	}
 
-	/// Converts the resource into a service with a leaked `&'static`.
+	/// Converts the `Resource` into a service with a leaked `&'static`.
 	///
 	/// This method ignores the parent resources. Thus, it should be called on the first
 	/// resource in the resource tree.
@@ -1532,7 +1536,7 @@ struct Context {
 
 // --------------------------------------------------
 
-/// Returned by a function given to the [Resource::for_each_subresource()] to control
+/// Returned by a function given to the [`Resource::for_each_subresource()`] to control
 /// the iteration on subresources.
 pub enum Iteration {
 	/// Iteration goes on normally.

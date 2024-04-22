@@ -1,3 +1,7 @@
+//! Request handler kinds.
+
+// ----------
+
 use std::str::FromStr;
 
 use argan_core::{body::Body, response::Response, BoxedFuture};
@@ -34,7 +38,8 @@ pub(crate) use private::HandlerKind;
 // --------------------------------------------------
 
 macro_rules! handler_kind_by_method {
-	($func:ident, $http_method:path) => {
+	($func:ident, $http_method:path, #[$comment:meta]) => {
+		#[$comment]
 		pub fn $func<H, Mark>(handler: H) -> HandlerKind
 		where
 			H: IntoHandler<Mark, Body>,
@@ -54,16 +59,17 @@ macro_rules! handler_kind_by_method {
 	};
 }
 
-handler_kind_by_method!(_get, Method::GET);
-handler_kind_by_method!(_head, Method::HEAD);
-handler_kind_by_method!(_post, Method::POST);
-handler_kind_by_method!(_put, Method::PUT);
-handler_kind_by_method!(_patch, Method::PATCH);
-handler_kind_by_method!(_delete, Method::DELETE);
-handler_kind_by_method!(_options, Method::OPTIONS);
-handler_kind_by_method!(_connect, Method::CONNECT);
-handler_kind_by_method!(_trace, Method::TRACE);
+handler_kind_by_method!(_get, Method::GET, #[doc = "HTTP method `GET` handler"]);
+handler_kind_by_method!(_head, Method::HEAD, #[doc = "HTTP method `HEAD` handler"]);
+handler_kind_by_method!(_post, Method::POST, #[doc = "HTTP method `POST` handler"]);
+handler_kind_by_method!(_put, Method::PUT, #[doc = "HTTP method `PUT` handler"]);
+handler_kind_by_method!(_patch, Method::PATCH, #[doc = "HTTP method `PATCH` handler"]);
+handler_kind_by_method!(_delete, Method::DELETE, #[doc = "HTTP method `DELETE` handler"]);
+handler_kind_by_method!(_options, Method::OPTIONS, #[doc = "HTTP method `OPTIONS` handler"]);
+handler_kind_by_method!(_connect, Method::CONNECT, #[doc = "HTTP method `CONNECT` handler"]);
+handler_kind_by_method!(_trace, Method::TRACE, #[doc = "HTTP method `TRACE` handler"]);
 
+/// Custom HTTP method handler.
 pub fn _method<M, H, Mark>(method: M, handler: H) -> HandlerKind
 where
 	M: AsRef<str>,
@@ -85,6 +91,7 @@ where
 	HandlerKind::Method(method, final_handler.into_boxed_handler())
 }
 
+/// A wildcard method handler. Called when there is no dedicated handler for the method.
 pub fn _wildcard_method<H, Mark>(some_handler: Option<H>) -> HandlerKind
 where
 	H: IntoHandler<Mark, Body>,
@@ -106,6 +113,7 @@ where
 	HandlerKind::WildcardMethod(some_final_handler)
 }
 
+/// A mistargeted request handler. Called when there is no resource matching the request's path.
 pub fn _mistargeted_request<H, Mark>(handler: H) -> HandlerKind
 where
 	H: IntoHandler<Mark, Body>,

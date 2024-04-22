@@ -1,3 +1,7 @@
+//! HTTP response types.
+
+// ----------
+
 use std::{
 	any::{type_name, Any},
 	convert::Infallible,
@@ -107,6 +111,7 @@ impl IntoResponse for Redirect {
 // --------------------------------------------------
 // ResponseExtension
 
+/// Adds the given type value to the [`ResponseHeadParts`] extensions.
 pub struct ResponseExtension<T>(pub T);
 
 impl<T> IntoResponseHeadParts for ResponseExtension<T>
@@ -148,6 +153,7 @@ where
 // -------------------------
 // ResponseExtensionError
 
+/// An error type returned when the given type value already exists in the [`ResponseHeadParts`].
 pub struct ResponseExtensionError<T>(PhantomData<T>);
 
 impl<T> Debug for ResponseExtensionError<T> {

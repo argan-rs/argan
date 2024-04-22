@@ -20,6 +20,9 @@ use super::*;
 // --------------------------------------------------------------------------------
 // --------------------------------------------------------------------------------
 
+/// Host service that can be used to handle requests.
+///
+/// Created by calling [`Host::into_service()`] on some `Host`.
 pub struct HostService {
 	pattern: Pattern,
 	root_resource: ResourceService,
@@ -104,6 +107,9 @@ where
 
 // -------------------------
 
+/// Host service that uses `Arc`.
+///
+/// Created by calling [`Host::into_arc_service()`] on some `Host`.
 pub struct ArcHostService(Arc<HostService>);
 
 impl From<HostService> for ArcHostService {
@@ -136,6 +142,9 @@ where
 
 // -------------------------
 
+/// Host service that uses leaked `&'static`.
+///
+/// Created by calling [Host::into_leaked_service()] on some `Host`.
 #[derive(Clone)]
 pub struct LeakedHostService(&'static HostService);
 
