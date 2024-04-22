@@ -1,3 +1,7 @@
+//! Extractors and response types for some data formats.
+
+// ----------
+
 use std::{
 	any,
 	borrow::Cow,
@@ -45,14 +49,36 @@ use header::content_type;
 // --------------------------------------------------------------------------------
 
 // --------------------------------------------------
+// Text
 
-pub(crate) const BODY_SIZE_LIMIT: usize = { 2 * 1024 * 1024 };
+pub(crate) const TEXT_BODY_SIZE_LIMIT: usize = { 1 * 1024 * 1024 };
 
-// --------------------------------------------------
-// String
+// ----------
 
+/// Extractor type of the `text/plain` and `text/plain; charset=utf-8` data.
+///
+/// `Text` consumes the request body and converts it into [`String`].
+///
+/// ```
+///	use argan::data::Text;
+///
+/// async fn text_data(Text(text): Text) {
+///		// ...
+/// }
+/// ```
+///
+/// By default, `Text` limits the body size to 1MiB. The body size limit can be changed by
+/// specifying the SIZE_LIMIT const type parameter.
+///
+/// ```
+/// use argan::data::Text;
+///
+/// async fn text_data(Text(text): Text<{ 512 * 1024 }>) {
+///		// ...
+/// }
+/// ```
 #[derive(Debug)]
-pub struct Text<const SIZE_LIMIT: usize = BODY_SIZE_LIMIT>(String);
+pub struct Text<const SIZE_LIMIT: usize = TEXT_BODY_SIZE_LIMIT>(pub String);
 
 impl<B, const SIZE_LIMIT: usize> FromRequest<B> for Text<SIZE_LIMIT>
 where
@@ -102,8 +128,10 @@ where
 // ----------
 
 data_extractor_error! {
+	/// An error type returned on failures when extracting a text data.
 	#[derive(Debug)]
 	pub TextExtractorError {
+		/// Returned on failure when decoding the body as UTF-8 text.
 		#[error("decoding failure: {0}")]
 		(DecodingFailure(#[from] FromUtf8Error)) [(_)]; StatusCode::BAD_REQUEST;
 	}
@@ -112,8 +140,34 @@ data_extractor_error! {
 // --------------------------------------------------
 // Binary
 
+pub(crate) const BINARY_BODY_SIZE_LIMIT: usize = { 2 * 1024 * 1024 };
+
+// ----------
+
+/// Extractor type of the `octet-stream` and `application/octet-stream` data.
+///
+/// `Binary` consumes the request body and converts it into [`Bytes`].
+///
+/// ```
+///	use argan::data::Binary;
+///
+/// async fn binary_data(Binary(bytes): Binary) {
+///		// ...
+/// }
+/// ```
+///
+/// By default, `Binary` limits the body size to 2MiB. The body size limit can be changed by
+/// specifying the SIZE_LIMIT const type parameter.
+///
+/// ```
+/// use argan::data::Binary;
+///
+/// async fn binary_data(Binary(bytes): Binary<{ 512 * 1024 }>) {
+///		// ...
+/// }
+/// ```
 #[derive(Debug)]
-pub struct Binary<const SIZE_LIMIT: usize = BODY_SIZE_LIMIT>(Bytes);
+pub struct Binary<const SIZE_LIMIT: usize = BINARY_BODY_SIZE_LIMIT>(pub Bytes);
 
 impl<B, const SIZE_LIMIT: usize> FromRequest<B> for Binary<SIZE_LIMIT>
 where
@@ -161,6 +215,7 @@ where
 // ----------
 
 data_extractor_error! {
+	/// An error type returned on failures when extracting a binary data.
 	#[derive(Debug)]
 	pub BinaryExtractorError {}
 }
@@ -168,8 +223,29 @@ data_extractor_error! {
 // --------------------------------------------------
 // FullBody
 
+/// Consumes and collects the request body and converts it into [`Bytes`],
+/// ignoring its content type.
+///
+/// ```
+///	use argan::data::FullBody;
+///
+/// async fn full_body(FullBody(bytes): FullBody) {
+///		// ...
+/// }
+/// ```
+///
+/// By default, `FullBody` limits the body size to 2MiB. The body size limit can be changed by
+/// specifying the SIZE_LIMIT const type parameter.
+///
+/// ```
+/// use argan::data::FullBody;
+///
+/// async fn full_body(FullBody(bytes): FullBody<{ 512 * 1024 }>) {
+///		// ...
+/// }
+/// ```
 #[derive(Debug)]
-pub struct FullBody<const SIZE_LIMIT: usize = BODY_SIZE_LIMIT>(Bytes);
+pub struct FullBody<const SIZE_LIMIT: usize = BINARY_BODY_SIZE_LIMIT>(pub Bytes);
 
 impl<B, const SIZE_LIMIT: usize> FromRequest<B> for FullBody<SIZE_LIMIT>
 where
@@ -207,11 +283,14 @@ where
 
 // ----------
 
+/// An error type returned on failures when extracting a full body.
 #[non_exhaustive]
 #[derive(Debug, crate::ImplError)]
 pub enum FullBodyExtractorError {
+	/// Returned when the content size exceeds the size limit.
 	#[error("content too large")]
 	ContentTooLarge,
+	/// Returned on failure when collecting the request body frames.
 	#[error("buffering failure")]
 	BufferingFailure,
 }
