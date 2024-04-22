@@ -28,10 +28,10 @@ pub type BoxedErrorResponse = Box<dyn ErrorResponse + Send + Sync>;
 // --------------------------------------------------------------------------------
 
 // --------------------------------------------------
-// IntoResponseHead trait
+// IntoResponseHeadParts trait
 
 /// Implemented by types that form or can be converted into a type that forms the
-/// [ResponseHeadParts].
+/// [`ResponseHeadParts`].
 pub trait IntoResponseHeadParts {
 	fn into_response_head(
 		self,
@@ -42,7 +42,7 @@ pub trait IntoResponseHeadParts {
 // --------------------------------------------------
 // IntoResponse trait
 
-/// Implemented by types that can be converted into the [Response] type.
+/// Implemented by types that can be converted into the [`Response`] type.
 pub trait IntoResponse {
 	fn into_response(self) -> Response;
 }
@@ -56,7 +56,7 @@ impl IntoResponse for Response {
 // --------------------------------------------------
 // IntoResponseResult trait
 
-/// Implemented by types or error types that can be converted into the [Response] type.
+/// Implemented by types or error types that can be converted into the [`Response`] type.
 pub trait IntoResponseResult {
 	fn into_response_result(self) -> Result<Response, BoxedErrorResponse>;
 }

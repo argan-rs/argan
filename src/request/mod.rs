@@ -1,3 +1,7 @@
+//! HTTP request types.
+
+// ----------
+
 use std::{
 	borrow::Cow,
 	convert::Infallible,

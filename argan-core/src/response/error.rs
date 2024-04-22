@@ -15,7 +15,8 @@ use super::{BoxedErrorResponse, IntoResponse, Response};
 // --------------------------------------------------
 // ResponseError
 
-/// Error response type that implements both [Error][std::error::Error] and [IntoResponse] traits.
+/// Error response type that implements both [`Error`](std::error::Error) and
+/// [`IntoResponse`] traits.
 #[derive(Debug)]
 pub struct ResponseError {
 	status_code: StatusCode,
@@ -93,7 +94,7 @@ impl IntoResponse for ResponseError {
 // --------------------------------------------------
 // ErrorResponse
 
-/// Implemented by error types that can be converted into the [Response] type.
+/// Implemented by error types that can be converted into the [`Response`] type.
 pub trait ErrorResponse: StdError + IntoResponse + 'static {
 	#[doc(hidden)]
 	fn concrete_type_id(&self, _: marker::Private) -> TypeId {
@@ -114,10 +115,12 @@ pub trait ErrorResponse: StdError + IntoResponse + 'static {
 }
 
 impl dyn ErrorResponse + Send + Sync {
+	/// Returns the [`TypeId`] of the implementor.
 	pub fn implementor_type_id(&self) -> TypeId {
 		ErrorResponse::concrete_type_id(self, marker::Private)
 	}
 
+	/// Checks whether the implementor of the trait is the given type `E`.
 	pub fn is<E: Any + 'static>(&self) -> bool {
 		let self_id = ErrorResponse::concrete_type_id(self, marker::Private);
 		let param_id = TypeId::of::<E>();
@@ -125,6 +128,7 @@ impl dyn ErrorResponse + Send + Sync {
 		self_id == param_id
 	}
 
+	/// Casts the trait object into type `E` if it's an underlying concrete type.
 	pub fn downcast<E: Any + 'static>(self: Box<Self>) -> Result<Box<E>, Box<Self>> {
 		if self.is::<E>() {
 			Ok(
@@ -138,14 +142,17 @@ impl dyn ErrorResponse + Send + Sync {
 		}
 	}
 
+	/// Returns a reference to an underlying concrete type if it's a type `E`.
 	pub fn downcast_ref<E: Any + 'static>(&self) -> Option<&E> {
 		self.as_any_ref(marker::Private).downcast_ref()
 	}
 
+	/// Returns a mutable reference to an underlying concrete type if it's a type `E`.
 	pub fn downcast_mut<E: Any + 'static>(&mut self) -> Option<&mut E> {
 		self.as_any_mut(marker::Private).downcast_mut()
 	}
 
+	/// Converts the error into `Response`.
 	pub fn into_response(self: Box<Self>) -> Response {
 		self.concrete_into_response(marker::Private)
 	}

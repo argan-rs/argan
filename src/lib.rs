@@ -17,7 +17,11 @@ pub mod common;
 
 pub mod data;
 pub mod handler;
+
 pub mod host;
+#[doc(inline)]
+pub use host::Host;
+
 pub mod middleware;
 mod pattern;
 pub mod request;

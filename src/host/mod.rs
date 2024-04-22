@@ -1,3 +1,7 @@
+//! Host service types.
+
+// ----------
+
 use crate::{
 	common::SCOPE_VALIDITY,
 	pattern::{split_uri_host_and_path, Pattern, Similarity},
@@ -8,19 +12,29 @@ use crate::{
 
 mod service;
 
-pub use service::HostService;
-
-use self::service::{ArcHostService, LeakedHostService};
+pub use service::{ArcHostService, HostService, LeakedHostService};
 
 // --------------------------------------------------------------------------------
 // --------------------------------------------------------------------------------
 
+/// Representation of the *host* subcomponent of the URI.
 pub struct Host {
 	pattern: Pattern,
 	root_resource: Resource,
 }
 
 impl Host {
+	/// Creates a new `Host` with the given pattern and root resource.
+	///
+	///	```
+	///	use argan::{Host, Resource};
+	///
+	///	let root = Resource::new("/");
+	///	let host = Host::new("http://{sub_domain}.example.com", root);
+	///	```
+	///
+	/// The `Host` node checks the request's host and, if matches, passes the request to
+	/// its root resource.
 	pub fn new<P>(host_pattern: P, mut root: Resource) -> Self
 	where
 		P: AsRef<str>,
@@ -60,6 +74,7 @@ impl Host {
 
 	// -------------------------
 
+	/// Checks whether the given `pattern` is the `Host`'s pattern.
 	#[inline(always)]
 	pub fn is<P: AsRef<str>>(&self, pattern: P) -> bool {
 		let pattern = Pattern::parse(pattern.as_ref());
@@ -113,6 +128,7 @@ impl Host {
 		}
 	}
 
+	/// Converts the `Host` into a service.
 	#[inline(always)]
 	pub fn into_service(self) -> HostService {
 		let Host {
@@ -123,11 +139,13 @@ impl Host {
 		HostService::new(pattern, root_resource.into_service())
 	}
 
+	/// Converts the `Host` into a service that uses `Arc` internally.
 	#[inline(always)]
 	pub fn into_arc_service(self) -> ArcHostService {
 		ArcHostService::from(self.into_service())
 	}
 
+	/// Converts the `Host` into a service with a leaked `&'static`.
 	#[inline(always)]
 	pub fn into_leaked_service(self) -> LeakedHostService {
 		LeakedHostService::from(self.into_service())

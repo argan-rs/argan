@@ -1,3 +1,7 @@
+//! Traits and types for request handling.
+
+// ----------
+
 use std::{
 	any::Any,
 	borrow::Cow,
@@ -49,6 +53,7 @@ pub(crate) mod request_handlers;
 // --------------------------------------------------------------------------------
 // --------------------------------------------------------------------------------
 
+/// Trait for request handlers.
 pub trait Handler<B = Body, Ext: Clone = ()> {
 	type Response;
 	type Error;
@@ -60,6 +65,7 @@ pub trait Handler<B = Body, Ext: Clone = ()> {
 // --------------------------------------------------
 // IntoHandler
 
+/// Trait for types that can be converted into request handlers.
 pub trait IntoHandler<Mark, B = Body, Ext: Clone = ()>: Sized {
 	type Handler: Handler<B, Ext>;
 
@@ -113,6 +119,7 @@ where
 // --------------------------------------------------
 // ExtendedHandler
 
+/// Extension provider handler.
 #[derive(Clone)]
 pub struct ExtendedHandler<H, Ext> {
 	inner: H,
@@ -150,6 +157,7 @@ where
 // --------------------------------------------------
 // ContextProviderHandler
 
+/// Context provider handler.
 pub struct ContextProviderHandler<H> {
 	inner: H,
 	context: HandlerContext,
@@ -186,6 +194,7 @@ where
 // -------------------------
 // HandlerContext
 
+/// `Handler` context elements.
 pub mod context {
 	#[derive(Default)]
 	pub(super) struct HandlerContext {
@@ -198,6 +207,8 @@ pub mod context {
 		}
 	}
 
+	/// Passes the cryptographic `Key` used for *private* and *signed* cookies
+	/// as a `Handler` context.
 	pub fn _cookie_key<K>(cookie_key: cookie::Key) -> HandlerContextElem {
 		HandlerContextElem::CookieKey(cookie_key)
 	}
@@ -364,6 +375,7 @@ where
 // -------------------------
 // HandlerService
 
+/// `Handler` to `tower_service::Service` adapter.
 #[derive(Clone)]
 pub struct HandlerService<H> {
 	handler: H,
@@ -408,6 +420,7 @@ where
 // --------------------------------------------------
 // Args
 
+/// `Handler` arguments.
 #[non_exhaustive]
 pub struct Args<'n, HandlerExt: Clone = ()> {
 	pub node_extensions: NodeExtensions<'n>,
@@ -453,6 +466,7 @@ impl<'n, HandlerExt: Clone> Args<'n, HandlerExt> {
 // --------------------------------------------------
 // ErrorHandler
 
+/// Trait for [ErrorResponse](crate::response::ErrorResponse) handlers.
 pub trait ErrorHandler {
 	fn handle_error(
 		&mut self,
