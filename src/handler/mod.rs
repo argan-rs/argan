@@ -57,34 +57,6 @@ pub trait Handler<B = Body, Ext: Clone = ()> {
 	fn handle(&self, request: RequestContext<B>, args: Args<'_, Ext>) -> Self::Future;
 }
 
-// -------------------------
-
-impl<S, B> Handler for S
-where
-	S: TowerService<Request<Body>, Response = Response<B>> + Clone,
-	S::Error: Into<BoxedErrorResponse>,
-	S::Future: Send + 'static,
-	B: HttpBody<Data = Bytes> + Send + Sync + 'static,
-	B::Error: Into<BoxedError>,
-{
-	type Response = Response;
-	type Error = BoxedErrorResponse;
-	type Future = BoxedFuture<Result<Response, BoxedErrorResponse>>;
-
-	fn handle(&self, mut request: RequestContext, mut args: Args) -> Self::Future {
-		let (mut request, routing_state, some_cookie_key) = request.into_parts();
-		let args = args.to_owned();
-
-		request
-			.extensions_mut()
-			.insert(Uncloneable::from((routing_state, some_cookie_key, args)));
-
-		let future_response_result = self.clone().call(request);
-
-		Box::pin(ResponseBodyAdapterFuture::from(future_response_result))
-	}
-}
-
 // --------------------------------------------------
 // IntoHandler
 
@@ -92,13 +64,6 @@ pub trait IntoHandler<Mark, B = Body, Ext: Clone = ()>: Sized {
 	type Handler: Handler<B, Ext>;
 
 	fn into_handler(self) -> Self::Handler;
-
-	fn with_error_handler<E>(self, error_handler: E) -> ResponseResultHandler<Self::Handler, E>
-	where
-		E: ErrorHandler<<Self::Handler as Handler<B, Ext>>::Error>,
-	{
-		ResponseResultHandler::new(self.into_handler(), error_handler)
-	}
 
 	fn with_extension(self, handler_extension: Ext) -> ExtendedHandler<Self::Handler, Ext> {
 		ExtendedHandler::new(self.into_handler(), handler_extension)
@@ -146,72 +111,6 @@ where
 }
 
 // --------------------------------------------------
-// ErrorHandler
-
-pub trait ErrorHandler<E> {
-	// ??? We may have a problem with shared ref.
-	fn handle_error(&mut self, error: E) -> impl Future<Output = Result<Response, E>> + Send;
-}
-
-impl<Func, Fut, E> ErrorHandler<E> for Func
-where
-	Func: FnMut(E) -> Fut,
-	Fut: Future<Output = Result<Response, E>> + Send,
-{
-	fn handle_error(&mut self, error: E) -> impl Future<Output = Result<Response, E>> + Send {
-		self(error)
-	}
-}
-
-// -------------------------
-// ResponseResultHandler
-
-#[derive(Clone)]
-pub struct ResponseResultHandler<H, ErrH> {
-	inner: H,
-	error_handler: ErrH,
-}
-
-impl<H, ErrH> ResponseResultHandler<H, ErrH> {
-	pub(crate) fn new(inner: H, error_handler: ErrH) -> Self {
-		Self {
-			inner,
-			error_handler,
-		}
-	}
-}
-
-impl<H, B, Ext, ErrH> Handler<B, Ext> for ResponseResultHandler<H, ErrH>
-where
-	H: Handler<
-		B,
-		Ext,
-		Response = Response,
-		Error = BoxedErrorResponse,
-		Future = BoxedFuture<Result<Response, BoxedErrorResponse>>,
-	>,
-	Ext: Clone,
-	ErrH: ErrorHandler<H::Error> + Clone + Send + 'static,
-{
-	type Response = Response;
-	type Error = H::Error;
-	type Future = BoxedFuture<Result<Self::Response, Self::Error>>;
-
-	#[inline]
-	fn handle(&self, request: RequestContext<B>, args: Args<'_, Ext>) -> Self::Future {
-		let future = self.inner.handle(request, args);
-		let mut error_handler_clone = self.error_handler.clone();
-
-		Box::pin(async move {
-			match future.await {
-				Ok(response) => Ok(response.into_response()),
-				Err(error) => error_handler_clone.handle_error(error).await,
-			}
-		})
-	}
-}
-
-// --------------------------------------------------
 // ExtendedHandler
 
 #[derive(Clone)]
@@ -249,7 +148,7 @@ where
 }
 
 // --------------------------------------------------
-// YummyHandler
+// ContextProviderHandler
 
 pub struct ContextProviderHandler<H> {
 	inner: H,
@@ -305,50 +204,6 @@ pub mod context {
 }
 
 use context::{HandlerContext, HandlerContextElem};
-
-// --------------------------------------------------
-// HandlerService
-
-#[derive(Clone)]
-pub struct HandlerService<H> {
-	handler: H,
-}
-
-impl<H> From<H> for HandlerService<H> {
-	#[inline]
-	fn from(handler: H) -> Self {
-		Self { handler }
-	}
-}
-
-impl<H, B> TowerService<Request<B>> for HandlerService<H>
-where
-	H: Handler<B>,
-{
-	type Response = H::Response;
-	type Error = H::Error;
-	type Future = H::Future;
-
-	fn poll_ready(&mut self, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
-		Poll::Ready(Ok(()))
-	}
-
-	#[inline]
-	fn call(&mut self, mut request: Request<B>) -> Self::Future {
-		let (routing_state, some_cookie_key, args) = request
-			.extensions_mut()
-			.remove::<Uncloneable<(RoutingState, Option<cookie::Key>, Args)>>()
-			.expect(
-				"request context data should be inserted in the Handler implementation for the Service",
-			)
-			.into_inner()
-			.expect("Uncloneable must always have a valid value");
-
-		let request = RequestContext::new(request, routing_state);
-
-		self.handler.handle(request, args)
-	}
-}
 
 // --------------------------------------------------------------------------------
 // FinalHandler trait
@@ -461,7 +316,7 @@ impl Handler for ArcHandler {
 	}
 }
 
-// --------------------------------------------------------------------------------
+// --------------------------------------------------
 // DummyHandler
 
 #[derive(Clone)]
@@ -474,6 +329,79 @@ impl Handler for DummyHandler {
 
 	fn handle(&self, request: RequestContext<Body>, args: Args<'_, ()>) -> Self::Future {
 		Box::pin(async { Ok(Response::default()) })
+	}
+}
+
+// --------------------------------------------------------------------------------
+// TowerService
+
+impl<S, B> Handler for S
+where
+	S: TowerService<Request<Body>, Response = Response<B>> + Clone,
+	S::Error: Into<BoxedErrorResponse>,
+	S::Future: Send + 'static,
+	B: HttpBody<Data = Bytes> + Send + Sync + 'static,
+	B::Error: Into<BoxedError>,
+{
+	type Response = Response;
+	type Error = BoxedErrorResponse;
+	type Future = BoxedFuture<Result<Response, BoxedErrorResponse>>;
+
+	fn handle(&self, mut request: RequestContext, mut args: Args) -> Self::Future {
+		let (mut request, routing_state, some_cookie_key) = request.into_parts();
+		let args = args.to_owned();
+
+		request
+			.extensions_mut()
+			.insert(Uncloneable::from((routing_state, some_cookie_key, args)));
+
+		let future_response_result = self.clone().call(request);
+
+		Box::pin(ResponseBodyAdapterFuture::from(future_response_result))
+	}
+}
+
+// -------------------------
+// HandlerService
+
+#[derive(Clone)]
+pub struct HandlerService<H> {
+	handler: H,
+}
+
+impl<H> From<H> for HandlerService<H> {
+	#[inline]
+	fn from(handler: H) -> Self {
+		Self { handler }
+	}
+}
+
+impl<H, B> TowerService<Request<B>> for HandlerService<H>
+where
+	H: Handler<B>,
+{
+	type Response = H::Response;
+	type Error = H::Error;
+	type Future = H::Future;
+
+	fn poll_ready(&mut self, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
+		Poll::Ready(Ok(()))
+	}
+
+	#[inline]
+	fn call(&mut self, mut request: Request<B>) -> Self::Future {
+		let (routing_state, some_cookie_key, args) = request
+			.extensions_mut()
+			.remove::<Uncloneable<(RoutingState, Option<cookie::Key>, Args)>>()
+			.expect(
+				"request context data should be inserted in the Handler implementation for the Service",
+			)
+			.into_inner()
+			.expect("Uncloneable must always have a valid value");
+
+		let request = RequestContext::new(request, routing_state);
+
+		self.handler.handle(request, args)
 	}
 }
 
@@ -519,6 +447,29 @@ impl<'n, HandlerExt: Clone> Args<'n, HandlerExt> {
 			node_extensions: new_node_extensions,
 			handler_extension: Cow::Borrowed(new_handler_extension),
 		}
+	}
+}
+
+// --------------------------------------------------
+// ErrorHandler
+
+pub trait ErrorHandler {
+	fn handle_error(
+		&mut self,
+		error_response: BoxedErrorResponse,
+	) -> impl Future<Output = Result<Response, BoxedErrorResponse>> + Send;
+}
+
+impl<Func, Fut> ErrorHandler for Func
+where
+	Func: FnMut(BoxedErrorResponse) -> Fut + Clone,
+	Fut: Future<Output = Result<Response, BoxedErrorResponse>> + Send,
+{
+	fn handle_error(
+		&mut self,
+		error_response: BoxedErrorResponse,
+	) -> impl Future<Output = Result<Response, BoxedErrorResponse>> + Send {
+		self(error_response)
 	}
 }
 
