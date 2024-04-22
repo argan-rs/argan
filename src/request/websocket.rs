@@ -1,3 +1,7 @@
+//! Types to handle WebSocket connections.
+
+// ----------
+
 use std::{
 	borrow::Cow,
 	future::{ready, Future},
@@ -33,11 +37,12 @@ use super::*;
 // --------------------------------------------------------------------------------
 // --------------------------------------------------------------------------------
 
-// TODO: If non-utf-8 data within a text message send 1007.
+const MESSAGE_SIZE_LIMIT: usize = 16 * 1024 * 1024;
 
 // --------------------------------------------------
 // WebSocketUpgrade
 
+/// Extractor to establish a WebSocket connection.
 pub struct WebSocketUpgrade {
 	response: Response,
 	upgrade_future: UpgradeFuture,
@@ -60,13 +65,15 @@ impl WebSocketUpgrade {
 			upgrade_future,
 			some_requested_protocols,
 			some_selected_protocol: None,
-			message_size_limit: 16 * 1024 * 1024,
+			message_size_limit: MESSAGE_SIZE_LIMIT,
 			auto_unmasking: true,
 			auto_sending_pong: true,
 			auto_closing: false,
 		}
 	}
 
+	/// Calls the given function for each listed protocol in the `Sec-WebSocket-Protocol`
+	/// header and selects the one the given function returned true for.
 	pub fn select_protocol<Func>(
 		&mut self,
 		selector: Func,
@@ -93,30 +100,36 @@ impl WebSocketUpgrade {
 		Ok(None)
 	}
 
+	/// Sets the maximum size limit for the message.
 	pub fn set_message_size_limit(&mut self, size_limit: usize) -> &mut Self {
 		self.message_size_limit = size_limit;
 
 		self
 	}
 
+	/// Turns off the auto unmasking the messages.
 	pub fn turn_off_auto_unmasking(&mut self) -> &mut Self {
 		self.auto_unmasking = false;
 
 		self
 	}
 
+	/// Turns off automatically sending the *pong* messages.
 	pub fn turn_off_auto_sending_pong(&mut self) -> &mut Self {
 		self.auto_sending_pong = false;
 
 		self
 	}
 
+	/// Turns on auto-responding to *close* messages.
 	pub fn turn_on_auto_closing(&mut self) -> &mut Self {
 		self.auto_closing = true;
 
 		self
 	}
 
+	/// Returns a `Response` that should be sent to the client and calls the given callback
+	/// on upgrade to handle the result.
 	pub fn upgrade<Func, Fut>(self, handle_upgrade_result: Func) -> Response
 	where
 		Func: FnOnce(Result<WebSocket, WebSocketUpgradeError>) -> Fut + Send + 'static,
@@ -163,11 +176,11 @@ impl<B> FromRequest<B> for WebSocketUpgrade {
 		mut head_parts: &mut RequestHeadParts,
 		_: B,
 	) -> impl Future<Output = Result<Self, Self::Error>> {
-		ready(request_into_websocket_upgrade(head_parts))
+		ready(websocket_handshake(head_parts))
 	}
 }
 
-pub(crate) fn request_into_websocket_upgrade(
+pub(crate) fn websocket_handshake(
 	mut head: &mut RequestHeadParts,
 ) -> Result<WebSocketUpgrade, WebSocketUpgradeError> {
 	if head.method != Method::GET {
@@ -245,20 +258,28 @@ fn sec_websocket_accept_value_from(key: &[u8]) -> HeaderValue {
 // --------------------------------------------------
 // WebSocketUpgradeError
 
+/// An error type returned on WebSocket upgrade failures.
 #[derive(Debug, crate::ImplError)]
 pub enum WebSocketUpgradeError {
+	/// Returned when `Connection` header is invalid.
 	#[error("invalid Connection header")]
 	InvalidConnectionHeader,
+	/// Returned when `Upgrade` header is invalid.
 	#[error("invalid Upgrade header")]
 	InvalidUpgradeHeader,
+	/// Returned when `Sec-WebSocket-Version` is not 13.
 	#[error("invalid Sec-WebSocket-Version")]
 	InvalidSecWebSocketVersion,
+	/// Returned when `Sec-WebSocket-Key` is missing.
 	#[error("missing Sec-WebSocket-Key")]
 	MissingSecWebSocketKey,
+	/// Returned on failure when converting the `Sec-WebSocket-Protocol` to a string.
 	#[error("invlaid Sec-WebSocket-Protocol")]
 	InvalidSecWebSocketProtocol(ToStrError),
+	/// Returned when the connection wasn't configured to be upgradable.
 	#[error("unupgradable connection")]
 	UnupgradableConnection,
+	/// Returned on low-level failures.
 	#[error(transparent)]
 	Failure(#[from] hyper::Error),
 }
@@ -301,9 +322,13 @@ impl Future for UpgradeFuture {
 // --------------------------------------------------
 // WebSocket
 
+/// Successfully established WebSocket.
 pub struct WebSocket(FragmentCollector<TokioIo<Upgraded>>);
 
 impl WebSocket {
+	/// Receives a message.
+	///
+	/// Returns `None` if the connection has been closed.
 	pub async fn receive(&mut self) -> Option<Result<Message, WebSocketError>> {
 		match self.0.read_frame().await {
 			Ok(complete_frame) => match complete_frame.opcode {
@@ -330,6 +355,7 @@ impl WebSocket {
 		}
 	}
 
+	/// Sends a new message.
 	pub async fn send(&mut self, message: Message) -> Result<(), WebSocketError> {
 		Ok(match message {
 			Message::Text(text) => {
@@ -364,6 +390,7 @@ impl WebSocket {
 		})
 	}
 
+	/// Sends a *'close frame'* to the peer and closes the connection.
 	#[inline(always)]
 	pub async fn close(mut self) -> Result<(), WebSocketError> {
 		Ok(self.send(Message::Close(None)).await?)
@@ -373,6 +400,7 @@ impl WebSocket {
 // --------------------------------------------------
 // Message
 
+/// A WebScoket message.
 pub enum Message {
 	Text(String),
 	Binary(Vec<u8>),
@@ -383,6 +411,7 @@ pub enum Message {
 
 // ----------
 
+/// *Close frame* to send when manually closing the connection.
 pub struct CloseFrame {
 	code: CloseCode,
 	reason: Cow<'static, str>,
@@ -391,6 +420,7 @@ pub struct CloseFrame {
 // --------------------------------------------------
 // CloseCode
 
+/// *Close codes* to indicate the reason for the closure.
 #[allow(non_camel_case_types)]
 #[derive(Debug, Eq, PartialEq, Clone, Copy)]
 pub enum CloseCode {
@@ -546,34 +576,48 @@ impl From<CloseCode> for u16 {
 // --------------------------------------------------
 // WebSocketError
 
+/// An error type returned on WebSocket communication failure.
 #[non_exhaustive]
 #[derive(Debug, crate::ImplError)]
 pub enum WebSocketError {
+	/// Returned when invalid frame is deteced.
 	#[error("invalid fragment")]
 	InvalidFragment,
+	/// Returned when text message has an invalid UTF-8 character.
 	#[error("invalid UTF-8")]
 	InvalidUTF8,
+	/// Returned when invalid continuation frame is deteced.
 	#[error("invalid continuation frame")]
 	InvalidContinuationFrame,
+	/// Returned when *close frame* is invalid.
 	#[error("invalid close frame")]
 	InvalidCloseFrame,
+	/// Returned when *close code* is invalid.
 	#[error("invalid close code")]
 	InvalidCloseCode,
+	/// Returned on unexpected *end of file*.
 	#[error("unexpected EOF")]
 	UnexpectedEOF,
+	/// Returned when a frame has non-zero reserved bits.
 	#[error("non-zero reserved bits")]
 	NonZeroReservedBits,
+	/// Returned when a fragmented *control frame* is detected.
 	#[error("fragmented control frame")]
 	FragmentedControlFrame,
+	/// Returned when a *ping frame* is too large.
 	#[error("ping frame too large")]
 	PingFrameTooLarge,
+	/// Returned when the received message exceeded the size limit.
 	#[error("message too large ")]
 	MessageTooLarge,
+	/// Returned on invalid value.
 	#[error("Invalid value")]
 	InvalidValue,
 	#[error(transparent)]
-	IoError(#[from] IoError),
+	/// Returned on IO error.
+	Io(#[from] IoError),
 	#[error(transparent)]
+	/// Returned on unexpected error.
 	Unexpected(BoxedError),
 }
 
@@ -591,7 +635,7 @@ impl From<FastWebSocketError> for WebSocketError {
 			FastWebSocketError::PingFrameTooLarge => Self::PingFrameTooLarge,
 			FastWebSocketError::FrameTooLarge => Self::MessageTooLarge,
 			FastWebSocketError::InvalidValue => Self::InvalidValue,
-			FastWebSocketError::IoError(io_error) => Self::IoError(io_error),
+			FastWebSocketError::IoError(io_error) => Self::Io(io_error),
 			unexpected_error => Self::Unexpected(unexpected_error.into()),
 		}
 	}

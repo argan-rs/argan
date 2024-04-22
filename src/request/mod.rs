@@ -53,7 +53,7 @@ pub use argan_core::request::*;
 
 pub mod websocket;
 
-use self::websocket::{request_into_websocket_upgrade, WebSocketUpgrade, WebSocketUpgradeError};
+use self::websocket::{websocket_handshake, WebSocketUpgrade, WebSocketUpgradeError};
 
 // --------------------------------------------------------------------------------
 // --------------------------------------------------------------------------------
@@ -251,7 +251,7 @@ impl<B> RequestContext<B> {
 	pub fn into_websocket_upgrade(self) -> Result<WebSocketUpgrade, WebSocketUpgradeError> {
 		let (mut head, _) = self.request.into_parts();
 
-		request_into_websocket_upgrade(&mut head)
+		websocket_handshake(&mut head)
 	}
 
 	// pub async fn extract<'r, T>(&'r self) -> Result<T, T::Error>
