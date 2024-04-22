@@ -146,7 +146,7 @@ macro_rules! data_extractor_error {
 			/// Returned when the content size exceeds the size limit.
 			#[error("content too large")]
 			ContentTooLarge,
-			/// Returned when collecting the request body frames fails.
+			/// Returned on failure when collecting the request body frames.
 			#[error("buffering failure")]
 			BufferingFailure,
 			$(

@@ -32,7 +32,7 @@ use crate::{
 		header::{content_type, ContentTypeError},
 		json::{request_into_json_data, Json, JsonError, JSON_BODY_SIZE_LIMIT},
 		request_into_binary_data, request_into_full_body, request_into_text_data, BinaryExtractorError,
-		FullBodyExtractorError, TextExtractorError, BODY_SIZE_LIMIT,
+		FullBodyExtractorError, TextExtractorError, BINARY_BODY_SIZE_LIMIT, TEXT_BODY_SIZE_LIMIT,
 	},
 	handler::Args,
 	pattern::{self, FromParamsList, ParamsList},
@@ -161,7 +161,7 @@ impl<B> RequestContext<B> {
 		B::Error: Into<BoxedError>,
 	{
 		let size_limit = match size_limit {
-			SizeLimit::Default => BODY_SIZE_LIMIT,
+			SizeLimit::Default => BINARY_BODY_SIZE_LIMIT,
 			SizeLimit::Value(value) => value,
 		};
 
@@ -176,7 +176,7 @@ impl<B> RequestContext<B> {
 		B::Error: Into<BoxedError>,
 	{
 		let size_limit = match size_limit {
-			SizeLimit::Default => BODY_SIZE_LIMIT,
+			SizeLimit::Default => BINARY_BODY_SIZE_LIMIT,
 			SizeLimit::Value(value) => value,
 		};
 
@@ -191,7 +191,7 @@ impl<B> RequestContext<B> {
 		B::Error: Into<BoxedError>,
 	{
 		let size_limit = match size_limit {
-			SizeLimit::Default => BODY_SIZE_LIMIT,
+			SizeLimit::Default => TEXT_BODY_SIZE_LIMIT,
 			SizeLimit::Value(value) => value,
 		};
 

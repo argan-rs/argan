@@ -1,3 +1,7 @@
+//! HTTP header types.
+
+// ----------
+
 use std::{convert::Infallible, io::BufRead, num::ParseFloatError};
 
 use argan_core::request::RequestHeadParts;
@@ -153,7 +157,7 @@ pub(crate) fn split_header_value_with_weights(
 }
 
 #[derive(Debug, crate::ImplError)]
-pub enum SplitHeaderValueError {
+pub(crate) enum SplitHeaderValueError {
 	#[error(transparent)]
 	ToStrError(#[from] ToStrError),
 	#[error("invalid quality specifier")]

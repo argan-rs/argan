@@ -1,3 +1,7 @@
+//! A `Json` type to extract and send data as JSON.
+
+// ----------
+
 use std::{str::FromStr, string::FromUtf8Error};
 
 use argan_core::request::RequestHeadParts;
@@ -24,6 +28,43 @@ pub(crate) const JSON_BODY_SIZE_LIMIT: usize = { 2 * 1024 * 1024 };
 
 // ----------
 
+/// Extractor and response type of the `application/json` data.
+///
+/// `Json` consumes the request body and deserializes it as type `T`. `T` must be a type
+/// that implements [`serde::Deserialize`].
+///
+/// ```
+///	use argan::data::json::Json;
+/// use serde::Deserialize;
+///
+/// #[derive(Deserialize)]
+/// struct Person {
+///		first_name: String,
+///		last_name: String,
+///		age: u8,
+/// }
+///
+/// async fn add_person(Json(person): Json<Person>) {
+///		// ...
+/// }
+/// ```
+///
+/// By default, `Json` limits the body size to 2MiB. The body size limit can be changed by
+/// specifying the SIZE_LIMIT const type parameter.
+///
+/// ```
+/// use argan::data::json::Json;
+/// use serde::Deserialize;
+///
+/// #[derive(Deserialize)]
+/// struct SurveyData {
+///		// ...
+/// }
+///
+/// async fn save_survey_data(Json(survey_data): Json<SurveyData, { 512 * 1024 }>) {
+///		// ...
+/// }
+/// ```
 pub struct Json<T, const SIZE_LIMIT: usize = JSON_BODY_SIZE_LIMIT>(pub T);
 
 impl<B, T, const SIZE_LIMIT: usize> FromRequest<B> for Json<T, SIZE_LIMIT>
@@ -93,10 +134,13 @@ where
 // ----------
 
 data_extractor_error! {
+	/// An error type returned on failures when extracting or serializing the `Json`.
 	#[derive(Debug)]
 	pub JsonError {
+		/// Returned on syntax error when deserializing the body as JSON data.
 		#[error("invlaid JSON syntax in line {line}, column {column}")]
 		(InvalidSyntax { line: usize, column: usize}) [{..}]; StatusCode::BAD_REQUEST;
+		/// Returned on semantically incorrect data when deserializing the body as JSON.
 		#[error("invalid JSON semantics in line {line}, column {column}")]
 		(InvalidData { line: usize, column: usize}) [{..}]; StatusCode::UNPROCESSABLE_ENTITY;
 	}
