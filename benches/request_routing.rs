@@ -8,11 +8,7 @@ use tokio::runtime::Builder;
 
 // ----------
 
-use argan::{
-	handler::_get,
-	request::{Request, RequestContext},
-	resource::Resource,
-};
+use argan::{handler::_get, request::Request, resource::Resource};
 
 // --------------------------------------------------------------------------------
 // --------------------------------------------------------------------------------

@@ -306,21 +306,22 @@ impl Resource {
 
 	// -------------------------
 
-	/// Adds the new resource to the parent's subtree.
+	/// Adds the given resources to the current resource's subtree.
 	///
 	/// ```
 	/// use argan::Resource;
 	///
 	/// let mut resource_2 = Resource::new("/resource_1/resource_2");
-	/// let resource_4 = Resource::new("/resource_1/resource_2/resource_3/resource_4");
+	/// let resource_3_0 = Resource::new("/resource_3_0");
+	/// let resource_4 = Resource::new("/resource_1/resource_2/resource_3_1/resource_4");
 	///
-	/// // when we add `resource_`
-	/// resource_2.add_subresource(resource_4);
+	/// resource_2.add_subresource([resource_3_0, resource_4]);
 	/// ```
 	///
 	/// # Panics
 	///
 	/// - if the resource being added is a root resource
+	///
 	/// ```should_panic
 	/// use argan::Resource;
 	///
@@ -330,7 +331,9 @@ impl Resource {
 	/// parent.add_subresource(root);
 	/// ```
 	///
-	/// - if the parent's URI doesn't match the host and/or prefix path segments of the resource
+	/// - if the current resource's URI doesn't match the host and/or prefix path segments
+	/// of the given resource
+	///
 	/// ```should_panic
 	/// use argan::Resource;
 	///
@@ -342,8 +345,9 @@ impl Resource {
 	/// resource_2.add_subresource(resource_3);
 	/// ```
 	///
-	/// - if the resource or one of its subresources has a duplicate in the parent's subtree
-	/// and both of them have some handler set or a middleware applied
+	/// - if the resource or one of its subresources has a duplicate in the current resources's
+	/// subtree and both of them have some handler set or a middleware applied
+	///
 	/// ```should_panic
 	/// use argan::Resource;
 	/// use argan::handler::{_get, _post};
@@ -360,9 +364,9 @@ impl Resource {
 	///
 	/// resource_2.add_subresource(resource_3);
 	///
-	/// // This doesn't try to merge the duplicate resources' handler sets.
+	/// // This doesn't try to merge the handler sets of the duplicate resources.
 	/// resource_1.add_subresource(resource_2);
-	///
+	///	```
 	pub fn add_subresource<R, const N: usize>(&mut self, new_resources: R)
 	where
 		R: IntoArray<Resource, N>,
@@ -740,7 +744,7 @@ impl Resource {
 		prefix_patterns
 	}
 
-	/// Adds the new resource under the prefix path segments relative to the parent.
+	/// Adds the given resources under the prefix path segments relative to the current resource.
 	///
 	/// ```
 	/// use argan::Resource;
@@ -763,8 +767,10 @@ impl Resource {
 	/// ```
 	///
 	/// # Panics
-	/// - if the new resource's URI components don't match the parent's URI components
+	///
+	/// - if the new resource's URI components don't match the current resource's URI components
 	/// and/or the given releative path pattern, respectively
+	///
 	/// ```should_panic
 	/// use argan::Resource;
 	///
@@ -1153,6 +1159,13 @@ impl Resource {
 
 	// -------------------------
 
+	/// Adds the given extension to the `Resource`. Added extensions are available to all the
+	/// handlers of the `Resource` and to all the middleware that wrap these handlers via the
+	/// [`Args`](crate::handler::Args) field [`NodeExtensions`](crate::common::NodeExtensions).
+	///
+	/// # Panics
+	///
+	/// - if an extension of the same type already exists
 	pub fn add_extension<E: Clone + Send + Sync + 'static>(&mut self, extension: E) {
 		if self.extensions.insert(extension).is_some() {
 			panic!(
@@ -1202,7 +1215,7 @@ impl Resource {
 	/// Adds middleware to be applied on the resource's components, like request receiver,
 	/// passer, and method and other kind of handlers.
 	///
-	/// Middlewares are applied when the resource is baing converted into a service.
+	/// Middlewares are applied when the resource is being converted into a service.
 	///
 	/// ```
 	/// // use declarations
@@ -1295,11 +1308,11 @@ impl Resource {
 
 	// -------------------------
 
-	/// Calls the given function for each subresource with the mutable reference of parameter.
+	/// Calls the given function for each subresource with a mutable reference to the parameter.
 	///
 	/// If the function returns `Iteration::Skip` for any resource it's called for, that
 	/// resource's subresources will be skipped. If the function retuns `Iteration::Stop` or
-	/// all the subresources were processed, the parameter is returned in its final state.
+	/// all the subresources have been processed, the parameter is returned in its final state.
 	pub fn for_each_subresource<T, F>(&mut self, mut param: T, mut func: F) -> T
 	where
 		F: FnMut(&mut T, &mut Resource) -> Iteration,
