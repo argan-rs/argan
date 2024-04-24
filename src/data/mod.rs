@@ -57,7 +57,7 @@ pub(crate) const TEXT_BODY_SIZE_LIMIT: usize = { 1 * 1024 * 1024 };
 
 /// Extractor type of the `text/plain` and `text/plain; charset=utf-8` data.
 ///
-/// `Text` consumes the request body and converts it into [`String`].
+/// `Text` consumes the request body and converts it to a [`String`].
 ///
 /// ```
 ///	use argan::data::Text;

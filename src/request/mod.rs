@@ -61,6 +61,7 @@ use self::websocket::{websocket_handshake, WebSocketUpgrade, WebSocketUpgradeErr
 // --------------------------------------------------
 // RequestContext
 
+/// Handler parameter that carries request data.
 pub struct RequestContext<B = Body> {
 	request: Request<B>,
 	routing_state: RoutingState,
@@ -84,26 +85,31 @@ impl<B> RequestContext<B> {
 		self
 	}
 
+	/// Returns a reference to the request method.
 	#[inline(always)]
 	pub fn method_ref(&self) -> &Method {
 		self.request.method()
 	}
 
+	/// Returns a reference to the request URI.
 	#[inline(always)]
 	pub fn uri_ref(&self) -> &Uri {
 		self.request.uri()
 	}
 
+	/// Returns the version of HTTP that's being used for comunication.
 	#[inline(always)]
 	pub fn version(&self) -> Version {
 		self.request.version()
 	}
 
+	/// Returns a reference to the map of request headers.
 	#[inline(always)]
 	pub fn headers_ref(&self) -> &HeaderMap<HeaderValue> {
 		self.request.headers()
 	}
 
+	/// Returns a reference to the request extensions.
 	#[inline(always)]
 	pub fn extensions_ref(&self) -> &Extensions {
 		self.request.extensions()
@@ -111,6 +117,7 @@ impl<B> RequestContext<B> {
 
 	// ----------
 
+	/// Returns a mutable reference to the `Request`
 	#[inline(always)]
 	pub fn request_mut(&mut self) -> &mut Request<B> {
 		&mut self.request
@@ -118,11 +125,13 @@ impl<B> RequestContext<B> {
 
 	// ----------
 
-	// Consumes cookies.
+	/// Returns the request cookies.
 	pub fn cookies(&mut self) -> CookieJar {
 		cookies_from_request(self.headers_ref(), self.some_cookie_key.clone())
 	}
 
+	/// Returns the path params deserialized as type `T`. `T` must implement the
+	/// [`serde::Deserialize`] trait.
 	#[inline]
 	pub fn path_params_as<'r, T>(&'r self) -> Result<T, PathParamsError>
 	where
@@ -135,6 +144,8 @@ impl<B> RequestContext<B> {
 			.map_err(Into::into)
 	}
 
+	/// Returns the query params deserialized as type `T`. `T` must implement the
+	/// [`serde::Deserialize`] trait.
 	#[inline]
 	pub fn query_params_as<'r, T>(&'r self) -> Result<T, QueryParamsError>
 	where
@@ -151,6 +162,11 @@ impl<B> RequestContext<B> {
 			.map_err(|error| QueryParamsError::InvalidData(error.into()))
 	}
 
+	/// Returns the remaining segments of the request's path.
+	///
+	/// As the request passes through the tree of resources that match the path segments of
+	/// its target URI, this method can be used to get the remaining path segments from the
+	/// middleware of these resources.
 	#[inline(always)]
 	pub fn subtree_path_segments(&self) -> &str {
 		self
@@ -159,6 +175,8 @@ impl<B> RequestContext<B> {
 			.remaining_segments(self.request.uri().path())
 	}
 
+	#[doc(hidden)]
+	/// Consumes the `RequestContext`, collects the request body and returns it as [`Bytes`].
 	pub async fn into_full_body(self, size_limit: SizeLimit) -> Result<Bytes, FullBodyExtractorError>
 	where
 		B: HttpBody,
@@ -174,6 +192,9 @@ impl<B> RequestContext<B> {
 		request_into_full_body(body, size_limit).await
 	}
 
+	#[doc(hidden)]
+	/// Consumes the `RequestContext`, collects the request body if the `Content-Type` is
+	/// either `octet-stream` or `application/octet-stream` and returns it as [`Bytes`].
 	pub async fn into_binary_data(self, size_limit: SizeLimit) -> Result<Bytes, BinaryExtractorError>
 	where
 		B: HttpBody,
@@ -189,6 +210,10 @@ impl<B> RequestContext<B> {
 		request_into_binary_data(&head_parts, body, size_limit).await
 	}
 
+	#[doc(hidden)]
+	/// Consumes the `RequestContext`, collects the request body if the `Content-Type` is
+	/// either `text/plain` or `text/plain; charset=utf-8` and returns it converted to
+	/// [`String`].
 	pub async fn into_text_data(self, size_limit: SizeLimit) -> Result<String, TextExtractorError>
 	where
 		B: HttpBody,
@@ -204,6 +229,10 @@ impl<B> RequestContext<B> {
 		request_into_text_data(&head_parts, body, size_limit).await
 	}
 
+	#[doc(hidden)]
+	/// Consumes the `RequestContext`, collects the request body if the `Content-Type` is
+	/// `application/json` and returns it deserialized as type `T`. `T` must implement
+	/// [`serde::Deserialize`].
 	pub async fn into_json_data<T>(self, size_limit: SizeLimit) -> Result<T, JsonError>
 	where
 		B: HttpBody,
@@ -220,6 +249,10 @@ impl<B> RequestContext<B> {
 		request_into_json_data::<T, B>(&head_parts, body, size_limit).await
 	}
 
+	#[doc(hidden)]
+	/// Consumes the `RequestContext`, collects the request body if the `Content-Type` is
+	/// `application/x-www-form-urlencoded` and returns it deserialized as type `T`. `T`
+	/// must implement [`serde::Deserialize`].
 	pub async fn into_form_data<T>(self, size_limit: SizeLimit) -> Result<T, FormError>
 	where
 		B: HttpBody,
@@ -236,6 +269,8 @@ impl<B> RequestContext<B> {
 		request_into_form_data::<T, B>(&head_parts, body, size_limit).await
 	}
 
+	#[doc(hidden)]
+	/// Consumes the `RequestContext` and returns a `multipart/form-data` extractor.
 	#[inline(always)]
 	pub fn into_multipart_form(self) -> Result<MultipartForm<B>, MultipartFormError>
 	where
@@ -247,6 +282,8 @@ impl<B> RequestContext<B> {
 		request_into_multipart_form(&head_parts, body)
 	}
 
+	#[doc(hidden)]
+	/// Consumes the `RequestContext` and returns an extractor to establish a WebSocket connection.
 	#[inline(always)]
 	pub fn into_websocket_upgrade(self) -> Result<WebSocketUpgrade, WebSocketUpgradeError> {
 		let (mut head, _) = self.request.into_parts();
@@ -254,14 +291,10 @@ impl<B> RequestContext<B> {
 		websocket_handshake(&mut head)
 	}
 
-	// pub async fn extract<'r, T>(&'r self) -> Result<T, T::Error>
-	// where
-	// 	T: FromRequestRef<'r, B>,
-	// {
-	// 	T::from_request_ref(&self.request).await
-	// }
-
-	pub async fn extract_into<T>(self) -> (RequestHead, Result<T, T::Error>)
+	/// Consumes the `RequestContext`, extracting the `RequestHead` and type `T`.
+	///
+	/// `T` must implement the `FromRequest` trait.
+	pub async fn extract<T>(self) -> (RequestHead, Result<T, T::Error>)
 	where
 		T: FromRequest<B>,
 	{
@@ -276,6 +309,8 @@ impl<B> RequestContext<B> {
 		(request_head, result)
 	}
 
+	/// Calls the given function to map the request body and returns the `RequestContext`
+	/// with the mapped body.
 	pub fn map<Func, NewB>(self, func: Func) -> RequestContext<NewB>
 	where
 		Func: FnOnce(B) -> NewB,
@@ -372,6 +407,7 @@ impl<B> RequestContext<B> {
 // --------------------------------------------------
 // ExtractorGuard
 
+/// Trait for request handler guards.
 pub trait ExtractorGuard<B = Body, Ext: Clone = ()>: Sized {
 	type Error: Into<BoxedErrorResponse>;
 
@@ -384,6 +420,7 @@ pub trait ExtractorGuard<B = Body, Ext: Clone = ()>: Sized {
 // --------------------------------------------------
 // RequestHeead
 
+/// A type of request's head part.
 pub struct RequestHead {
 	method: Method,
 	uri: Uri,
@@ -417,57 +454,67 @@ impl RequestHead {
 	}
 
 	#[inline(always)]
-	pub(crate) fn take_some_cookie_key(&mut self) -> Option<cookie::Key> {
+	pub(crate) fn take_cookie_key(&mut self) -> Option<cookie::Key> {
 		self.some_cookie_key.take()
 	}
 }
 
 impl RequestHead {
+	/// Returns a reference to the request method.
 	#[inline(always)]
 	pub fn method_ref(&self) -> &Method {
 		&self.method
 	}
 
+	/// Sets the request method.
 	#[inline(always)]
 	pub fn set_method(&mut self, method: Method) {
 		self.method = method;
 	}
 
+	/// Returns a reference to the request URI.
 	#[inline(always)]
 	pub fn uri_ref(&self) -> &Uri {
 		&self.uri
 	}
 
+	/// Sets the request URI.
 	#[inline(always)]
 	pub fn set_uri(&mut self, uri: Uri) {
 		self.uri = uri;
 	}
 
+	/// Returns the version of HTTP that's being used for comunication.
 	#[inline(always)]
 	pub fn version(&self) -> Version {
 		self.version
 	}
 
+	/// Sets the HTTP version.
 	#[inline(always)]
 	pub fn set_version(&mut self, version: Version) {
 		self.version = version;
 	}
 
+	/// Returns a reference to the map of request headers.
 	#[inline(always)]
 	pub fn headers_ref(&self) -> &HeaderMap<HeaderValue> {
 		&self.headers
 	}
 
+	/// Returns a mutable reference to the map of request headers.
 	#[inline(always)]
 	pub fn headers_mut(&mut self) -> &mut HeaderMap<HeaderValue> {
 		&mut self.headers
 	}
 
+	/// Returns a reference to the request extensions.
 	#[inline(always)]
 	pub fn extensions_ref(&self) -> &Extensions {
 		&self.extensions
 	}
 
+	/// Returns a mutable reference to the request extensions.
 	#[inline(always)]
 	pub fn extensions_mut(&mut self) -> &mut Extensions {
 		&mut self.extensions
@@ -475,11 +522,14 @@ impl RequestHead {
 
 	// ----------
 
+	/// Returns the request cookies.
 	#[inline(always)]
 	pub fn cookies(&mut self) -> CookieJar {
 		cookies_from_request(&self.headers, self.some_cookie_key.clone())
 	}
 
+	/// Returns the path params deserialized as type `T`. `T` must implement the
+	/// [`serde::Deserialize`] trait.
 	#[inline]
 	pub fn path_params_as<'r, T>(&'r self) -> Result<T, PathParamsError>
 	where
@@ -492,6 +542,8 @@ impl RequestHead {
 			.map_err(Into::into)
 	}
 
+	/// Returns the query params deserialized as type `T`. `T` must implement the
+	/// [`serde::Deserialize`] trait.
 	#[inline]
 	pub fn query_params_as<'r, T>(&'r self) -> Result<T, QueryParamsError>
 	where
@@ -507,6 +559,10 @@ impl RequestHead {
 			.map_err(|error| QueryParamsError::InvalidData(error.into()))
 	}
 
+	/// Returns the remaining segments of the request's path.
+	///
+	/// This method is intended to be used by subtree handler resources when there is no resource
+	/// that matches the request's target in their subtree.
 	#[inline(always)]
 	pub fn subtree_path_segments(&self) -> &str {
 		self
@@ -519,6 +575,7 @@ impl RequestHead {
 // --------------------------------------------------
 // SizeLimit
 
+#[doc(hidden)]
 pub enum SizeLimit {
 	Default,
 	Value(usize),
@@ -527,6 +584,8 @@ pub enum SizeLimit {
 // --------------------------------------------------
 // PathParamsError
 
+/// An error type returned by [`RequestContext::path_params_as()`] and
+/// [`RequestHead::path_params_as()`].
 #[derive(Debug, crate::ImplError)]
 #[error(transparent)]
 pub struct PathParamsError(#[from] pub(crate) pattern::DeserializerError);
@@ -543,10 +602,14 @@ impl IntoResponse for PathParamsError {
 // --------------------------------------------------
 // QueryParamsError
 
+/// An error type returned by [`RequestContext::query_params_as()`] and
+/// [`RequestHead::query_params_as()`].
 #[derive(Debug, crate::ImplError)]
 pub enum QueryParamsError {
+	/// Returned when a request doesn't have query params.
 	#[error("no data is available")]
 	NoDataIsAvailable,
+	/// Returned when the deserialization of the query params fails.
 	#[error(transparent)]
 	InvalidData(#[from] serde_urlencoded::de::Error),
 }
