@@ -1,3 +1,7 @@
+//! Router service types.
+
+// ----------
+
 use core::panic;
 use std::{any, future::ready, num::NonZeroIsize, str::FromStr, sync::Arc};
 
@@ -20,13 +24,20 @@ use crate::{
 
 mod service;
 
-pub use service::RouterService;
+pub use service::{ArcRouterService, LeakedRouterService, RouterService};
 
-use self::service::{ArcRouterService, LeakedRouterService, RequestPasser};
+use self::service::RequestPasser;
 
 // --------------------------------------------------------------------------------
 // --------------------------------------------------------------------------------
 
+/// Type that can contain hosts and a root resource.
+///
+/// The `Router` passes the request to a host that matches the request's 'Host' or
+/// to a root resource if one exists when there is no matching host. Otherwise, it
+/// responds with `404 Not Found`.
+///
+///
 pub struct Router {
 	static_hosts: Vec<Host>,
 	regex_hosts: Vec<Host>,
@@ -38,6 +49,7 @@ pub struct Router {
 }
 
 impl Router {
+	/// Creates a new `Router`.
 	pub fn new() -> Router {
 		Self {
 			static_hosts: Vec::new(),
@@ -50,6 +62,46 @@ impl Router {
 		}
 	}
 
+	/// Adds the given resource(s).
+	///
+	/// ```
+	///	use argan::{Router, Resource};
+	///
+	///	let host_resource = Resource::new("http://example.com/resource");
+	///	let root = Resource::new("/");
+	///
+	///	let mut router = Router::new();
+	///	router.add_resource([host_resource, root]);
+	/// ```
+	///
+	/// In the above example, `Router` will have a host with the pattern *"example.com"*
+	/// and a root resource.
+	///
+	/// # Panics
+	///
+	/// - if the resource or one of its subresources has a duplicate in the existing parent's
+	/// subtree and both of them have some handler set or a middleware applied
+	///
+	/// ```should_panic
+	/// use argan::{Router, Resource};
+	/// use argan::handler::{_get, _post};
+	///
+	///	let mut router = Router::new();
+	///
+	/// let mut resource_3 = Resource::new("/resource_1/resource_2/resource_3");
+	/// resource_3.set_handler_for(_get(|| async {}));
+	///
+	/// router.add_resource(resource_3);
+	///
+	///	let mut resource_2 = Resource::new("/resource_1/resource_2");
+	/// let mut resource_3 = Resource::new("/resource_3");
+	/// resource_3.set_handler_for(_post(|| async {}));
+	///
+	/// resource_2.add_subresource(resource_3);
+	///
+	/// // This doesn't try to merge the handler sets of the duplicate resources.
+	/// router.add_resource(resource_2);
+	///	```
 	pub fn add_resource<R, const N: usize>(&mut self, new_resources: R)
 	where
 		R: IntoArray<Resource, N>,
@@ -147,6 +199,34 @@ impl Router {
 		}
 	}
 
+	/// Adds the given resources under the prefix URI components.
+	///
+	/// ```
+	///	use argan::{Router, Resource};
+	///
+	///	let resource_2_0 = Resource::new("/resource_2_0");
+	///	let resource_2_1 = Resource::new("/resource_2_1");
+	///
+	///	let mut router = Router::new();
+	///	router.add_resource_under("http://example.com/resource_1", [resource_2_0, resource_2_1]);
+	/// ```
+	///
+	/// # Panics
+	///
+	/// - if the new resource's URI components don't match the given prefix URI components
+	///
+	/// ```should_panic
+	/// use argan::{Router, Resource};
+	///
+	/// let mut router = Router::new();
+	///
+	/// let resource_3 = Resource::new("/resource_1/resource_2/resource_3");
+	///
+	/// router.add_resource_under("/some_resource", resource_3);
+	/// ```
+	///
+	/// Other **panic** conditions are the same as [add_resource()](Self::add_resource())'s
+	/// conditions.
 	pub fn add_resource_under<U, R, const N: usize>(&mut self, uri_pattern: U, new_resources: R)
 	where
 		U: AsRef<str>,
@@ -234,6 +314,37 @@ impl Router {
 		}
 	}
 
+	/// Returns the resource at the given URI. If the resource doesn't exist, it
+	/// will be created.
+	///
+	/// ```
+	/// use argan::Router;
+	///
+	/// let mut router = Router::new();
+	/// let resource_2 = router.resource_mut("http://example.com/resource_1/resource_2");
+	/// ```
+	///
+	/// # Panics
+	/// - if the given URI is empty
+	/// - if the URI contains only a path and it doesn't start with a slash `/`
+	/// - if the resource has some handler set or middleware applied, and the given
+	///   configuration symbols don't match its configuration
+	///
+	/// ```should_panic
+	/// use argan::{Router, handler::{_get, _post}};
+	///
+	/// let mut router = Router::new();
+	/// router.resource_mut("/resource_1 !*").set_handler_for([
+	///		_get(|| async {}),
+	///		_post(|| async {}),
+	///	]);
+	///
+	/// // ...
+	///
+	/// let resource_1 = router.resource_mut("/resource_1");
+	/// ```
+	///
+	/// For configuration symbols, see the [`crate documentation`](crate);
 	pub fn resource_mut<U>(&mut self, uri_pattern: U) -> &mut Resource
 	where
 		U: AsRef<str>,
@@ -317,6 +428,13 @@ impl Router {
 		}
 	}
 
+	/// Adds the given extension to the router. Added extensions are available to all the
+	/// middleware that wrap the router's request passer via the [`Args`](crate::handler::Args)
+	/// field [`NodeExtensions`](crate::common::NodeExtensions).
+	///
+	/// # Panics
+	///
+	/// - if an extension of the same type already exists
 	pub fn add_extension<E: Clone + Send + Sync + 'static>(&mut self, extension: E) {
 		if self.extensions.insert(extension).is_some() {
 			panic!(
@@ -326,6 +444,61 @@ impl Router {
 		}
 	}
 
+	/// Adds middleware to be applied on the router's request passer.
+	///
+	/// Middlewares are applied when the router is being converted into a service.
+	///
+	/// ```
+	/// // use declarations
+	/// # use std::future::{Future, ready};
+	/// # use tower_http::compression::CompressionLayer;
+	/// # use http::method::Method;
+	/// # use argan::{
+	///	# 	handler::{Handler, Args, _get},
+	///	# 	middleware::{Layer, _request_passer},
+	///	# 	request::RequestContext,
+	///	# 	response::{Response, IntoResponse, BoxedErrorResponse},
+	///	# 	common::BoxedFuture,
+	///	# };
+	///
+	/// #[derive(Clone)]
+	/// struct MiddlewareLayer;
+	///
+	/// impl<H> Layer<H> for MiddlewareLayer
+	/// where
+	/// 	H: Handler + Clone + Send + Sync,
+	/// {
+	/// 	type Handler = Middleware<H>;
+	///
+	/// 	fn wrap(&self, handler: H) -> Self::Handler {
+	/// 		Middleware(handler)
+	/// 	}
+	/// }
+	///
+	/// #[derive(Clone)]
+	/// struct Middleware<H>(H);
+	///
+	/// impl<B, H> Handler<B> for Middleware<H>
+	/// where
+	/// 	H: Handler + Clone + Send + Sync,
+	/// {
+	/// 	type Response = Response;
+	/// 	type Error = BoxedErrorResponse;
+	/// 	type Future = BoxedFuture<Result<Self::Response, Self::Error>>;
+	///
+	/// 	fn handle(&self, request: RequestContext<B>, args: Args<'_, ()>) -> Self::Future {
+	/// 		Box::pin(ready(Ok("Hello from Middleware!".into_response())))
+	/// 	}
+	/// }
+	///
+	/// // ...
+	///
+	///	use argan::Router;
+	///
+	///	let mut router = Router::new();
+	///
+	///	router.add_layer_to(_request_passer((CompressionLayer::new(), MiddlewareLayer)));
+	/// ```
 	pub fn add_layer_to<L, const N: usize>(&mut self, layer_targets: L)
 	where
 		L: IntoArray<LayerTarget<Self>, N>,
@@ -333,6 +506,18 @@ impl Router {
 		self.middleware.extend(layer_targets.into_array());
 	}
 
+	/// Configures the router with the given options.
+	///
+	/// ```
+	/// use argan::{Router, common::config::_with_cookie_key, data::cookie};
+	///
+	/// let mut router = Router::new();
+	///
+	/// // Given `cookie::Key` will be available to all resoruces unless some resource
+	/// // or handler replaces it with its own `cookie::Key` while the request is being
+	/// // routed or handled.
+	/// router.configure(_with_cookie_key(cookie::Key::generate()));
+	/// ```
 	pub fn configure<C, const N: usize>(&mut self, config_options: C)
 	where
 		C: IntoArray<ConfigOption<Self>, N>,
@@ -354,6 +539,12 @@ impl Router {
 		}
 	}
 
+	/// Calls the given function for each root resource (hosts' and router's) with a mutable
+	/// reference to the parameter.
+	///
+	/// All the variants of `Iteration` other than `Stop` are ignored. If the function retuns
+	/// `Iteration::Stop` or all the root resources have beeen processed, the parameter is
+	/// returned in its final state.
 	pub fn for_each_root<T, F>(&mut self, mut param: T, mut func: F) -> T
 	where
 		F: FnMut(&mut T, &mut Resource) -> Iteration,
@@ -389,6 +580,7 @@ impl Router {
 		}
 	}
 
+	/// Converts the `Router` into a service.
 	pub fn into_service(self) -> RouterService {
 		let Router {
 			static_hosts,
@@ -434,11 +626,13 @@ impl Router {
 		RouterService::new(context, extensions, request_passer)
 	}
 
+	/// Converts the `Router` into a service that uses `Arc` internally.
 	#[inline(always)]
 	pub fn into_arc_service(self) -> ArcRouterService {
 		ArcRouterService::from(self.into_service())
 	}
 
+	/// Converts the `Router` into a service with a leaked `&'static`.
 	#[inline(always)]
 	pub fn into_leaked_service(self) -> LeakedRouterService {
 		LeakedRouterService::from(self.into_service())

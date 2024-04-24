@@ -25,6 +25,9 @@ use super::{Context, Router};
 // --------------------------------------------------------------------------------
 // --------------------------------------------------------------------------------
 
+/// Router service that can be used to handle requests.
+///
+/// Created by calling [`Router::into_service()`] on a `Router`.
 pub struct RouterService {
 	context: Context,
 	extensions: Extensions,
@@ -82,6 +85,9 @@ where
 
 // -------------------------
 
+/// Router service that uses `Arc`.
+///
+/// Created by calling [`Router::into_arc_service()`] on a `Router`.
 pub struct ArcRouterService(Arc<RouterService>);
 
 impl From<RouterService> for ArcRouterService {
@@ -114,6 +120,9 @@ where
 
 // -------------------------
 
+/// Router service that uses leaked `&'static`.
+///
+/// Created by calling [`Router::into_leaked_service()`] on a `Router`.
 #[derive(Clone)]
 pub struct LeakedRouterService(&'static RouterService);
 

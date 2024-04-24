@@ -31,5 +31,9 @@ pub mod resource;
 pub use resource::Resource;
 
 pub mod response;
+
 pub mod router;
+#[doc(inline)]
+pub use router::Router;
+
 mod routing;
