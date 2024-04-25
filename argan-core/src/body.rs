@@ -24,7 +24,7 @@ type BoxedBody = http_body_util::combinators::BoxBody<Bytes, BoxedError>;
 
 // --------------------------------------------------
 
-/// Body type used in requests and responses.
+/// An [`HttpBody`] type used in requests and responses.
 #[derive(Debug, Default)]
 pub struct Body(BoxedBody);
 

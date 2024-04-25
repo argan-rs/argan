@@ -61,7 +61,7 @@ use self::websocket::{websocket_handshake, WebSocketUpgrade, WebSocketUpgradeErr
 // --------------------------------------------------
 // RequestContext
 
-/// Handler parameter that carries request data.
+/// A [`Handler`](crate::handler::Handler) parameter that carries the request data.
 pub struct RequestContext<B = Body> {
 	request: Request<B>,
 	routing_state: RoutingState,
@@ -407,7 +407,7 @@ impl<B> RequestContext<B> {
 // --------------------------------------------------
 // ExtractorGuard
 
-/// Trait for request handler guards.
+/// A trait for request handler guards.
 pub trait ExtractorGuard<B = Body, Ext: Clone = ()>: Sized {
 	type Error: Into<BoxedErrorResponse>;
 

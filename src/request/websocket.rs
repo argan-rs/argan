@@ -42,7 +42,7 @@ const MESSAGE_SIZE_LIMIT: usize = 16 * 1024 * 1024;
 // --------------------------------------------------
 // WebSocketUpgrade
 
-/// Extractor to establish a WebSocket connection.
+/// An extractor to establish a WebSocket connection.
 pub struct WebSocketUpgrade {
 	response: Response,
 	upgrade_future: UpgradeFuture,
@@ -322,7 +322,7 @@ impl Future for UpgradeFuture {
 // --------------------------------------------------
 // WebSocket
 
-/// Successfully established WebSocket.
+/// A successfully established WebSocket.
 pub struct WebSocket(FragmentCollector<TokioIo<Upgraded>>);
 
 impl WebSocket {
@@ -411,7 +411,7 @@ pub enum Message {
 
 // ----------
 
-/// *Close frame* to send when manually closing the connection.
+/// A *close frame* to send when manually closing the connection.
 pub struct CloseFrame {
 	code: CloseCode,
 	reason: Cow<'static, str>,
@@ -420,7 +420,7 @@ pub struct CloseFrame {
 // --------------------------------------------------
 // CloseCode
 
-/// *Close codes* to indicate the reason for the closure.
+/// A *close codes* to indicate the reason for the closure.
 #[allow(non_camel_case_types)]
 #[derive(Debug, Eq, PartialEq, Clone, Copy)]
 pub enum CloseCode {

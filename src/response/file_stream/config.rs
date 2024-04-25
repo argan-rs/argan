@@ -10,7 +10,7 @@ use super::*;
 // --------------------------------------------------
 // ContentCoding
 
-/// Configuration option to choose dynamic content encoding.
+/// A configuration option to choose dynamic content encoding.
 #[non_exhaustive]
 #[derive(Debug, PartialEq)]
 pub enum ContentCoding {

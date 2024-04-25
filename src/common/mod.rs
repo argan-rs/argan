@@ -1,3 +1,7 @@
+//! Common types and functions.
+
+// ----------
+
 use std::{
 	any::Any,
 	borrow::Cow,
@@ -209,6 +213,9 @@ pub(crate) fn normalize_path(path: &str) -> String {
 // --------------------------------------------------
 // NodeExtensions
 
+/// Extensions of a node ([`Router`](crate::Router), [`Resource`](crate::Resource)).
+///
+/// Carried by an [`Args`](crate::handler::Args) while the request is being routed.
 #[derive(Clone)]
 pub struct NodeExtensions<'n>(Cow<'n, Extensions>);
 
@@ -223,6 +230,7 @@ impl<'n> NodeExtensions<'n> {
 		Self(Cow::Owned(extensions))
 	}
 
+	/// Returns a reference to the value of type `T` if `NodeExtensions` contains it.
 	#[inline(always)]
 	pub fn get_ref<T: Send + Sync + 'static>(&self) -> Option<&T> {
 		self.0.get::<T>()

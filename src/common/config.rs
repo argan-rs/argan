@@ -1,3 +1,7 @@
+//! Configuration options for nodes ([`Router`](crate::Router), [`Resource`](crate::Resource));
+
+// ----------
+
 use http::Extensions;
 
 use crate::middleware::RequestExtensionsModifierLayer;
@@ -19,12 +23,14 @@ option! {
 
 // ----------
 
+/// Passes the given [cookie::Key] as a config option for a node.
 pub fn _with_cookie_key<Mark>(cookie_key: cookie::Key) -> ConfigOption<Mark> {
 	ConfigOption::<Mark>::CookieKey(cookie_key)
 }
 
 // ----------
 
+/// Passes the given 'extensions modifier' function as a config option for a node.
 pub fn _with_request_extensions_modifier<Mark, Func>(modifier: Func) -> ConfigOption<Mark>
 where
 	Func: Fn(&mut Extensions) + Clone + Send + Sync + 'static,

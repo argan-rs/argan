@@ -22,6 +22,24 @@ use super::Layer;
 // --------------------------------------------------------------------------------
 // --------------------------------------------------------------------------------
 
+// --------------------------------------------------
+// LayerFn
+
+pub struct LayerFn<Func>(pub(crate) Func);
+
+impl<Func, InH, OutH> Layer<InH> for LayerFn<Func>
+where
+	Func: Fn(InH) -> OutH,
+{
+	type Handler = OutH;
+
+	fn wrap(&self, handler: InH) -> Self::Handler {
+		self.0(handler)
+	}
+}
+
+// --------------------------------------------------------------------------------
+
 // #[derive(Clone)]
 // pub(crate) struct RequestBodyAdapter<H>(H);
 //

@@ -42,7 +42,7 @@ use super::{config::ConfigFlags, Context, Resource};
 // --------------------------------------------------------------------------------
 // --------------------------------------------------------------------------------
 
-/// Resource service that can be used to handle requests.
+/// A resource service that can be used to handle requests.
 ///
 /// Created by calling [`Resource::into_service()`] on a `Resource`.
 #[derive(Clone)]
@@ -199,7 +199,7 @@ where
 
 // -------------------------
 
-/// Resource service that uses `Arc`.
+/// A resource service that uses `Arc`.
 ///
 /// Created by calling [Resource::into_arc_service()] on a `Resource`.
 pub struct ArcResourceService(Arc<ResourceService>);
@@ -234,7 +234,7 @@ where
 
 // -------------------------
 
-/// Resource service that uses leaked `&'static`.
+/// A resource service that uses leaked `&'static`.
 ///
 /// Created by calling [Resource::into_leaked_service()] on a `Resource`.
 #[derive(Clone)]

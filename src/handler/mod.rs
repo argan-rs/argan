@@ -53,7 +53,7 @@ pub(crate) mod request_handlers;
 // --------------------------------------------------------------------------------
 // --------------------------------------------------------------------------------
 
-/// Trait for request handlers.
+/// A trait for request handlers.
 pub trait Handler<B = Body, Ext: Clone = ()> {
 	type Response;
 	type Error;
@@ -65,14 +65,14 @@ pub trait Handler<B = Body, Ext: Clone = ()> {
 // --------------------------------------------------
 // IntoHandler
 
-/// Trait for types that can be converted into request handlers.
+/// A trait for types that can be converted into a [`Handler`].
 pub trait IntoHandler<Mark, B = Body, Ext: Clone = ()>: Sized {
 	type Handler: Handler<B, Ext>;
 
 	fn into_handler(self) -> Self::Handler;
 
-	fn with_extension(self, handler_extension: Ext) -> ExtendedHandler<Self::Handler, Ext> {
-		ExtendedHandler::new(self.into_handler(), handler_extension)
+	fn with_extension(self, handler_extension: Ext) -> ExtensionProviderHandler<Self::Handler, Ext> {
+		ExtensionProviderHandler::new(self.into_handler(), handler_extension)
 	}
 
 	fn with_context<C, const N: usize>(
@@ -117,22 +117,22 @@ where
 }
 
 // --------------------------------------------------
-// ExtendedHandler
+// ExtensionHandler
 
-/// Extension provider handler.
+/// An extension provider handler.
 #[derive(Clone)]
-pub struct ExtendedHandler<H, Ext> {
+pub struct ExtensionProviderHandler<H, Ext> {
 	inner: H,
 	extension: Ext,
 }
 
-impl<H, Ext> ExtendedHandler<H, Ext> {
+impl<H, Ext> ExtensionProviderHandler<H, Ext> {
 	pub(crate) fn new(inner: H, extension: Ext) -> Self {
 		Self { inner, extension }
 	}
 }
 
-impl<H, B, Ext> Handler<B> for ExtendedHandler<H, Ext>
+impl<H, B, Ext> Handler<B> for ExtensionProviderHandler<H, Ext>
 where
 	H: Handler<B, Ext>,
 	Ext: Clone + Send + Sync + 'static,
@@ -157,7 +157,7 @@ where
 // --------------------------------------------------
 // ContextProviderHandler
 
-/// Context provider handler.
+/// A context provider handler.
 pub struct ContextProviderHandler<H> {
 	inner: H,
 	context: HandlerContext,
@@ -466,7 +466,7 @@ impl<'n, HandlerExt: Clone> Args<'n, HandlerExt> {
 // --------------------------------------------------
 // ErrorHandler
 
-/// Trait for [ErrorResponse](crate::response::ErrorResponse) handlers.
+/// A trait for [ErrorResponse](crate::response::ErrorResponse) handlers.
 pub trait ErrorHandler {
 	fn handle_error(
 		&mut self,

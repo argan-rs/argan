@@ -62,7 +62,7 @@ const BUFFER_SIZE: usize = 8 * 1024;
 
 // -------------------------
 
-/// Low-level primitive to stream files with support for `multipart/byteranges` and
+/// A low-level primitive to stream files with support for `multipart/byteranges` and
 /// dynamic encoding.
 ///
 /// Can be used as a response or as a response body.

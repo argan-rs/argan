@@ -55,7 +55,7 @@ pub(crate) const TEXT_BODY_SIZE_LIMIT: usize = { 1 * 1024 * 1024 };
 
 // ----------
 
-/// Extractor type of the `text/plain` and `text/plain; charset=utf-8` data.
+/// An extractor type of the `text/plain` and `text/plain; charset=utf-8` data.
 ///
 /// `Text` consumes the request body and converts it to a [`String`].
 ///
@@ -144,7 +144,7 @@ pub(crate) const BINARY_BODY_SIZE_LIMIT: usize = { 2 * 1024 * 1024 };
 
 // ----------
 
-/// Extractor type of the `octet-stream` and `application/octet-stream` data.
+/// An extractor type of the `octet-stream` and `application/octet-stream` data.
 ///
 /// `Binary` consumes the request body and converts it into [`Bytes`].
 ///
@@ -223,7 +223,7 @@ data_extractor_error! {
 // --------------------------------------------------
 // FullBody
 
-/// Consumes and collects the request body and converts it into [`Bytes`],
+/// An extractor that consumes and collects the request body and converts it into [`Bytes`],
 /// ignoring its content type.
 ///
 /// ```
