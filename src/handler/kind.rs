@@ -59,17 +59,37 @@ macro_rules! handler_kind_by_method {
 	};
 }
 
-handler_kind_by_method!(_get, Method::GET, #[doc = "HTTP method `GET` handler"]);
-handler_kind_by_method!(_head, Method::HEAD, #[doc = "HTTP method `HEAD` handler"]);
-handler_kind_by_method!(_post, Method::POST, #[doc = "HTTP method `POST` handler"]);
-handler_kind_by_method!(_put, Method::PUT, #[doc = "HTTP method `PUT` handler"]);
-handler_kind_by_method!(_patch, Method::PATCH, #[doc = "HTTP method `PATCH` handler"]);
-handler_kind_by_method!(_delete, Method::DELETE, #[doc = "HTTP method `DELETE` handler"]);
-handler_kind_by_method!(_options, Method::OPTIONS, #[doc = "HTTP method `OPTIONS` handler"]);
-handler_kind_by_method!(_connect, Method::CONNECT, #[doc = "HTTP method `CONNECT` handler"]);
-handler_kind_by_method!(_trace, Method::TRACE, #[doc = "HTTP method `TRACE` handler"]);
+handler_kind_by_method!(_get, Method::GET, #[doc = "Passes the handler as a `GET` handler."]);
+handler_kind_by_method!(_head, Method::HEAD, #[doc = "Passes the handler as a `HEAD` handler."]);
+handler_kind_by_method!(
+	_post,
+	Method::POST,
+	#[doc = "Passes the handler as a `POST` handler."]
+);
 
-/// Custom HTTP method handler.
+handler_kind_by_method!(_put, Method::PUT, #[doc = "Passes the handler as a `PUT` handler."]);
+handler_kind_by_method!(_patch, Method::PATCH, #[doc = "Passes the handler as a `PATCH` handler"]);
+handler_kind_by_method!(
+	_delete,
+	Method::DELETE,
+	#[doc = "Passes the handler as a `DELETE` handler"]
+);
+
+handler_kind_by_method!(
+	_options,
+	Method::OPTIONS,
+	#[doc = "Passes the handler as an `OPTIONS` handler"]
+);
+
+handler_kind_by_method!(
+	_connect,
+	Method::CONNECT,
+	#[doc = "Passes the handler as a `CONNECT` handler"]
+);
+
+handler_kind_by_method!(_trace, Method::TRACE, #[doc = "Passes the handler as a `TRACE` handler"]);
+
+/// Passes the handler as a *custom HTTP method* handler.
 pub fn _method<M, H, Mark>(method: M, handler: H) -> HandlerKind
 where
 	M: AsRef<str>,
@@ -91,7 +111,10 @@ where
 	HandlerKind::Method(method, final_handler.into_boxed_handler())
 }
 
-/// A wildcard method handler. Called when there is no dedicated handler for the method.
+/// Passes the handler as a *wildcard method* handler.
+///
+/// A *wildcard method* handler is called when there is no dedicated handler
+/// for the request's method.
 pub fn _wildcard_method<H, Mark>(some_handler: Option<H>) -> HandlerKind
 where
 	H: IntoHandler<Mark, Body>,
@@ -113,7 +136,10 @@ where
 	HandlerKind::WildcardMethod(some_final_handler)
 }
 
-/// A mistargeted request handler. Called when there is no resource matching the request's path.
+/// Passes the handler as a *mistargeted request* handler.
+///
+/// A *mistargeted request* handler is called when there is no resource matching
+/// the request's path.
 pub fn _mistargeted_request<H, Mark>(handler: H) -> HandlerKind
 where
 	H: IntoHandler<Mark, Body>,

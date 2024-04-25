@@ -11,12 +11,14 @@ use super::*;
 // --------------------------------------------------
 // ErrorHandlerLayer
 
+/// A layer that applies an error handler middleware to a [`Handler`].
 pub struct ErrorHandlerLayer<ErrH>(ErrH);
 
 impl<ErrH> ErrorHandlerLayer<ErrH>
 where
 	ErrH: ErrorHandler + Clone,
 {
+	/// Creates a new `ErrorHandlerLayer` from an `ErrorHandler`.
 	pub fn new(error_handler: ErrH) -> Self {
 		Self(error_handler)
 	}

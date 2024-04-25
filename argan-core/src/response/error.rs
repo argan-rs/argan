@@ -15,7 +15,7 @@ use super::{BoxedErrorResponse, IntoResponse, Response};
 // --------------------------------------------------
 // ResponseError
 
-/// Error response type that implements both [`Error`](std::error::Error) and
+/// An error response type that implements both [`Error`](std::error::Error) and
 /// [`IntoResponse`] traits.
 #[derive(Debug)]
 pub struct ResponseError {

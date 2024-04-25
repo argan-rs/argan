@@ -20,7 +20,7 @@ use super::*;
 // --------------------------------------------------------------------------------
 // --------------------------------------------------------------------------------
 
-/// Host service that can be used to handle requests.
+/// A host service that can be used to handle requests.
 ///
 /// Created by calling [`Host::into_service()`] on a `Host`.
 pub struct HostService {
@@ -107,7 +107,7 @@ where
 
 // -------------------------
 
-/// Host service that uses `Arc`.
+/// A host service that uses `Arc`.
 ///
 /// Created by calling [`Host::into_arc_service()`] on a `Host`.
 pub struct ArcHostService(Arc<HostService>);
@@ -142,7 +142,7 @@ where
 
 // -------------------------
 
-/// Host service that uses leaked `&'static`.
+/// A host service that uses leaked `&'static`.
 ///
 /// Created by calling [`Host::into_leaked_service()`] on a `Host`.
 #[derive(Clone)]

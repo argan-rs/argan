@@ -1,3 +1,7 @@
+//! Middleware system types and traits.
+
+// ----------
+
 use std::{error::Error, sync::Arc};
 
 use argan_core::BoxedFuture;
@@ -15,7 +19,7 @@ mod impls;
 pub use impls::*;
 
 mod layer_stack;
-pub use layer_stack::*;
+pub(crate) use layer_stack::*;
 
 mod internal;
 pub(crate) use internal::*;
@@ -29,9 +33,11 @@ pub use targets::{
 // --------------------------------------------------------------------------------
 // --------------------------------------------------------------------------------
 
+/// Implemented by types that apply middleware to a [`Handler`];
 pub trait Layer<H> {
 	type Handler;
 
+	/// Wraps the `handler` with the `Layer`'s middleware.
 	fn wrap(&self, handler: H) -> Self::Handler;
 }
 
@@ -48,6 +54,7 @@ where
 
 // -------------------------
 
+/// A trait for types that can be converted into a [`Layer`].
 pub trait IntoLayer<Mark, H> {
 	type Layer: Layer<H>;
 
@@ -62,6 +69,17 @@ where
 
 	fn into_layer(self) -> Self::Layer {
 		self
+	}
+}
+
+impl<Func, InH, OutH> IntoLayer<Func, InH> for Func
+where
+	Func: Fn(InH) -> OutH,
+{
+	type Layer = LayerFn<Func>;
+
+	fn into_layer(self) -> Self::Layer {
+		LayerFn(self)
 	}
 }
 

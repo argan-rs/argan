@@ -34,7 +34,7 @@ pub type RequestHeadParts = http::request::Parts;
 // --------------------------------------------------
 // FromRequest<B>
 
-/// Trait for extractor types.
+/// A trait for extractor types.
 ///
 /// Implementors of the `FromRequest` consume the request body and mostly convert it
 /// to some form of data.

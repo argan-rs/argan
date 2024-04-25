@@ -31,7 +31,7 @@ use self::service::RequestPasser;
 // --------------------------------------------------------------------------------
 // --------------------------------------------------------------------------------
 
-/// Type that can contain hosts and a root resource.
+/// A type that can contain hosts and a root resource.
 ///
 /// The `Router` passes the request to a host that matches the request's 'Host' or
 /// to a root resource if one exists when there is no matching host. Otherwise, it
