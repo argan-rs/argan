@@ -62,6 +62,94 @@ impl Router {
 		}
 	}
 
+	/// Adds the given host(s).
+	///
+	/// ```
+	///	use argan::{Router, Host, Resource};
+	///
+	///	let mut host = Host::new("http://example.com", Resource::new("/"));
+	///	let mut host_with_sub = Host::new("http://abc.example.com", Resource::new("/"));
+	///
+	///	let mut router = Router::new();
+	///	router.add_host([host, host_with_sub]);
+	/// ```
+	///
+	/// If a new host has a duplicate among the existing hosts, their resource trees will
+	/// be merged. See also the [panics](#panics) below.
+	///
+	/// ```
+	/// use argan::{Router, Host, Resource};
+	/// use argan::handler::{_get, _post};
+	///
+	///	let mut router = Router::new();
+	///
+	/// let mut root = Resource::new("/");
+	/// root
+	///		.subresource_mut("/resource_1/resource_2/resource_3")
+	///		.set_handler_for(_get(|| async {}));
+	///
+	/// router.add_host(Host::new("example.com", root));
+	///
+	/// let mut root = Resource::new("/");
+	///	root.subresource_mut("/resource_1/resource_2")
+	///		.set_handler_for(_get(|| async {}));
+	///
+	/// router.add_host(Host::new("example.com", root));
+	///	```
+	///
+	/// # Panics
+	///
+	/// - if a new host has a duplicate among the existing hosts and both of them have some
+	/// resource with the same path and both of those resources have some handler set or
+	/// a middleware applied
+	///
+	/// ```should_panic
+	/// use argan::{Router, Host, Resource};
+	/// use argan::handler::{_get, _post};
+	///
+	///	let mut router = Router::new();
+	///
+	/// let mut root = Resource::new("/");
+	/// root
+	///		.subresource_mut("/resource_1/resource_2/resource_3")
+	///		.set_handler_for(_get(|| async {}));
+	///
+	/// router.add_host(Host::new("example.com", root));
+	///
+	/// let mut root = Resource::new("/");
+	/// let mut resource_2 = root.subresource_mut("/resource_1/resource_2");
+	///	resource_2.set_handler_for(_get(|| async {}));
+	///
+	/// resource_2
+	///		.subresource_mut("/resource_3")
+	///		.set_handler_for(_get(|| async {}));
+	///
+	/// // This doesn't try to merge the handler sets of the duplicate resources.
+	/// router.add_host(Host::new("example.com", root));
+	///	```
+	pub fn add_host<H, const N: usize>(&mut self, new_hosts: H)
+	where
+		H: IntoArray<Host, N>,
+	{
+		let new_hosts = new_hosts.into_array();
+
+		for new_hosts in new_hosts {
+			self.add_single_host(new_hosts)
+		}
+	}
+
+	fn add_single_host(&mut self, mut new_host: Host) {
+		let (pattern, root) = new_host.into_pattern_and_root();
+
+		if let Some(host) = self.existing_host_mut(&pattern) {
+			host.merge_or_replace_root(root);
+
+			return;
+		}
+
+		self.add_new_host(pattern, root);
+	}
+
 	/// Adds the given resource(s).
 	///
 	/// ```

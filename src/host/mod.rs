@@ -3,7 +3,7 @@
 // ----------
 
 use crate::{
-	common::SCOPE_VALIDITY,
+	common::{IntoArray, SCOPE_VALIDITY},
 	pattern::{split_uri_host_and_path, Pattern, Similarity},
 	resource::{self, Resource},
 };
@@ -88,6 +88,11 @@ impl Host {
 	}
 
 	#[inline(always)]
+	pub(crate) fn pattern_ref(&self) -> &Pattern {
+		&self.pattern
+	}
+
+	#[inline(always)]
 	pub(crate) fn compare_pattern(&self, other_host_pattern: &Pattern) -> Similarity {
 		self.pattern.compare(other_host_pattern)
 	}
@@ -128,6 +133,15 @@ impl Host {
 		}
 	}
 
+	pub(crate) fn into_pattern_and_root(self) -> (Pattern, Resource) {
+		let Host {
+			pattern,
+			root_resource,
+		} = self;
+
+		(pattern, root_resource)
+	}
+
 	/// Converts the `Host` into a service.
 	#[inline(always)]
 	pub fn into_service(self) -> HostService {
@@ -151,6 +165,14 @@ impl Host {
 		LeakedHostService::from(self.into_service())
 	}
 }
+
+impl IntoArray<Host, 1> for Host {
+	fn into_array(self) -> [Host; 1] {
+		[self]
+	}
+}
+
+// --------------------------------------------------
 
 pub(crate) fn parse_host_pattern<P: AsRef<str>>(
 	host_pattern: P,
