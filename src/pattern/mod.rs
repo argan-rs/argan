@@ -581,8 +581,8 @@ fn split_off_static_segment(chars: &mut Peekable<Chars<'_>>) -> (String, Option<
 	(buf, None)
 }
 
-// Returns the regex subpattern if the end of the regex segment is found. Otherwise None.
-// The regex pattern may be empty if the end of the regex segment is met right away.
+// Returns the regex subpattern if the end of the regex segment is found. Otherwise returns None.
+// The regex subpattern may be empty if the end of the regex segment is met right away.
 fn split_off_subpattern(chars: &mut Peekable<Chars<'_>>) -> Option<String> {
 	let mut subpattern = String::new();
 	let mut depth = 1; // We are already inside the opened '{' bracket.

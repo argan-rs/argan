@@ -1,7 +1,9 @@
+// ----------
+#![doc = include_str!("../docs/argan.md")]
+// ----------
 #![forbid(unsafe_code)]
 #![allow(dead_code)]
 #![allow(unused)]
-
 // ----------
 
 pub(crate) use std::error::Error as StdError;
