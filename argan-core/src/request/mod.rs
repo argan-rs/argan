@@ -36,7 +36,7 @@ pub type RequestHeadParts = http::request::Parts;
 
 /// A trait for extractor types.
 ///
-/// Implementors of the `FromRequest` consume the request body and mostly convert it
+/// Implementors of the `FromRequest` consume the request body and usually convert it
 /// to some form of data.
 pub trait FromRequest<B = Body>: Sized {
 	type Error: Into<BoxedErrorResponse>;
