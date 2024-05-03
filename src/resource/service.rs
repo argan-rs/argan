@@ -149,10 +149,15 @@ where
 					))));
 				};
 
-				if let Some(result) = self
+				#[cfg(not(feature = "regex"))]
+				let some_match_result = None;
+
+				#[cfg(feature = "regex")]
+				let some_match_result = self
 					.pattern
-					.is_regex_match(decoded_segment.as_ref(), &mut path_params)
-				{
+					.is_regex_match(decoded_segment.as_ref(), &mut path_params);
+
+				if let Some(result) = some_match_result {
 					result
 				} else {
 					self
@@ -532,6 +537,7 @@ impl Handler for RequestPasser {
 				return Box::pin(ready(Ok(StatusCode::BAD_REQUEST.into_response())));
 			};
 
+			#[cfg(feature = "regex")]
 			if let Some(next_resource) = self.some_regex_resources.as_ref().and_then(|resources| {
 				resources.iter().find(|resource| {
 					resource
@@ -712,7 +718,7 @@ impl Handler for RequestHandler {
 // --------------------------------------------------------------------------------
 // --------------------------------------------------------------------------------
 
-#[cfg(test)]
+#[cfg(all(test, feature = "full"))]
 mod test {
 	use std::future::Ready;
 

@@ -455,6 +455,7 @@ impl Resource {
 
 		match &new_resource.pattern {
 			Pattern::Static(_) => add_resource!(self.static_resources, new_resource),
+			#[cfg(feature = "regex")]
 			Pattern::Regex(..) => add_resource!(self.regex_resources, new_resource),
 			Pattern::Wildcard(_) => {
 				// Explanation inside the above macro 'add_resource!' also applies here.
@@ -559,6 +560,7 @@ impl Resource {
 						break;
 					}
 				}
+				#[cfg(feature = "regex")]
 				Pattern::Regex(_, _) => {
 					let some_position = leaf_resource
 						.regex_resources
@@ -972,6 +974,7 @@ impl Resource {
 						break;
 					}
 				}
+				#[cfg(feature = "regex")]
 				Pattern::Regex(ref names, ref some_regex) => {
 					let some_position = leaf_resource
 						.regex_resources
@@ -1032,6 +1035,7 @@ impl Resource {
 						break;
 					}
 				}
+				#[cfg(feature = "regex")]
 				Pattern::Regex(_, _) => {
 					let some_position = leaf_resource
 						.regex_resources
@@ -1076,7 +1080,16 @@ impl Resource {
 		for (segment, _) in segments {
 			let pattern = Pattern::parse(segment);
 
-			if let Pattern::Regex(_, _) | Pattern::Wildcard(_) = &pattern {
+			#[cfg(feature = "regex")]
+			if let Pattern::Regex(_, _) = &pattern {
+				if let Some(capture_name) =
+					current_resource.find_duplicate_capture_name_in_the_path(&pattern)
+				{
+					panic!("capture name '{}' is not unique in the path", capture_name)
+				}
+			}
+
+			if let Pattern::Wildcard(_) = &pattern {
 				if let Some(capture_name) =
 					current_resource.find_duplicate_capture_name_in_the_path(&pattern)
 				{
@@ -1101,6 +1114,7 @@ impl Resource {
 
 	fn find_duplicate_capture_name_in_the_path<'p>(&self, pattern: &'p Pattern) -> Option<&'p str> {
 		match pattern {
+			#[cfg(feature = "regex")]
 			Pattern::Regex(capture_names, _) => {
 				for prefix_pattern in self.prefix_segment_patterns.iter() {
 					match prefix_pattern {
@@ -1133,6 +1147,7 @@ impl Resource {
 			Pattern::Wildcard(capture_name) => {
 				for prefix_pattern in self.prefix_segment_patterns.iter() {
 					match prefix_pattern {
+						#[cfg(feature = "regex")]
 						Pattern::Regex(other_capture_names, _) => {
 							if other_capture_names
 								.as_ref()
@@ -1563,7 +1578,7 @@ pub enum Iteration {
 // --------------------------------------------------------------------------------
 // --------------------------------------------------------------------------------
 
-#[cfg(test)]
+#[cfg(all(test, feature = "full"))]
 mod test {
 	use crate::{
 		common::{config::_with_request_extensions_modifier, route_to_patterns},

@@ -339,7 +339,7 @@ impl<'de> VariantAccess<'de> for FromParamsListEnumAccess<'_, 'de> {
 // --------------------------------------------------------------------------------
 // --------------------------------------------------------------------------------
 
-#[cfg(test)]
+#[cfg(all(test, feature = "full"))]
 mod test {
 	use std::collections::HashMap;
 

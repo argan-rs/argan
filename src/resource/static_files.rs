@@ -45,8 +45,8 @@ const ENCODED: &'static str = "encoded";
 
 // --------------------------------------------------
 
-/// Serves static files from a directory. Supports range requests, pre-encoded files,
-/// and also dynamically encoding files while streaming.
+/// A resource that serves static files from a directory. Supports range requests, pre-encoded
+/// files, and also dynamically encoding files while streaming.
 ///
 /// The directory to serve files from should contain two child directories, *"encoded"* and
 /// *"unencoded"*. StaticFiles serves unencoded files from the *"unencoded"* directory. But

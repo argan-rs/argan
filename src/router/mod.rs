@@ -252,6 +252,7 @@ impl Router {
 				.static_hosts
 				.iter_mut()
 				.find(|static_host| static_host.compare_pattern(host_pattern) == Similarity::Same),
+			#[cfg(feature = "regex")]
 			Pattern::Regex(_, _) => self
 				.regex_hosts
 				.iter_mut()
@@ -263,6 +264,7 @@ impl Router {
 	fn add_new_host(&mut self, host_pattern: Pattern, root: Resource) {
 		let mut host = match host_pattern {
 			Pattern::Static(_) => &mut self.static_hosts,
+			#[cfg(feature = "regex")]
 			Pattern::Regex(_, _) => &mut self.regex_hosts,
 			Pattern::Wildcard(_) => unreachable!(),
 		};
@@ -468,6 +470,7 @@ impl Router {
 
 						self.static_hosts.last_mut().expect(SCOPE_VALIDITY)
 					}
+					#[cfg(feature = "regex")]
 					Pattern::Regex(_, _) => {
 						if let Some(position) = self
 							.regex_hosts
@@ -737,7 +740,7 @@ struct Context {
 // --------------------------------------------------------------------------------
 // --------------------------------------------------------------------------------
 
-#[cfg(test)]
+#[cfg(all(test, feature = "full"))]
 mod test {
 	use crate::{common::config::_with_request_extensions_modifier, handler::_get};
 
