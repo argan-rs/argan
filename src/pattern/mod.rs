@@ -2,43 +2,19 @@ use core::panic;
 use std::{borrow::Cow, fmt::Display, iter::Peekable, slice, str::Chars, sync::Arc};
 
 use percent_encoding::{percent_encode, AsciiSet, CONTROLS, NON_ALPHANUMERIC};
+
+#[cfg(feature = "regex")]
 use regex::{CaptureLocations, CaptureNames, Regex};
 
 // --------------------------------------------------
 
 mod deserializer;
-
 pub(crate) use deserializer::{DeserializerError, FromParamsList};
 
 use crate::common::SCOPE_VALIDITY;
 
 // --------------------------------------------------------------------------------
 // --------------------------------------------------------------------------------
-
-// --------------------------------------------------
-
-pub(crate) fn split_uri_host_and_path(uri_pattern: &str) -> (Option<&str>, Option<&str>) {
-	if uri_pattern.is_empty() {
-		panic!("empty URI pattern")
-	}
-
-	if let Some(uri) = uri_pattern
-		.strip_prefix("https://")
-		.or_else(|| uri_pattern.strip_prefix("http://"))
-	{
-		if let Some(position) = uri.find("/") {
-			if position == 0 {
-				return (None, Some(uri));
-			}
-
-			return (Some(&uri[..position]), Some(&uri[position..]));
-		}
-
-		return (Some(uri), None);
-	}
-
-	(None, Some(uri_pattern))
-}
 
 // --------------------------------------------------
 // static:		static, resource
@@ -48,6 +24,7 @@ pub(crate) fn split_uri_host_and_path(uri_pattern: &str) -> (Option<&str>, Optio
 #[derive(Debug, Clone)]
 pub(crate) enum Pattern {
 	Static(Arc<str>),
+	#[cfg(feature = "regex")]
 	Regex(RegexNames, Regex),
 	Wildcard(Arc<str>),
 }
@@ -68,6 +45,12 @@ const ASCII_SET: &AsciiSet = &CONTROLS
 	.add(b':');
 
 impl Pattern {
+	#[cfg(not(feature = "regex"))]
+	pub(crate) fn parse(pattern: &str) -> Pattern {
+		return into_static_or_wildcard_pattern(pattern.into());
+	}
+
+	#[cfg(feature = "regex")]
 	pub(crate) fn parse(pattern: &str) -> Pattern {
 		let mut chars = pattern.chars().peekable();
 
@@ -77,21 +60,10 @@ impl Pattern {
 			panic!("empty or incomplete pattern")
 		}
 
-		let replacer = Regex::new("(%2f)|(%2F)").expect("hard coded regex replacer must be valid");
-
 		if segments.len() == 1 {
 			match segments.pop().expect(SCOPE_VALIDITY) {
 				Segment::Static(static_pattern) => {
-					if static_pattern == "/" {
-						return Pattern::Static(pattern.into());
-					}
-
-					let static_pattern = replacer.replace_all(&static_pattern, "/");
-
-					let encoded_static_pattern =
-						Cow::<str>::from(percent_encode(static_pattern.as_bytes(), ASCII_SET));
-
-					return Pattern::Static(encoded_static_pattern.into());
+					return into_static_pattern(static_pattern.into());
 				}
 				Segment::Capturing {
 					name: capture_name,
@@ -101,7 +73,7 @@ impl Pattern {
 						return Pattern::Wildcard((*capture_name).into());
 					};
 
-					let subpattern = replacer.replace_all(&subpattern, "/");
+					let subpattern = restore_slashes(subpattern.into());
 
 					let regex_subpattern = format!(r"\A(?P<{}>{})\z", capture_name, subpattern);
 					match Regex::new(&regex_subpattern) {
@@ -123,7 +95,7 @@ impl Pattern {
 		for (index, segment) in segments.into_iter().enumerate() {
 			match segment {
 				Segment::Static(static_pattern) => {
-					let static_pattern = regex::escape(replacer.replace_all(&static_pattern, "/").as_ref());
+					let static_pattern = regex::escape(restore_slashes(static_pattern.into()).as_ref());
 					regex_pattern.push_str(&static_pattern);
 				}
 				Segment::Capturing {
@@ -131,7 +103,7 @@ impl Pattern {
 					some_subpattern,
 				} => {
 					let subpattern = if let Some(subpattern) = some_subpattern.as_ref() {
-						replacer.replace_all(&subpattern, "/")
+						restore_slashes(subpattern.into())
 					} else {
 						if index == end_index {
 							Cow::Borrowed(".+")
@@ -165,6 +137,7 @@ impl Pattern {
 		false
 	}
 
+	#[cfg(feature = "regex")]
 	#[inline(always)]
 	pub(crate) fn is_regex(&self) -> bool {
 		if let Pattern::Regex(_, _) = self {
@@ -196,6 +169,7 @@ impl Pattern {
 		None
 	}
 
+	#[cfg(feature = "regex")]
 	#[inline]
 	pub(crate) fn is_regex_match(&self, text: &str, params_list: &mut ParamsList) -> Option<bool> {
 		if let Self::Regex(capture_names, regex) = self {
@@ -240,6 +214,7 @@ impl Pattern {
 					}
 				}
 			}
+			#[cfg(feature = "regex")]
 			Pattern::Regex(capture_names, regex) => {
 				if let Pattern::Regex(other_capture_names, other_regex) = other {
 					if regex.as_str() == other_regex.as_str() {
@@ -270,6 +245,7 @@ impl Display for Pattern {
 	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
 		match self {
 			Pattern::Static(pattern) => write!(f, "static pattern: {}", pattern),
+			#[cfg(feature = "regex")]
 			Pattern::Regex(_, regex) => write!(f, "regex pattern: {}", regex),
 			Pattern::Wildcard(name) => write!(f, "wildcard pattern: {}", name),
 		}
@@ -286,9 +262,11 @@ impl Default for Pattern {
 
 // --------------------------------------------------
 
+#[cfg(feature = "regex")]
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct RegexNames(Arc<[(Box<str>, usize)]>);
 
+#[cfg(feature = "regex")]
 impl RegexNames {
 	fn new(capture_names: CaptureNames) -> Self {
 		let mut names = Vec::new();
@@ -321,6 +299,7 @@ impl RegexNames {
 	}
 }
 
+#[cfg(feature = "regex")]
 impl AsRef<[(Box<str>, usize)]> for RegexNames {
 	fn as_ref(&self) -> &[(Box<str>, usize)] {
 		&self.0
@@ -363,11 +342,13 @@ impl ParamsList {
 
 #[derive(Debug, Clone)]
 pub(crate) enum Params {
+	#[cfg(feature = "regex")]
 	Regex(RegexNames, CaptureLocations, Box<str>),
 	Wildcard(Arc<str>, Box<str>),
 }
 
 impl Params {
+	#[cfg(feature = "regex")]
 	#[inline]
 	fn with_regex_captures(
 		regex_names: RegexNames,
@@ -388,6 +369,7 @@ impl ToString for Params {
 		let mut string = String::new();
 
 		match self {
+			#[cfg(feature = "regex")]
 			Self::Regex(regex_names, capture_locations, values) => {
 				string.push_str("regex params: [");
 
@@ -421,6 +403,128 @@ impl ToString for Params {
 // --------------------------------------------------
 // Parsing helpers
 
+// --------------------------------------------------
+
+pub(crate) fn split_uri_host_and_path(uri_pattern: &str) -> (Option<&str>, Option<&str>) {
+	if uri_pattern.is_empty() {
+		panic!("empty URI pattern")
+	}
+
+	if let Some(uri) = uri_pattern
+		.strip_prefix("https://")
+		.or_else(|| uri_pattern.strip_prefix("http://"))
+	{
+		if let Some(position) = uri.find("/") {
+			if position == 0 {
+				return (None, Some(uri));
+			}
+
+			return (Some(&uri[..position]), Some(&uri[position..]));
+		}
+
+		return (Some(uri), None);
+	}
+
+	(None, Some(uri_pattern))
+}
+
+// --------------------------------------------------
+
+fn into_static_pattern(pattern: Cow<str>) -> Pattern {
+	if pattern.len() == 1 {
+		return Pattern::Static(pattern.into());
+	}
+
+	let static_pattern = restore_slashes(pattern);
+
+	let encoded_static_pattern =
+		Cow::<str>::from(percent_encode(static_pattern.as_bytes(), ASCII_SET));
+
+	return Pattern::Static(encoded_static_pattern.into());
+}
+
+fn restore_slashes(pattern: Cow<str>) -> Cow<str> {
+	let mut bytes = pattern.bytes().peekable();
+	let mut buffer = String::new();
+	let mut segment_start = 0;
+	let mut segment_end = 0;
+
+	loop {
+		if let Some(position) = bytes.position(|ch| ch == b'%') {
+			segment_end += position;
+
+			if let Some(ch) = bytes.peek() {
+				if *ch != b'2' {
+					segment_end += 1;
+
+					continue;
+				}
+
+				bytes.next();
+
+				if let Some(ch) = bytes.peek() {
+					let ch = *ch;
+
+					if ch == b'f' || ch == b'F' {
+						buffer.push_str(&pattern[segment_start..segment_end]);
+						buffer.push('/');
+
+						dbg!(&buffer);
+
+						segment_end += 3;
+						segment_start = segment_end;
+
+						bytes.next();
+					} else {
+						segment_end += 2;
+					}
+				}
+			}
+		} else if buffer.is_empty() {
+			return pattern;
+		} else {
+			buffer.push_str(&pattern[segment_start..]);
+
+			return buffer.into();
+		}
+	}
+}
+
+// ----------
+
+#[cfg(not(feature = "regex"))]
+fn into_static_or_wildcard_pattern(pattern: Cow<str>) -> Pattern {
+	if pattern.len() == 1 {
+		return Pattern::Static(pattern.into());
+	}
+
+	if let Some(pattern) = pattern.strip_prefix('{') {
+		if let Some(pattern) = pattern.strip_suffix('}') {
+			let mut pattern_bytes = pattern.bytes();
+			if let Some(ch) = pattern_bytes.nth(0) {
+				if ch != b'{' {
+					return Pattern::Wildcard(pattern.into());
+				}
+
+				let ch = pattern_bytes.last().expect(SCOPE_VALIDITY);
+				if ch == b'}' {
+					// Static pattern with escaped curly braces.
+					return Pattern::Static(restore_slashes(pattern.into()).into());
+				} else {
+					return Pattern::Wildcard(pattern.into());
+				}
+			} else {
+				panic!("empty wildcard capture name")
+			}
+		}
+	}
+
+	Pattern::Static(restore_slashes(pattern.into()).into())
+}
+
+// --------------------------------------------------
+
+#[cfg(feature = "regex")]
 #[derive(PartialEq, Debug)]
 enum Segment {
 	Static(String),
@@ -430,6 +534,7 @@ enum Segment {
 	},
 }
 
+#[cfg(feature = "regex")]
 #[inline]
 fn split(mut chars: Peekable<Chars>) -> Vec<Segment> {
 	let mut slices = Vec::new();
@@ -452,7 +557,7 @@ fn split(mut chars: Peekable<Chars>) -> Vec<Segment> {
 				split_at_delimiter(&mut chars, |ch| ch == ':' || ch == '}', |_| false);
 
 			if name.is_empty() {
-				panic!("empty regex capture name")
+				panic!("empty capture name")
 			}
 
 			let Some(delimiter) = some_delimiter else {
@@ -505,6 +610,7 @@ fn split(mut chars: Peekable<Chars>) -> Vec<Segment> {
 // found then the segment contains all the chars and the returned delimiter will be None.
 // If there are no more chars or the delimiter is found right away then the returned
 // segment will be empty.
+#[cfg(feature = "regex")]
 fn split_at_delimiter(
 	chars: &mut Peekable<Chars<'_>>,
 	delimiter: impl Fn(char) -> bool,
@@ -540,6 +646,7 @@ fn split_at_delimiter(
 	(buf, None)
 }
 
+#[cfg(feature = "regex")]
 fn split_off_static_segment(chars: &mut Peekable<Chars<'_>>) -> (String, Option<char>) {
 	let mut buf = String::new();
 
@@ -583,6 +690,7 @@ fn split_off_static_segment(chars: &mut Peekable<Chars<'_>>) -> (String, Option<
 
 // Returns the regex subpattern if the end of the regex segment is found. Otherwise returns None.
 // The regex subpattern may be empty if the end of the regex segment is met right away.
+#[cfg(feature = "regex")]
 fn split_off_subpattern(chars: &mut Peekable<Chars<'_>>) -> Option<String> {
 	let mut subpattern = String::new();
 	let mut depth = 1; // We are already inside the opened '{' bracket.
@@ -703,12 +811,34 @@ pub(crate) enum Similarity {
 // --------------------------------------------------------------------------------
 // --------------------------------------------------------------------------------
 
-#[cfg(test)]
+#[cfg(all(test, feature = "full"))]
 mod test {
 	use super::*;
 
 	// --------------------------------------------------
 	// --------------------------------------------------
+
+	#[test]
+	fn restore_slashes() {
+		let cases = [
+			("segment_1%2fsegment_2", "segment_1/segment_2"),
+			(
+				"segment_1%2fsegment_2%2Fsegment_3",
+				"segment_1/segment_2/segment_3",
+			),
+			("segment%_1%2fsegment_2", "segment%_1/segment_2"),
+			("segment%2_1%2Fsegment_2", "segment%2_1/segment_2"),
+			("segment%2_1%2f%2Fsegment_2", "segment%2_1//segment_2"),
+			("%2Fsegment2F_1", "/segment2F_1"),
+			("segment2F_1", "segment2F_1"),
+		];
+
+		for (pattern, expected) in cases {
+			dbg!(pattern);
+			let restored = super::restore_slashes(pattern.into());
+			assert_eq!(restored, expected);
+		}
+	}
 
 	#[test]
 	fn split_at_delimiter() {
@@ -1020,7 +1150,7 @@ mod test {
 	}
 
 	#[test]
-	#[should_panic(expected = "empty regex capture name")]
+	#[should_panic(expected = "empty capture name")]
 	fn parse_empty_regex_capture_name() {
 		Pattern::parse("{:pattern}");
 	}

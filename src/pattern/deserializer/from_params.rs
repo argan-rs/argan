@@ -52,6 +52,7 @@ impl<'de> FromParams<'de> {
 		};
 
 		match self.params {
+			#[cfg(feature = "regex")]
 			Params::Regex(regex_names, _, _) => {
 				if let Some((name, _)) = regex_names.get(self.current_params_index) {
 					self.state = State::ParamNameTaken;
@@ -75,6 +76,7 @@ impl<'de> FromParams<'de> {
 		};
 
 		match self.params {
+			#[cfg(feature = "regex")]
 			Params::Regex(regex_names, captures_locations, text) => {
 				if let Some((_, index)) = regex_names.get(self.current_params_index) {
 					if let Some((start, end)) = captures_locations.get(index) {

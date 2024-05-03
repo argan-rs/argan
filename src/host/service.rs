@@ -41,6 +41,7 @@ impl HostService {
 		self.pattern.is_static_match(text)
 	}
 
+	#[cfg(feature = "regex")]
 	#[inline(always)]
 	pub(crate) fn is_regex_match(&self, text: &str, params_list: &mut ParamsList) -> Option<bool> {
 		self.pattern.is_regex_match(text, params_list)
@@ -92,6 +93,7 @@ where
 			return InfallibleResponseFuture::from(self.root_resource.handle(request, args));
 		}
 
+		#[cfg(feature = "regex")]
 		if let Some(result) = self
 			.pattern
 			.is_regex_match(host, &mut routing_state.uri_params)
@@ -175,7 +177,7 @@ where
 // --------------------------------------------------------------------------------
 // --------------------------------------------------------------------------------
 
-#[cfg(test)]
+#[cfg(all(test, feature = "full"))]
 mod test {
 	use crate::common::test_helpers::{
 		new_root, test_service, Case, DataKind, Rx_1_1, Rx_2_0, Wl_3_0,

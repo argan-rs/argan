@@ -323,6 +323,9 @@ that implements the [`ErrorHandler`] trait.
 Middleware can be applied to handlers and resource components using the [`Layer`] implementors.
 In addition to its own trait for layers, Argan also supports Tower layers.
 
+See [`Router::add_layer_to()`], [`Resource::add_layer_to()`], and
+[`IntoHandler::wrapped_in()`](crate::handler::IntoHandler::wrapped_in()) for more information.
+
 TODO.
 
 [`Handler`]: crate::handler::Handler

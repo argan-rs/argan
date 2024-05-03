@@ -12,6 +12,24 @@ use super::*;
 // ErrorHandlerLayer
 
 /// A layer that applies an error handler middleware to a [`Handler`].
+///
+/// ```
+/// use argan::{
+///		Resource,
+///		response::{Response, BoxedErrorResponse},
+///		middleware::{_request_handler, ErrorHandlerLayer},
+/// };
+///
+/// async fn error_handler(error: BoxedErrorResponse) -> Result<Response, BoxedErrorResponse> {
+///		eprintln!("Error: {}", error);
+///
+///		Ok(error.into_response())
+/// }
+///
+/// let mut resource = Resource::new("/resource");
+/// resource.add_layer_to(_request_handler(ErrorHandlerLayer::new(error_handler)));
+/// ```
+#[derive(Clone)]
 pub struct ErrorHandlerLayer<ErrH>(ErrH);
 
 impl<ErrH> ErrorHandlerLayer<ErrH>

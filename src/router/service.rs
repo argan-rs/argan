@@ -224,6 +224,7 @@ where
 				return host.handle(request, args);
 			}
 
+			#[cfg(feature = "regex")]
 			if let Some(host) = self.some_regex_hosts.as_ref().and_then(|hosts| {
 				hosts.iter().find(|host| {
 					host
@@ -246,7 +247,7 @@ where
 // --------------------------------------------------------------------------------
 // --------------------------------------------------------------------------------
 
-#[cfg(test)]
+#[cfg(all(test, feature = "full"))]
 mod test {
 	use http_body_util::{BodyExt, Empty};
 
