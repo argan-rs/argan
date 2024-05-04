@@ -14,7 +14,6 @@ use argan_core::{
 	request, BoxedError, BoxedFuture,
 };
 use bytes::Bytes;
-use cookie::Key;
 use futures_util::TryFutureExt;
 use http::{
 	header::{ToStrError, CONTENT_TYPE},
@@ -28,13 +27,7 @@ use serde::{
 use crate::{
 	common::{marker::Sealed, IntoArray, Uncloneable, SCOPE_VALIDITY},
 	data::{
-		cookie::{cookies_from_request, CookieJar},
-		form::{
-			request_into_form_data, request_into_multipart_form, FormError, MultipartForm,
-			MultipartFormError, FORM_BODY_SIZE_LIMIT,
-		},
 		header::{content_type, ContentTypeError},
-		json::{request_into_json_data, Json, JsonError, JSON_BODY_SIZE_LIMIT},
 		request_into_binary_data, request_into_full_body, request_into_text_data, BinaryExtractorError,
 		FullBodyExtractorError, TextExtractorError, BINARY_BODY_SIZE_LIMIT, TEXT_BODY_SIZE_LIMIT,
 	},
@@ -43,6 +36,18 @@ use crate::{
 	response::{BoxedErrorResponse, IntoResponse, IntoResponseHeadParts, Response},
 	routing::RoutingState,
 	ImplError, StdError,
+};
+
+#[cfg(feature = "cookies")]
+use crate::data::cookies::{cookies_from_request, CookieJar, Key};
+
+#[cfg(feature = "json")]
+use crate::data::json::{request_into_json_data, Json, JsonError, JSON_BODY_SIZE_LIMIT};
+
+#[cfg(feature = "form")]
+use crate::data::form::{
+	request_into_form_data, request_into_multipart_form, FormError, MultipartForm,
+	MultipartFormError, FORM_BODY_SIZE_LIMIT,
 };
 
 // ----------
@@ -65,6 +70,7 @@ use self::websocket::{websocket_handshake, WebSocketUpgrade, WebSocketUpgradeErr
 pub struct RequestContext<B = Body> {
 	request: Request<B>,
 	routing_state: RoutingState,
+	#[cfg(any(feature = "private-cookies", feature = "signed-cookies"))]
 	some_cookie_key: Option<cookie::Key>,
 }
 
@@ -74,10 +80,12 @@ impl<B> RequestContext<B> {
 		Self {
 			request,
 			routing_state,
+			#[cfg(any(feature = "private-cookies", feature = "signed-cookies"))]
 			some_cookie_key: None,
 		}
 	}
 
+	#[cfg(any(feature = "private-cookies", feature = "signed-cookies"))]
 	#[inline(always)]
 	pub(crate) fn with_cookie_key(mut self, cookie_key: cookie::Key) -> Self {
 		self.some_cookie_key = Some(cookie_key);
@@ -126,8 +134,13 @@ impl<B> RequestContext<B> {
 	// ----------
 
 	/// Returns the request cookies.
+	#[cfg(feature = "cookies")]
 	pub fn cookies(&mut self) -> CookieJar {
-		cookies_from_request(self.headers_ref(), self.some_cookie_key.clone())
+		cookies_from_request(
+			self.headers_ref(),
+			#[cfg(any(feature = "private-cookies", feature = "signed-cookies"))]
+			self.some_cookie_key.clone(),
+		)
 	}
 
 	/// Returns the path params deserialized as type `T`. `T` must implement the
@@ -146,6 +159,7 @@ impl<B> RequestContext<B> {
 
 	/// Returns the query params deserialized as type `T`. `T` must implement the
 	/// [`serde::Deserialize`] trait.
+	#[cfg(feature = "query-params")]
 	#[inline]
 	pub fn query_params_as<'r, T>(&'r self) -> Result<T, QueryParamsError>
 	where
@@ -175,8 +189,8 @@ impl<B> RequestContext<B> {
 			.remaining_segments(self.request.uri().path())
 	}
 
-	#[doc(hidden)]
 	/// Consumes the `RequestContext`, collects the request body and returns it as [`Bytes`].
+	#[doc(hidden)]
 	pub async fn into_full_body(self, size_limit: SizeLimit) -> Result<Bytes, FullBodyExtractorError>
 	where
 		B: HttpBody,
@@ -192,9 +206,9 @@ impl<B> RequestContext<B> {
 		request_into_full_body(body, size_limit).await
 	}
 
-	#[doc(hidden)]
 	/// Consumes the `RequestContext`, collects the request body if the `Content-Type` is
 	/// either `octet-stream` or `application/octet-stream` and returns it as [`Bytes`].
+	#[doc(hidden)]
 	pub async fn into_binary_data(self, size_limit: SizeLimit) -> Result<Bytes, BinaryExtractorError>
 	where
 		B: HttpBody,
@@ -210,10 +224,10 @@ impl<B> RequestContext<B> {
 		request_into_binary_data(&head_parts, body, size_limit).await
 	}
 
-	#[doc(hidden)]
 	/// Consumes the `RequestContext`, collects the request body if the `Content-Type` is
 	/// either `text/plain` or `text/plain; charset=utf-8` and returns it converted to
 	/// [`String`].
+	#[doc(hidden)]
 	pub async fn into_text_data(self, size_limit: SizeLimit) -> Result<String, TextExtractorError>
 	where
 		B: HttpBody,
@@ -229,10 +243,11 @@ impl<B> RequestContext<B> {
 		request_into_text_data(&head_parts, body, size_limit).await
 	}
 
-	#[doc(hidden)]
 	/// Consumes the `RequestContext`, collects the request body if the `Content-Type` is
 	/// `application/json` and returns it deserialized as type `T`. `T` must implement
 	/// [`serde::Deserialize`].
+	#[cfg(feature = "json")]
+	#[doc(hidden)]
 	pub async fn into_json_data<T>(self, size_limit: SizeLimit) -> Result<T, JsonError>
 	where
 		B: HttpBody,
@@ -249,10 +264,11 @@ impl<B> RequestContext<B> {
 		request_into_json_data::<T, B>(&head_parts, body, size_limit).await
 	}
 
-	#[doc(hidden)]
 	/// Consumes the `RequestContext`, collects the request body if the `Content-Type` is
 	/// `application/x-www-form-urlencoded` and returns it deserialized as type `T`. `T`
 	/// must implement [`serde::Deserialize`].
+	#[cfg(feature = "form")]
+	#[doc(hidden)]
 	pub async fn into_form_data<T>(self, size_limit: SizeLimit) -> Result<T, FormError>
 	where
 		B: HttpBody,
@@ -269,8 +285,9 @@ impl<B> RequestContext<B> {
 		request_into_form_data::<T, B>(&head_parts, body, size_limit).await
 	}
 
-	#[doc(hidden)]
 	/// Consumes the `RequestContext` and returns a `multipart/form-data` extractor.
+	#[doc(hidden)]
+	#[cfg(feature = "multpart-form")]
 	#[inline(always)]
 	pub fn into_multipart_form(self) -> Result<MultipartForm<B>, MultipartFormError>
 	where
@@ -282,8 +299,8 @@ impl<B> RequestContext<B> {
 		request_into_multipart_form(&head_parts, body)
 	}
 
-	#[doc(hidden)]
 	/// Consumes the `RequestContext` and returns an extractor to establish a WebSocket connection.
+	#[doc(hidden)]
 	#[inline(always)]
 	pub fn into_websocket_upgrade(self) -> Result<WebSocketUpgrade, WebSocketUpgradeError> {
 		let (mut head, _) = self.request.into_parts();
@@ -302,6 +319,7 @@ impl<B> RequestContext<B> {
 		let result = T::from_request(&mut head_parts, body).await;
 		let mut request_head = RequestHead::new(head_parts, self.routing_state);
 
+		#[cfg(any(feature = "private-cookies", feature = "signed-cookies"))]
 		if self.some_cookie_key.is_some() {
 			request_head = request_head.with_cookie_key(self.some_cookie_key.expect(SCOPE_VALIDITY));
 		}
@@ -318,6 +336,7 @@ impl<B> RequestContext<B> {
 		let RequestContext {
 			request,
 			routing_state,
+			#[cfg(any(feature = "private-cookies", feature = "signed-cookies"))]
 			some_cookie_key,
 		} = self;
 		let (head, body) = request.into_parts();
@@ -328,6 +347,7 @@ impl<B> RequestContext<B> {
 		RequestContext {
 			request,
 			routing_state,
+			#[cfg(any(feature = "private-cookies", feature = "signed-cookies"))]
 			some_cookie_key,
 		}
 	}
@@ -398,9 +418,16 @@ impl<B> RequestContext<B> {
 		self.routing_state.subtree_handler_exists
 	}
 
+	#[cfg(any(feature = "private-cookies", feature = "signed-cookies"))]
 	#[inline(always)]
 	pub(crate) fn into_parts(self) -> (Request<B>, RoutingState, Option<cookie::Key>) {
 		(self.request, self.routing_state, self.some_cookie_key)
+	}
+
+	#[cfg(not(any(feature = "private-cookies", feature = "signed-cookies")))]
+	#[inline(always)]
+	pub(crate) fn into_parts(self) -> (Request<B>, RoutingState) {
+		(self.request, self.routing_state)
 	}
 }
 
@@ -429,6 +456,7 @@ pub struct RequestHead {
 	extensions: Extensions,
 
 	routing_state: RoutingState,
+	#[cfg(any(feature = "private-cookies", feature = "signed-cookies"))]
 	some_cookie_key: Option<cookie::Key>,
 }
 
@@ -442,10 +470,12 @@ impl RequestHead {
 			headers: head_parts.headers,
 			extensions: head_parts.extensions,
 			routing_state,
+			#[cfg(any(feature = "private-cookies", feature = "signed-cookies"))]
 			some_cookie_key: None,
 		}
 	}
 
+	#[cfg(any(feature = "private-cookies", feature = "signed-cookies"))]
 	#[inline(always)]
 	pub(crate) fn with_cookie_key(mut self, cookie_key: cookie::Key) -> Self {
 		self.some_cookie_key = Some(cookie_key);
@@ -453,6 +483,7 @@ impl RequestHead {
 		self
 	}
 
+	#[cfg(any(feature = "private-cookies", feature = "signed-cookies"))]
 	#[inline(always)]
 	pub(crate) fn take_cookie_key(&mut self) -> Option<cookie::Key> {
 		self.some_cookie_key.take()
@@ -523,9 +554,14 @@ impl RequestHead {
 	// ----------
 
 	/// Returns the request cookies.
+	#[cfg(feature = "cookies")]
 	#[inline(always)]
 	pub fn cookies(&mut self) -> CookieJar {
-		cookies_from_request(&self.headers, self.some_cookie_key.clone())
+		cookies_from_request(
+			&self.headers,
+			#[cfg(any(feature = "private-cookies", feature = "signed-cookies"))]
+			self.some_cookie_key.clone(),
+		)
 	}
 
 	/// Returns the path params deserialized as type `T`. `T` must implement the
@@ -544,6 +580,7 @@ impl RequestHead {
 
 	/// Returns the query params deserialized as type `T`. `T` must implement the
 	/// [`serde::Deserialize`] trait.
+	#[cfg(feature = "query-params")]
 	#[inline]
 	pub fn query_params_as<'r, T>(&'r self) -> Result<T, QueryParamsError>
 	where
@@ -604,6 +641,7 @@ impl IntoResponse for PathParamsError {
 
 /// An error type returned by [`RequestContext::query_params_as()`] and
 /// [`RequestHead::query_params_as()`].
+#[cfg(feature = "query-params")]
 #[derive(Debug, crate::ImplError)]
 pub enum QueryParamsError {
 	/// Returned when a request doesn't have query params.
@@ -614,6 +652,7 @@ pub enum QueryParamsError {
 	InvalidData(#[from] serde_urlencoded::de::Error),
 }
 
+#[cfg(feature = "query-params")]
 impl IntoResponse for QueryParamsError {
 	fn into_response(self) -> Response {
 		StatusCode::BAD_REQUEST.into_response()

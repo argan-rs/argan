@@ -600,14 +600,14 @@ impl Router {
 	/// Configures the router with the given options.
 	///
 	/// ```
-	/// use argan::{Router, common::config::_with_cookie_key, data::cookie};
+	/// use argan::{Router, common::config::_with_request_extensions_modifier};
 	///
 	/// let mut router = Router::new();
 	///
 	/// // Given `cookie::Key` will be available to all resoruces unless some resource
 	/// // or handler replaces it with its own `cookie::Key` while the request is being
 	/// // routed or handled.
-	/// router.configure(_with_cookie_key(cookie::Key::generate()));
+	/// router.configure(_with_request_extensions_modifier(|extensions| { /* ... */ }));
 	/// ```
 	pub fn configure<C, const N: usize>(&mut self, config_options: C)
 	where
@@ -619,6 +619,7 @@ impl Router {
 			use ConfigOption::*;
 
 			match config_option {
+				#[cfg(any(feature = "private-cookies", feature = "signed-cookies"))]
 				CookieKey(cookie_key) => self.context.some_cookie_key = Some(cookie_key),
 				RequestExtensionsModifier(request_extensions_modifier_layer) => {
 					let request_passer_layer_target = _request_passer(request_extensions_modifier_layer);
@@ -734,6 +735,7 @@ impl Router {
 
 #[derive(Default)]
 struct Context {
+	#[cfg(any(feature = "private-cookies", feature = "signed-cookies"))]
 	some_cookie_key: Option<cookie::Key>,
 }
 

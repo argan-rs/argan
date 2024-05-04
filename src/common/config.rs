@@ -16,6 +16,7 @@ use super::*;
 
 option! {
 	pub(crate) ConfigOption<Mark> {
+		#[cfg(any(feature = "private-cookies", feature = "signed-cookies"))]
 		CookieKey(cookie::Key),
 		RequestExtensionsModifier(RequestExtensionsModifierLayer),
 	}
@@ -24,6 +25,7 @@ option! {
 // ----------
 
 /// Passes the given [cookie::Key] as a config option for a node.
+#[cfg(any(feature = "private-cookies", feature = "signed-cookies"))]
 pub fn _with_cookie_key<Mark>(cookie_key: cookie::Key) -> ConfigOption<Mark> {
 	ConfigOption::<Mark>::CookieKey(cookie_key)
 }

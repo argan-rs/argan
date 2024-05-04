@@ -160,7 +160,12 @@ macro_rules! request_handler_fn {
 				let func_clone = self.func.clone();
 
 				Box::pin(async move {
+					#[cfg(any(feature = "private-cookies", feature = "signed-cookies"))]
 					let (request, routing_state, some_cookie_key) = request_context.into_parts();
+
+					#[cfg(not(any(feature = "private-cookies", feature = "signed-cookies")))]
+					let (request, routing_state) = request_context.into_parts();
+
 					let (mut head_parts, body) = request.into_parts();
 
 					$(
@@ -173,6 +178,7 @@ macro_rules! request_handler_fn {
 					$(
 						let mut head = <$RequestHead>::new(head_parts, routing_state);
 
+						#[cfg(any(feature = "private-cookies", feature = "signed-cookies"))]
 						if some_cookie_key.is_some() {
 							head = head.with_cookie_key(some_cookie_key.expect(SCOPE_VALIDITY));
 						}
@@ -257,7 +263,12 @@ macro_rules! request_args_handler_fn {
 						};
 					)*
 
+					#[cfg(any(feature = "private-cookies", feature = "signed-cookies"))]
 					let (mut request, routing_state, some_cookie_key) = request_context.into_parts();
+
+					#[cfg(not(any(feature = "private-cookies", feature = "signed-cookies")))]
+					let (mut request, routing_state) = request_context.into_parts();
+
 					let (mut head_parts, body) = request.into_parts();
 
 					$(
@@ -270,6 +281,7 @@ macro_rules! request_args_handler_fn {
 					$(
 						let mut head = <$RequestHead>::new(head_parts, routing_state);
 
+						#[cfg(any(feature = "private-cookies", feature = "signed-cookies"))]
 						if some_cookie_key.is_some() {
 							head = head.with_cookie_key(some_cookie_key.expect(SCOPE_VALIDITY));
 						}

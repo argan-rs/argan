@@ -75,6 +75,7 @@ pub trait IntoHandler<Mark, B = Body, Ext: Clone = ()>: Sized {
 		ExtensionProviderHandler::new(self.into_handler(), handler_extension)
 	}
 
+	#[cfg(any(feature = "private-cookies", feature = "signed-cookies"))]
 	fn with_context<C, const N: usize>(
 		self,
 		context_elems: C,
@@ -158,11 +159,13 @@ where
 // ContextProviderHandler
 
 /// A context provider handler.
+#[cfg(any(feature = "private-cookies", feature = "signed-cookies"))]
 pub struct ContextProviderHandler<H> {
 	inner: H,
 	context: HandlerContext,
 }
 
+#[cfg(any(feature = "private-cookies", feature = "signed-cookies"))]
 impl<H> ContextProviderHandler<H> {
 	fn new(handler: H, context: HandlerContext) -> Self {
 		Self {
@@ -172,6 +175,7 @@ impl<H> ContextProviderHandler<H> {
 	}
 }
 
+#[cfg(any(feature = "private-cookies", feature = "signed-cookies"))]
 impl<H, B, Ext> Handler<B, Ext> for ContextProviderHandler<H>
 where
 	H: Handler<B, Ext>,
@@ -195,6 +199,7 @@ where
 // HandlerContext
 
 /// `Handler` context elements.
+#[cfg(any(feature = "private-cookies", feature = "signed-cookies"))]
 pub mod context {
 	#[derive(Default)]
 	pub(super) struct HandlerContext {
@@ -214,6 +219,7 @@ pub mod context {
 	}
 }
 
+#[cfg(any(feature = "private-cookies", feature = "signed-cookies"))]
 use context::{HandlerContext, HandlerContextElem};
 
 // --------------------------------------------------------------------------------
@@ -358,13 +364,24 @@ where
 	type Error = BoxedErrorResponse;
 	type Future = BoxedFuture<Result<Response, BoxedErrorResponse>>;
 
-	fn handle(&self, mut request: RequestContext, mut args: Args) -> Self::Future {
-		let (mut request, routing_state, some_cookie_key) = request.into_parts();
+	fn handle(&self, mut request_context: RequestContext, mut args: Args) -> Self::Future {
+		#[cfg(any(feature = "private-cookies", feature = "signed-cookies"))]
+		let (mut request, routing_state, some_cookie_key) = request_context.into_parts();
+
+		#[cfg(not(any(feature = "private-cookies", feature = "signed-cookies")))]
+		let (mut request, routing_state) = request_context.into_parts();
+
 		let args = args.to_owned();
 
+		#[cfg(any(feature = "private-cookies", feature = "signed-cookies"))]
 		request
 			.extensions_mut()
 			.insert(Uncloneable::from((routing_state, some_cookie_key, args)));
+
+		#[cfg(not(any(feature = "private-cookies", feature = "signed-cookies")))]
+		request
+			.extensions_mut()
+			.insert(Uncloneable::from((routing_state, args)));
 
 		let future_response_result = self.clone().call(request);
 
@@ -402,6 +419,7 @@ where
 
 	#[inline]
 	fn call(&mut self, mut request: Request<B>) -> Self::Future {
+		#[cfg(any(feature = "private-cookies", feature = "signed-cookies"))]
 		let (routing_state, some_cookie_key, args) = request
 			.extensions_mut()
 			.remove::<Uncloneable<(RoutingState, Option<cookie::Key>, Args)>>()
@@ -411,9 +429,24 @@ where
 			.into_inner()
 			.expect("Uncloneable must always have a valid value");
 
-		let request = RequestContext::new(request, routing_state);
+		#[cfg(not(any(feature = "private-cookies", feature = "signed-cookies")))]
+		let (routing_state, args) = request
+			.extensions_mut()
+			.remove::<Uncloneable<(RoutingState, Args)>>()
+			.expect(
+				"request context data should be inserted in the Handler implementation for the Service",
+			)
+			.into_inner()
+			.expect("Uncloneable must always have a valid value");
 
-		self.handler.handle(request, args)
+		let mut request_context = RequestContext::new(request, routing_state);
+
+		#[cfg(any(feature = "private-cookies", feature = "signed-cookies"))]
+		if let Some(cookie_key) = some_cookie_key {
+			request_context = request_context.with_cookie_key(cookie_key);
+		}
+
+		self.handler.handle(request_context, args)
 	}
 }
 

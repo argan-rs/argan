@@ -67,6 +67,7 @@ where
 		};
 
 		let mut request = RequestContext::new(request, routing_state);
+		#[cfg(any(feature = "private-cookies", feature = "signed-cookies"))]
 		if self.context.some_cookie_key.is_some() {
 			request =
 				request.with_cookie_key(self.context.some_cookie_key.clone().expect(SCOPE_VALIDITY));

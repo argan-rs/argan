@@ -9,6 +9,8 @@ use futures_util::{Stream, StreamExt};
 use http::HeaderMap;
 use http_body_util::{BodyStream, Limited};
 use mime::Mime;
+
+#[cfg(feature = "multipart-form")]
 use multer::parse_boundary;
 
 use crate::{
@@ -26,6 +28,7 @@ use super::*;
 // --------------------------------------------------
 // Form
 
+#[cfg(feature = "form")]
 pub(crate) const FORM_BODY_SIZE_LIMIT: usize = { 2 * 1024 * 1024 };
 
 // ----------
@@ -70,8 +73,10 @@ pub(crate) const FORM_BODY_SIZE_LIMIT: usize = { 2 * 1024 * 1024 };
 ///
 /// Usually, `GET` and `HEAD` requests carry the data in a query string. With these
 /// requests, data can be obtained via [`RequestHead::query_params_as<T>`].
+#[cfg(feature = "form")]
 pub struct Form<T, const SIZE_LIMIT: usize = FORM_BODY_SIZE_LIMIT>(pub T);
 
+#[cfg(feature = "form")]
 impl<B, T, const SIZE_LIMIT: usize> FromRequest<B> for Form<T, SIZE_LIMIT>
 where
 	B: HttpBody + Send,
@@ -88,6 +93,7 @@ where
 	}
 }
 
+#[cfg(feature = "form")]
 #[inline(always)]
 pub(crate) async fn request_into_form_data<T, B>(
 	head_parts: &RequestHeadParts,
@@ -121,6 +127,7 @@ where
 
 // ----------
 
+#[cfg(feature = "form")]
 impl<T> IntoResponseResult for Form<T>
 where
 	T: Serialize,
@@ -140,6 +147,7 @@ where
 
 // ----------
 
+#[cfg(feature = "form")]
 data_extractor_error! {
 	/// An error type returned on failures when extracting or serializing the `Form`.
 	#[derive(Debug)]
@@ -162,6 +170,7 @@ data_extractor_error! {
 // --------------------------------------------------
 // MultipartForm
 
+#[cfg(feature = "multipart-form")]
 const MULTIPART_FORM_BODY_SIZE_LIMIT: usize = { 8 * 1024 * 1024 };
 
 // ----------
@@ -182,12 +191,14 @@ const MULTIPART_FORM_BODY_SIZE_LIMIT: usize = { 8 * 1024 * 1024 };
 ///		Ok(())
 /// }
 /// ```
+#[cfg(feature = "multipart-form")]
 pub struct MultipartForm<B = Body> {
 	body_stream: BodyStream<B>,
 	boundary: String,
 	some_constraints: Option<Constraints>,
 }
 
+#[cfg(feature = "multipart-form")]
 impl<B> MultipartForm<B>
 where
 	B: HttpBody<Data = Bytes> + Send + 'static,
@@ -253,6 +264,7 @@ where
 	}
 }
 
+#[cfg(feature = "multipart-form")]
 impl<B> FromRequest<B> for MultipartForm<B>
 where
 	B: HttpBody<Data = Bytes> + Send + Sync + 'static,
@@ -265,6 +277,7 @@ where
 	}
 }
 
+#[cfg(feature = "multipart-form")]
 #[inline(always)]
 pub(crate) fn request_into_multipart_form<B>(
 	head_parts: &RequestHeadParts,
@@ -294,6 +307,7 @@ where
 // ----------
 
 /// Constraints to limit the extraction of parts.
+#[cfg(feature = "multipart-form")]
 pub struct Constraints {
 	inner: multer::Constraints,
 	body_size_limit: u64,
@@ -301,6 +315,7 @@ pub struct Constraints {
 	some_size_limits_for_parts: Option<Vec<(String, u64)>>,
 }
 
+#[cfg(feature = "multipart-form")]
 impl Constraints {
 	/// Creates a new `Constraints` with only a body size limit, which defaults to 8MiB.
 	pub fn new() -> Self {
@@ -344,8 +359,10 @@ impl Constraints {
 // ----------
 
 /// An *"async iterator"* over the parts of the multipart form.
+#[cfg(feature = "multipart-form")]
 pub struct Parts(multer::Multipart<'static>);
 
+#[cfg(feature = "multipart-form")]
 impl Parts {
 	/// Returns the next part of the multipart form.
 	pub async fn next<'p>(&'p mut self) -> Result<Option<Part<'p>>, MultipartFormError> {
@@ -364,11 +381,13 @@ impl Parts {
 }
 
 /// Single part of the multipart form.
+#[cfg(feature = "multipart-form")]
 pub struct Part<'p> {
 	inner: multer::Field<'static>,
 	_lifetime_mark: PhantomData<&'p mut Parts>,
 }
 
+#[cfg(feature = "multipart-form")]
 impl<'p> Part<'p> {
 	/// Returns the index of the part in the multipart form.
 	pub fn index(&self) -> usize {
@@ -424,6 +443,7 @@ impl<'p> Part<'p> {
 	}
 
 	/// Tries to deserialize the part's payload as JSON data.
+	#[cfg(feature = "json")]
 	pub async fn json<T: DeserializeOwned>(self) -> Result<T, MultipartFormError> {
 		self.inner.json().await.map_err(|error| error.into())
 	}
@@ -431,6 +451,7 @@ impl<'p> Part<'p> {
 
 // ----------
 
+#[cfg(feature = "multipart-form")]
 data_extractor_error! {
 	/// An error type returned on failures when extracting the `MultipartForm`.
 	#[derive(Debug)]
@@ -476,15 +497,19 @@ data_extractor_error! {
 		#[error("no boundary")]
 		(NoBoundary) StatusCode::BAD_REQUEST;
 		/// Returned on syntax error when deserializing the part's payload as JSON data.
+		#[cfg(feature = "json")]
 		#[error("invlaid JSON syntax in line {line}, column {column}")]
 		(InvalidJsonSyntax { line: usize, column: usize}) [{..}]; StatusCode::BAD_REQUEST;
 		/// Returned on semantically incorrect data when deserializing the part's payload as JSON.
+		#[cfg(feature = "json")]
 		#[error("invalid JSON semantics in line {line}, column {column}")]
 		(InvalidJsonData { line: usize, column: usize}) [{..}]; StatusCode::UNPROCESSABLE_ENTITY;
 		/// Returned on read failure when deserializing the part's payload as JSON.
+		#[cfg(feature = "json")]
 		#[error("JSON I/O stream failure")]
 		(JsonIoFailure(io::ErrorKind)) [{..}]; StatusCode::INTERNAL_SERVER_ERROR;
 		/// Returned on unexpected *end of file* when deserializing the part's payload as JSON.
+		#[cfg(feature = "json")]
 		#[error("JSON unexpected end of file")]
 		(JsonUnexpectedEoF) StatusCode::BAD_REQUEST;
 		/// Returned on unknown failure.
@@ -493,6 +518,7 @@ data_extractor_error! {
 	}
 }
 
+#[cfg(feature = "multipart-form")]
 impl From<multer::Error> for MultipartFormError {
 	fn from(error: multer::Error) -> Self {
 		use multer::Error::*;
@@ -520,6 +546,7 @@ impl From<multer::Error> for MultipartFormError {
 			NoMultipart => Self::UnsupportedMediaType,
 			DecodeContentType(error) => Self::InvlaidPartContentType(error),
 			NoBoundary => Self::NoBoundary,
+			#[cfg(feature = "json")]
 			DecodeJson(error) => match error.classify() {
 				Category::Io => Self::JsonIoFailure(error.io_error_kind().expect(SCOPE_VALIDITY)),
 				Category::Syntax => Self::InvalidJsonSyntax {
@@ -540,7 +567,7 @@ impl From<multer::Error> for MultipartFormError {
 // --------------------------------------------------------------------------------
 // --------------------------------------------------------------------------------
 
-#[cfg(test)]
+#[cfg(all(test, feature = "full"))]
 mod test {
 	use serde::Deserialize;
 
@@ -568,7 +595,7 @@ mod test {
 
 	// -------------------------
 
-	#[tokio::test]
+	#[cfg(all(test, feature = "full"))]
 	async fn form() {
 		let login = "login".to_string();
 		let password = "password".to_string();
