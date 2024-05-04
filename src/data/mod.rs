@@ -27,6 +27,8 @@ use http::{
 use http_body_util::{BodyExt, Empty, Full, LengthLimitError, Limited};
 use pin_project::pin_project;
 use serde::{de::DeserializeOwned, Serialize};
+
+#[cfg(feature = "json")]
 use serde_json::error::Category;
 
 use crate::{
@@ -38,9 +40,14 @@ use crate::{
 
 // --------------------------------------------------
 
-pub mod cookie;
+#[cfg(any(feature = "cookies"))]
+pub mod cookies;
+
+#[cfg(any(feature = "form", feature = "multipart-form"))]
 pub mod form;
 pub mod header;
+
+#[cfg(feature = "json")]
 pub mod json;
 
 use header::content_type;

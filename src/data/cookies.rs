@@ -33,7 +33,7 @@ pub use cookie::{Cookie, CookieBuilder, Expiration, Iter, Key, KeyError, ParseEr
 
 // --------------------------------------------------------------------------------
 
-const NO_KEY: &'static str = "key should have been set";
+const NO_KEY: &'static str = "key should have been set for the handler or a node";
 
 // --------------------------------------------------
 // Cookies
@@ -56,6 +56,7 @@ impl CookieJar {
 	}
 
 	/// Sets the cryptographic `Key` used for *private* and *signed* cookies.
+	#[cfg(any(feature = "private-cookies", feature = "signed-cookies"))]
 	#[inline(always)]
 	pub fn with_key<K>(mut self, key: K) -> CookieJar
 	where
@@ -67,6 +68,7 @@ impl CookieJar {
 	}
 
 	/// Clones the `Key`.
+	#[cfg(any(feature = "private-cookies", feature = "signed-cookies"))]
 	pub fn clone_key(&mut self) -> Key {
 		self.some_key.as_ref().expect(NO_KEY).clone()
 	}
@@ -74,7 +76,7 @@ impl CookieJar {
 	/// Adds the cookies into the jar.
 	///
 	/// ```
-	/// use argan::data::cookie::{Cookie, CookieJar, Key, _plain, _private};
+	/// use argan::data::cookies::{Cookie, CookieJar, Key, _plain, _private};
 	///
 	/// let mut jar = CookieJar::new().with_key(Key::generate());
 	///
@@ -99,10 +101,12 @@ impl CookieJar {
 
 			match cookie {
 				Plain(cookie) => self.inner.add(cookie),
+				#[cfg(feature = "private-cookies")]
 				Private(cookie) => self
 					.inner
 					.private_mut(self.some_key.as_ref().expect(NO_KEY))
 					.add(cookie),
+				#[cfg(feature = "signed-cookies")]
 				Signed(cookie) => self
 					.inner
 					.signed_mut(self.some_key.as_ref().expect(NO_KEY))
@@ -123,6 +127,7 @@ impl CookieJar {
 	///
 	/// # Panics
 	/// - if the jar wasn't created with a `Key`.
+	#[cfg(feature = "private-cookies")]
 	#[inline(always)]
 	pub fn private_cookie<S: AsRef<str>>(&self, name: S) -> Option<Cookie<'static>> {
 		self
@@ -137,6 +142,7 @@ impl CookieJar {
 	///
 	/// # Panics
 	/// - if the jar wasn't created with a `Key`.
+	#[cfg(feature = "signed-cookies")]
 	#[inline(always)]
 	pub fn signed_cookie<S: AsRef<str>>(&self, name: S) -> Option<Cookie<'static>> {
 		self
@@ -158,7 +164,7 @@ impl CookieJar {
 	///		resource::Resource,
 	///		request::RequestHead,
 	///		handler::_get,
-	///		data::cookie::{Cookie, CookieJar, Key, _plain, _private},
+	///		data::cookies::{Cookie, CookieJar, Key, _plain, _private},
 	///	};
 	///
 	/// async fn handler(mut request_head: RequestHead) -> CookieJar {
@@ -188,7 +194,9 @@ impl CookieJar {
 
 			let cookie = match cookie {
 				Plain(cookie) => cookie,
+				#[cfg(feature = "private-cookies")]
 				Private(cookie) => cookie,
+				#[cfg(feature = "signed-cookies")]
 				Signed(cookie) => cookie,
 			};
 
@@ -201,6 +209,7 @@ impl CookieJar {
 	///
 	/// # Panics
 	/// - if the `CookieJar` wasn't created with a `Key`.
+	#[cfg(feature = "private-cookies")]
 	#[inline(always)]
 	pub fn into_private_jar(self) -> PrivateCookieJar {
 		PrivateCookieJar {
@@ -214,6 +223,7 @@ impl CookieJar {
 	///
 	/// # Panics
 	/// - if the `CookieJar` wasn't created with a `Key`.
+	#[cfg(feature = "signed-cookies")]
 	#[inline(always)]
 	pub fn into_signed_jar(self) -> SignedCookieJar {
 		SignedCookieJar {
@@ -229,7 +239,10 @@ impl CookieJar {
 	}
 }
 
-pub(crate) fn cookies_from_request(head: &HeaderMap, some_key: Option<Key>) -> CookieJar {
+pub(crate) fn cookies_from_request(
+	head: &HeaderMap,
+	#[cfg(any(feature = "private-cookies", feature = "signed-cookies"))] some_key: Option<Key>,
+) -> CookieJar {
 	let cookie_jar = head
 		.get(COOKIE)
 		.and_then(|value| {
@@ -250,6 +263,7 @@ pub(crate) fn cookies_from_request(head: &HeaderMap, some_key: Option<Key>) -> C
 		})
 		.unwrap_or_default();
 
+	#[cfg(any(feature = "private-cookies", feature = "signed-cookies"))]
 	if some_key.is_some() {
 		return cookie_jar.with_key(some_key.expect(SCOPE_VALIDITY));
 	}
@@ -291,11 +305,13 @@ impl IntoResponse for CookieJar {
 
 /// A private cookie jar that automatically encrypts the added cookies and decrypts
 /// the retrieved cookies.
+#[cfg(feature = "private-cookies")]
 pub struct PrivateCookieJar {
 	inner: InnerCookieJar,
 	key: Key,
 }
 
+#[cfg(feature = "private-cookies")]
 impl PrivateCookieJar {
 	/// If exists, retrieves the *private* `Cookie` with the given `name`, authenticates and
 	/// decrypts it with the jar's `Key`, and returns it as a *plain* `Cookie`. If the cookie
@@ -338,6 +354,7 @@ impl PrivateCookieJar {
 
 // -------------------------
 
+#[cfg(feature = "private-cookies")]
 impl IntoResponseHeadParts for PrivateCookieJar {
 	fn into_response_head(
 		self,
@@ -347,6 +364,7 @@ impl IntoResponseHeadParts for PrivateCookieJar {
 	}
 }
 
+#[cfg(feature = "private-cookies")]
 impl IntoResponse for PrivateCookieJar {
 	fn into_response(self) -> Response {
 		let (head, body) = Response::default().into_parts();
@@ -363,11 +381,13 @@ impl IntoResponse for PrivateCookieJar {
 
 /// A signed cookie jar that automatically signs the added cookies and verifies the
 /// authenticity and integrity of the retrieved cookies.
+#[cfg(feature = "signed-cookies")]
 pub struct SignedCookieJar {
 	inner: InnerCookieJar,
 	key: Key,
 }
 
+#[cfg(feature = "signed-cookies")]
 impl SignedCookieJar {
 	/// If exists, retrieves the *signed* `Cookie` with the given `name`, verifies its
 	/// authenticity and integrity with the jar's `Key`, and returns it as a *plain* `Cookie`.
@@ -410,6 +430,7 @@ impl SignedCookieJar {
 
 // -------------------------
 
+#[cfg(feature = "signed-cookies")]
 impl IntoResponseHeadParts for SignedCookieJar {
 	fn into_response_head(
 		self,
@@ -419,6 +440,7 @@ impl IntoResponseHeadParts for SignedCookieJar {
 	}
 }
 
+#[cfg(feature = "signed-cookies")]
 impl IntoResponse for SignedCookieJar {
 	fn into_response(self) -> Response {
 		let (head, body) = Response::default().into_parts();
@@ -437,7 +459,9 @@ mod private {
 
 	pub enum CookieKind {
 		Plain(Cookie<'static>),
+		#[cfg(feature = "private-cookies")]
 		Private(Cookie<'static>),
+		#[cfg(feature = "signed-cookies")]
 		Signed(Cookie<'static>),
 	}
 
@@ -459,12 +483,14 @@ pub fn _plain<C: Into<Cookie<'static>>>(cookie: C) -> CookieKind {
 }
 
 /// Passes the cookie to the jar as a *private* `Cookie`.
+#[cfg(feature = "private-cookies")]
 #[inline(always)]
 pub fn _private<C: Into<Cookie<'static>>>(cookie: C) -> CookieKind {
 	CookieKind::Private(cookie.into())
 }
 
 /// Passes the cookie to the jar as a *signed* `Cookie`.
+#[cfg(feature = "signed-cookies")]
 #[inline(always)]
 pub fn _signed<C: Into<Cookie<'static>>>(cookie: C) -> CookieKind {
 	CookieKind::Signed(cookie.into())
@@ -473,7 +499,7 @@ pub fn _signed<C: Into<Cookie<'static>>>(cookie: C) -> CookieKind {
 // --------------------------------------------------------------------------------
 // --------------------------------------------------------------------------------
 
-#[cfg(test)]
+#[cfg(all(test, feature = "full"))]
 mod test {
 	use http::Request;
 	use http_body_util::Empty;

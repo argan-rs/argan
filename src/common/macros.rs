@@ -8,6 +8,7 @@ macro_rules! option {
 	(
 		$(#[$metas:meta])*
 		$vis:vis $config_name:ident$(<$($lt:lifetime),* $($tp:ident),*>)? {
+			$(#[$option_metas:meta])*
 			$($option_name:ident $(($($tokens:ty),+))?,)+
 		}
 	) => {
@@ -18,6 +19,7 @@ macro_rules! option {
 			$(#[$metas])*
 			pub enum $config_name$(<$($lt),* $($tp),*>)? {
 				$(None(std::marker::PhantomData<fn() -> ($($lt),* $($tp),*)>),)?
+				$(#[$option_metas])*
 				$($option_name $(($($tokens),+))?,)+
 			}
 

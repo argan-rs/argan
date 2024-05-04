@@ -250,6 +250,7 @@ impl Event {
 	///
 	/// # Panics
 	/// - if the event already contains any data
+	#[cfg(feature = "json")]
 	pub fn with_json_data<T: Serialize>(mut self, json_data: T) -> Result<Self, EventError> {
 		if self
 			.flags
@@ -346,10 +347,12 @@ bit_flags! {
 // EventStream
 
 /// Returned when serialization of the JSON data fails.
+#[cfg(feature = "json")]
 #[derive(Debug, crate::ImplError)]
 #[error(transparent)]
 pub struct EventError(#[from] serde_json::Error);
 
+#[cfg(feature = "json")]
 impl IntoResponse for EventError {
 	fn into_response(self) -> Response {
 		StatusCode::INTERNAL_SERVER_ERROR.into_response()
@@ -359,7 +362,7 @@ impl IntoResponse for EventError {
 // --------------------------------------------------------------------------------
 // --------------------------------------------------------------------------------
 
-#[cfg(test)]
+#[cfg(all(test, feature = "full"))]
 mod test {
 	use core::panic;
 

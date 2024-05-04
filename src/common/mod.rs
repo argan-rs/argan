@@ -32,9 +32,12 @@ pub use argan_core::{BoxedError, BoxedFuture};
 pub(crate) mod macros;
 
 pub mod config;
-pub use config::{_with_cookie_key, _with_request_extensions_modifier};
+pub use config::_with_request_extensions_modifier;
 
-#[cfg(test)]
+#[cfg(any(feature = "private-cookies", feature = "signed-cookies"))]
+pub use config::_with_cookie_key;
+
+#[cfg(all(test, feature = "full"))]
 pub(crate) mod test_helpers;
 
 // --------------------------------------------------------------------------------

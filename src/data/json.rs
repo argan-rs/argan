@@ -8,7 +8,6 @@ use argan_core::request::RequestHeadParts;
 use http::{header::CONTENT_TYPE, HeaderValue, StatusCode};
 use http_body_util::{BodyExt, LengthLimitError, Limited};
 use serde::{de::DeserializeOwned, Serialize};
-use serde_json::error::Category;
 
 use crate::{
 	request::{FromRequest, Request, SizeLimit},

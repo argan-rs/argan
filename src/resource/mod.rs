@@ -1295,10 +1295,10 @@ impl Resource {
 	/// Configures the resource with the given options.
 	///
 	/// ```
-	/// use argan::{Resource, common::config::_with_cookie_key, data::cookie};
+	/// use argan::{Resource, common::config::_with_request_extensions_modifier};
 	///
 	/// let mut resource = Resource::new("/resource");
-	/// resource.configure(_with_cookie_key(cookie::Key::generate()));
+	/// resource.configure(_with_request_extensions_modifier(|extensions| { /* ... */ }));
 	/// ```
 	pub fn configure<C, const N: usize>(&mut self, config_options: C)
 	where
@@ -1310,6 +1310,7 @@ impl Resource {
 			use ConfigOption::*;
 
 			match config_option {
+				#[cfg(any(feature = "private-cookies", feature = "signed-cookies"))]
 				CookieKey(cookie_key) => self.context.some_cookie_key = Some(cookie_key),
 				RequestExtensionsModifier(request_extensions_modifier_layer) => {
 					let request_receiver_layer_target = _request_receiver(request_extensions_modifier_layer);
@@ -1559,6 +1560,7 @@ impl IntoArray<Resource, 1> for Resource {
 
 #[derive(Default, Clone)]
 struct Context {
+	#[cfg(any(feature = "private-cookies", feature = "signed-cookies"))]
 	some_cookie_key: Option<cookie::Key>,
 }
 

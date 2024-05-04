@@ -251,17 +251,11 @@ implementor, [`Args`].
 ```
 use argan::{
     request::RequestHead,
-    data::json::Json,
+    data::Text,
     handler::Args,
 };
 
 use serde::Deserialize;
-
-#[derive(Deserialize)]
-struct User {
-    first_name: String,
-    last_name: String,
-}
 
 // `async` functions that can be used as request handlers.
 // Note that `()` implements the `IntoResponse` trait and can be used
@@ -275,7 +269,7 @@ async fn with_request_head(head: RequestHead) {
     // ...
 }
 
-async fn with_from_request_implementor(Json(user): Json<User>) {
+async fn with_from_request_implementor(Text(text): Text) {
     // ...
 }
 
@@ -285,7 +279,7 @@ async fn with_args(args: Args<'static, ()>) {
     // ...
 }
 
-async fn with_request_head_and_from_request(head: RequestHead, Json(user): Json<User>) {
+async fn with_request_head_and_from_request(head: RequestHead, Text(text): Text) {
     // ...
 }
 
@@ -293,11 +287,11 @@ async fn with_request_head_and_args(head: RequestHead, args: Args<'static, ()>) 
     // ...
 }
 
-async fn with_from_request_and_args(Json(user): Json<User>, args: Args<'static, ()>) {
+async fn with_from_request_and_args(Text(text): Text, args: Args<'static, ()>) {
     // ...
 }
 
-async fn with_all_three(head: RequestHead, Json(user): Json<User>, args: Args<'static, ()>) {
+async fn with_all_three(head: RequestHead, Text(text): Text, args: Args<'static, ()>) {
     // ...
 }
 ```

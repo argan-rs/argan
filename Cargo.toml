@@ -25,7 +25,22 @@ license.workspace = true
 edition.workspace = true
 
 [features]
-full = ["regex"]
+cookies = ["dep:cookie"]
+private-cookies = ["cookies", "cookie/private", "cookie/key-expansion"]
+signed-cookies = ["cookies", "cookie/signed", "cookie/key-expansion"]
+query-params = ["dep:serde_urlencoded"]
+json = ["dep:serde_json", "multer/json"]
+form = ["dep:serde_urlencoded"]
+multipart-form = ["dep:multer"]
+full = [
+	"regex",
+	"private-cookies",
+	"signed-cookies",
+	"query-params",
+	"json",
+	"form",
+	"multipart-form",
+]
 # default = ["full"]
 
 [dependencies]
@@ -38,7 +53,6 @@ futures-util = { workspace = true }
 thiserror = {workspace = true}
 mime = { workspace = true }
 base64 = "0.22"
-cookie = { version = "0.18", features = ["percent-encode", "secure"] }
 fastwebsockets = { version = "0.7", features = ["upgrade"] }
 flate2 = "1"
 httparse = "1"
@@ -46,13 +60,10 @@ httpdate = "1"
 hyper = { version = "1", features = ["full"] }
 hyper-util = { version = "0.1", features = ["tokio"] }
 mime_guess = "2"
-multer = { version = "3", features = ["json"] }
 percent-encoding = "2"
 pin-project = "1"
 rand = { version = "0.8", default-features = false, features = ["small_rng"] }
 serde = { version = "1", features = ["derive"] }
-serde_json = "1"
-serde_urlencoded = "0.7"
 sha1 = "0.10"
 tokio = { version = "1", features = ["rt-multi-thread"] }
 tower-layer = "0.3"
@@ -60,6 +71,10 @@ tower-service = "0.3"
 
 # optional
 regex = { version = "1", optional = true }
+cookie = { version = "0.18", features = ["percent-encode"], optional = true }
+serde_json = { version = "1", optional = true }
+serde_urlencoded = { version = "0.7", optional = true }
+multer = { version = "3", optional = true }
 
 [dev-dependencies]
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "test-util", "parking_lot"] }
