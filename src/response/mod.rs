@@ -25,7 +25,10 @@ pub use argan_core::response::*;
 
 // --------------------------------------------------
 
+#[cfg(feature = "sse")]
 pub mod event_stream;
+
+#[cfg(feature = "file-stream")]
 pub mod file_stream;
 
 // --------------------------------------------------------------------------------
