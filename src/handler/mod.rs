@@ -26,7 +26,7 @@ use tower_service::Service as TowerService;
 use crate::{
 	common::{config::ConfigOption, BoxedAny, IntoArray, NodeExtensions, Uncloneable},
 	middleware::Layer,
-	request::{RequestContext, RequestHead},
+	request::{ContextProperties, RequestContext, RequestHead},
 	response::{BoxedErrorResponse, IntoResponse, Response},
 	routing::RoutingState,
 	StdError,
@@ -59,7 +59,7 @@ pub trait Handler<B = Body, Ext: Clone = ()> {
 	type Error;
 	type Future: Future<Output = Result<Self::Response, Self::Error>>;
 
-	fn handle(&self, request: RequestContext<B>, args: Args<'_, Ext>) -> Self::Future;
+	fn handle(&self, request_context: RequestContext<B>, args: Args<'_, Ext>) -> Self::Future;
 }
 
 // --------------------------------------------------
@@ -76,28 +76,28 @@ pub trait IntoHandler<Mark, B = Body, Ext: Clone = ()>: Sized {
 	}
 
 	#[cfg(any(feature = "private-cookies", feature = "signed-cookies"))]
-	fn with_context<C, const N: usize>(
+	fn with_context_property<P, const N: usize>(
 		self,
-		context_elems: C,
+		properties: P,
 	) -> ContextProviderHandler<Self::Handler>
 	where
-		C: IntoArray<HandlerContextElem, N>,
+		P: IntoArray<ContextProperty, N>,
 	{
-		let context_elems = context_elems.into_array();
+		let properties = properties.into_array();
 
-		let mut context = HandlerContext::default();
+		let mut context_properties = ContextProperties::default();
 
-		for context_elem in context_elems {
-			use HandlerContextElem::*;
+		for context_elem in properties {
+			use ContextProperty::*;
 
 			match context_elem {
 				CookieKey(cookie_key) => {
-					context.some_cookie_key = Some(cookie_key);
+					context_properties.set_cookie_key(cookie_key);
 				}
 			}
 		}
 
-		ContextProviderHandler::new(self.into_handler(), context)
+		ContextProviderHandler::new(self.into_handler(), context_properties)
 	}
 
 	fn wrapped_in<L: Layer<Self::Handler>>(self, layer: L) -> L::Handler {
@@ -143,7 +143,7 @@ where
 	type Future = H::Future;
 
 	#[inline]
-	fn handle(&self, mut request: RequestContext<B>, mut args: Args) -> Self::Future {
+	fn handle(&self, mut request_context: RequestContext<B>, mut args: Args) -> Self::Future {
 		let node_extensions = args.take_node_extensions();
 
 		let mut args = Args {
@@ -151,7 +151,7 @@ where
 			handler_extension: Cow::Borrowed(&self.extension),
 		};
 
-		self.inner.handle(request, args)
+		self.inner.handle(request_context, args)
 	}
 }
 
@@ -162,15 +162,15 @@ where
 #[cfg(any(feature = "private-cookies", feature = "signed-cookies"))]
 pub struct ContextProviderHandler<H> {
 	inner: H,
-	context: HandlerContext,
+	context_properties: ContextProperties,
 }
 
 #[cfg(any(feature = "private-cookies", feature = "signed-cookies"))]
 impl<H> ContextProviderHandler<H> {
-	fn new(handler: H, context: HandlerContext) -> Self {
+	fn new(handler: H, context_properties: ContextProperties) -> Self {
 		Self {
 			inner: handler,
-			context,
+			context_properties,
 		}
 	}
 }
@@ -186,12 +186,14 @@ where
 	type Future = H::Future;
 
 	#[inline]
-	fn handle(&self, mut request: RequestContext<B>, mut args: Args<'_, Ext>) -> Self::Future {
-		if let Some(cookie_key) = self.context.some_cookie_key.clone() {
-			request = request.with_cookie_key(cookie_key);
-		}
+	fn handle(
+		&self,
+		mut request_context: RequestContext<B>,
+		mut args: Args<'_, Ext>,
+	) -> Self::Future {
+		request_context.clone_valid_properties_from(&self.context_properties);
 
-		self.inner.handle(request, args)
+		self.inner.handle(request_context, args)
 	}
 }
 
@@ -201,26 +203,21 @@ where
 /// `Handler` context elements.
 #[cfg(any(feature = "private-cookies", feature = "signed-cookies"))]
 pub mod context {
-	#[derive(Default)]
-	pub(super) struct HandlerContext {
-		pub some_cookie_key: Option<cookie::Key>,
-	}
-
 	option! {
-		pub(super) HandlerContextElem {
+		pub(super) ContextProperty {
 			CookieKey(cookie::Key),
 		}
 	}
 
 	/// Passes the cryptographic `Key` used for *private* and *signed* cookies
 	/// as a `Handler` context.
-	pub fn _cookie_key<K>(cookie_key: cookie::Key) -> HandlerContextElem {
-		HandlerContextElem::CookieKey(cookie_key)
+	pub fn _cookie_key<K>(cookie_key: cookie::Key) -> ContextProperty {
+		ContextProperty::CookieKey(cookie_key)
 	}
 }
 
 #[cfg(any(feature = "private-cookies", feature = "signed-cookies"))]
-use context::{HandlerContext, HandlerContextElem};
+use context::ContextProperty;
 
 // --------------------------------------------------------------------------------
 // FinalHandler trait
@@ -290,8 +287,8 @@ impl Handler for BoxedHandler {
 	type Future = BoxedFuture<Result<Self::Response, Self::Error>>;
 
 	#[inline(always)]
-	fn handle(&self, request: RequestContext, args: Args) -> Self::Future {
-		self.0.handle(request, args)
+	fn handle(&self, request_context: RequestContext, args: Args) -> Self::Future {
+		self.0.handle(request_context, args)
 	}
 }
 
@@ -328,8 +325,8 @@ impl Handler for ArcHandler {
 	type Future = BoxedFuture<Result<Self::Response, Self::Error>>;
 
 	#[inline(always)]
-	fn handle(&self, request: RequestContext, args: Args) -> Self::Future {
-		self.0.handle(request, args)
+	fn handle(&self, request_context: RequestContext, args: Args) -> Self::Future {
+		self.0.handle(request_context, args)
 	}
 }
 
@@ -344,7 +341,7 @@ impl Handler for DummyHandler {
 	type Error = BoxedErrorResponse;
 	type Future = BoxedFuture<Result<Self::Response, Self::Error>>;
 
-	fn handle(&self, request: RequestContext<Body>, args: Args<'_, ()>) -> Self::Future {
+	fn handle(&self, request_context: RequestContext<Body>, args: Args<'_, ()>) -> Self::Future {
 		Box::pin(async { Ok(Response::default()) })
 	}
 }
@@ -365,23 +362,13 @@ where
 	type Future = BoxedFuture<Result<Response, BoxedErrorResponse>>;
 
 	fn handle(&self, mut request_context: RequestContext, mut args: Args) -> Self::Future {
-		#[cfg(any(feature = "private-cookies", feature = "signed-cookies"))]
-		let (mut request, routing_state, some_cookie_key) = request_context.into_parts();
-
-		#[cfg(not(any(feature = "private-cookies", feature = "signed-cookies")))]
-		let (mut request, routing_state) = request_context.into_parts();
+		let (mut request, routing_state, context_properties) = request_context.into_parts();
 
 		let args = args.to_owned();
 
-		#[cfg(any(feature = "private-cookies", feature = "signed-cookies"))]
 		request
 			.extensions_mut()
-			.insert(Uncloneable::from((routing_state, some_cookie_key, args)));
-
-		#[cfg(not(any(feature = "private-cookies", feature = "signed-cookies")))]
-		request
-			.extensions_mut()
-			.insert(Uncloneable::from((routing_state, args)));
+			.insert(Uncloneable::from((routing_state, context_properties, args)));
 
 		let future_response_result = self.clone().call(request);
 
@@ -419,32 +406,16 @@ where
 
 	#[inline]
 	fn call(&mut self, mut request: Request<B>) -> Self::Future {
-		#[cfg(any(feature = "private-cookies", feature = "signed-cookies"))]
-		let (routing_state, some_cookie_key, args) = request
+		let (routing_state, context_properties, args) = request
 			.extensions_mut()
-			.remove::<Uncloneable<(RoutingState, Option<cookie::Key>, Args)>>()
+			.remove::<Uncloneable<(RoutingState, ContextProperties, Args)>>()
 			.expect(
 				"request context data should be inserted in the Handler implementation for the Service",
 			)
 			.into_inner()
 			.expect("Uncloneable must always have a valid value");
 
-		#[cfg(not(any(feature = "private-cookies", feature = "signed-cookies")))]
-		let (routing_state, args) = request
-			.extensions_mut()
-			.remove::<Uncloneable<(RoutingState, Args)>>()
-			.expect(
-				"request context data should be inserted in the Handler implementation for the Service",
-			)
-			.into_inner()
-			.expect("Uncloneable must always have a valid value");
-
-		let mut request_context = RequestContext::new(request, routing_state);
-
-		#[cfg(any(feature = "private-cookies", feature = "signed-cookies"))]
-		if let Some(cookie_key) = some_cookie_key {
-			request_context = request_context.with_cookie_key(cookie_key);
-		}
+		let mut request_context = RequestContext::new(request, routing_state, context_properties);
 
 		self.handler.handle(request_context, args)
 	}

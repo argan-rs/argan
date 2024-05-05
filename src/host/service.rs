@@ -9,7 +9,7 @@ use crate::{
 	common::{NodeExtensions, Uncloneable},
 	handler::{futures::ResponseToResultFuture, request_handlers::handle_mistargeted_request, Args},
 	pattern::ParamsList,
-	request::{Request, RequestContext},
+	request::{ContextProperties, Request, RequestContext},
 	resource::ResourceService,
 	response::{BoxedErrorResponse, InfallibleResponseFuture, IntoResponse, Response},
 	routing::{RouteTraversal, RoutingState},
@@ -50,14 +50,14 @@ impl HostService {
 	#[inline(always)]
 	pub(crate) fn handle<B>(
 		&self,
-		request: RequestContext<B>,
+		request_context: RequestContext<B>,
 		args: Args,
 	) -> BoxedFuture<Result<Response, BoxedErrorResponse>>
 	where
 		B: HttpBody<Data = Bytes> + Send + Sync + 'static,
 		B::Error: Into<BoxedError>,
 	{
-		self.root_resource.handle(request, args)
+		self.root_resource.handle(request_context, args)
 	}
 }
 
@@ -88,9 +88,10 @@ where
 		};
 
 		if let Some(result) = self.pattern.is_static_match(host) {
-			let request = RequestContext::new(request, routing_state);
+			let request_context =
+				RequestContext::new(request, routing_state, ContextProperties::default());
 
-			return InfallibleResponseFuture::from(self.root_resource.handle(request, args));
+			return InfallibleResponseFuture::from(self.root_resource.handle(request_context, args));
 		}
 
 		#[cfg(feature = "regex")]
@@ -98,9 +99,10 @@ where
 			.pattern
 			.is_regex_match(host, &mut routing_state.uri_params)
 		{
-			let request = RequestContext::new(request, routing_state);
+			let request_context =
+				RequestContext::new(request, routing_state, ContextProperties::default());
 
-			return InfallibleResponseFuture::from(self.root_resource.handle(request, args));
+			return InfallibleResponseFuture::from(self.root_resource.handle(request_context, args));
 		}
 
 		handle_unmatching_host!()

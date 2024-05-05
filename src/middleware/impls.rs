@@ -91,8 +91,8 @@ mod private {
 		type Future = BoxedFuture<Result<Self::Response, Self::Error>>;
 
 		#[inline]
-		fn handle(&self, request: RequestContext<B>, args: Args<'_, Ext>) -> Self::Future {
-			let future = self.inner.handle(request, args);
+		fn handle(&self, request_context: RequestContext<B>, args: Args<'_, Ext>) -> Self::Future {
+			let future = self.inner.handle(request_context, args);
 			let mut error_handler_clone = self.error_handler.clone();
 
 			Box::pin(async move {

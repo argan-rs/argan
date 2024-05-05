@@ -14,13 +14,13 @@ use crate::{
 	host::{Host, HostService},
 	middleware::{targets::LayerTarget, Layer},
 	pattern::ParamsList,
-	request::{Request, RequestContext},
+	request::{ContextProperties, Request, RequestContext},
 	resource::{Resource, ResourceService},
 	response::{BoxedErrorResponse, InfallibleResponseFuture, IntoResponse, Response},
 	routing::{RouteTraversal, RoutingState},
 };
 
-use super::{Context, Router};
+use super::Router;
 
 // --------------------------------------------------------------------------------
 // --------------------------------------------------------------------------------
@@ -29,7 +29,7 @@ use super::{Context, Router};
 ///
 /// Created by calling [`Router::into_service()`] on a `Router`.
 pub struct RouterService {
-	context: Context,
+	context_properties: ContextProperties,
 	extensions: Extensions,
 	request_passer: MaybeBoxed<RequestPasser>,
 }
@@ -37,12 +37,12 @@ pub struct RouterService {
 impl RouterService {
 	#[inline(always)]
 	pub(super) fn new(
-		context: Context,
+		context_properties: ContextProperties,
 		extensions: Extensions,
 		request_passer: MaybeBoxed<RequestPasser>,
 	) -> Self {
 		Self {
-			context,
+			context_properties,
 			extensions,
 			request_passer,
 		}
@@ -66,19 +66,15 @@ where
 			handler_extension: Cow::Borrowed(&()),
 		};
 
-		let mut request = RequestContext::new(request, routing_state);
-		#[cfg(any(feature = "private-cookies", feature = "signed-cookies"))]
-		if self.context.some_cookie_key.is_some() {
-			request =
-				request.with_cookie_key(self.context.some_cookie_key.clone().expect(SCOPE_VALIDITY));
-		}
+		let request_context =
+			RequestContext::new(request, routing_state, self.context_properties.clone());
 
 		match &self.request_passer {
-			MaybeBoxed::Boxed(boxed_request_passer) => {
-				InfallibleResponseFuture::from(boxed_request_passer.handle(request.map(Body::new), args))
-			}
+			MaybeBoxed::Boxed(boxed_request_passer) => InfallibleResponseFuture::from(
+				boxed_request_passer.handle(request_context.map(Body::new), args),
+			),
 			MaybeBoxed::Unboxed(request_passer) => {
-				InfallibleResponseFuture::from(request_passer.handle(request, args))
+				InfallibleResponseFuture::from(request_passer.handle(request_context, args))
 			}
 		}
 	}

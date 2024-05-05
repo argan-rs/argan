@@ -164,13 +164,15 @@ impl Handler for WildcardMethodHandler {
 	type Error = BoxedErrorResponse;
 	type Future = BoxedFuture<Result<Self::Response, Self::Error>>;
 
-	fn handle(&self, request: RequestContext, mut args: Args) -> Self::Future {
+	fn handle(&self, request_context: RequestContext, mut args: Args) -> Self::Future {
 		match self {
 			Self::Default => handle_unimplemented_method(args),
-			Self::Custom(boxed_handler) => boxed_handler.handle(request, args),
-			Self::None(some_mistargeted_request_handler) => {
-				handle_mistargeted_request(request, args, some_mistargeted_request_handler.as_ref())
-			}
+			Self::Custom(boxed_handler) => boxed_handler.handle(request_context, args),
+			Self::None(some_mistargeted_request_handler) => handle_mistargeted_request(
+				request_context,
+				args,
+				some_mistargeted_request_handler.as_ref(),
+			),
 		}
 	}
 }
@@ -204,7 +206,7 @@ impl Handler for UnimplementedMethodHandler {
 	type Error = BoxedErrorResponse;
 	type Future = BoxedFuture<Result<Self::Response, Self::Error>>;
 
-	fn handle(&self, request: RequestContext, args: Args) -> Self::Future {
+	fn handle(&self, request_context: RequestContext, args: Args) -> Self::Future {
 		handle_unimplemented_method(args)
 	}
 }
@@ -263,7 +265,7 @@ impl Handler for MistargetedRequestHandler {
 	type Error = BoxedErrorResponse;
 	type Future = BoxedFuture<Result<Self::Response, Self::Error>>;
 
-	fn handle(&self, _request: RequestContext, _args: Args) -> Self::Future {
+	fn handle(&self, _request_context: RequestContext, _args: Args) -> Self::Future {
 		Box::pin(async { Ok(StatusCode::NOT_FOUND.into_response()) })
 	}
 }
@@ -299,23 +301,23 @@ pub(crate) fn wrap_mistargeted_request_handler(
 // -------------------------
 
 pub(crate) fn handle_mistargeted_request(
-	mut request: RequestContext,
+	mut request_context: RequestContext,
 	mut args: Args,
 	mut some_custom_handler_with_extensions: Option<&ArcHandler>,
 ) -> BoxedFuture<Result<Response, BoxedErrorResponse>> {
 	if let Some(mistargeted_request_handler) = some_custom_handler_with_extensions.take() {
 		// Custom handler with a custom 404 Not Found respnose.
-		return mistargeted_request_handler.handle(request, args);
+		return mistargeted_request_handler.handle(request_context, args);
 	}
 
 	let mut response = StatusCode::NOT_FOUND.into_response();
 
-	if request.noted_subtree_handler() {
+	if request_context.noted_subtree_handler() {
 		let args = args.to_owned();
 
 		response
 			.extensions_mut()
-			.insert(Uncloneable::from((request, args)));
+			.insert(Uncloneable::from((request_context, args)));
 	}
 
 	Box::pin(ready(Ok(response)))

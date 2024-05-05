@@ -39,7 +39,7 @@ use crate::{
 };
 
 #[cfg(feature = "cookies")]
-use crate::data::cookies::{cookies_from_request, CookieJar, Key};
+use crate::data::cookies::{cookies_from_request, CookieJar};
 
 #[cfg(feature = "json")]
 use crate::data::json::{request_into_json_data, Json, JsonError, JSON_BODY_SIZE_LIMIT};
@@ -70,27 +70,28 @@ use self::websocket::{websocket_handshake, WebSocketUpgrade, WebSocketUpgradeErr
 pub struct RequestContext<B = Body> {
 	request: Request<B>,
 	routing_state: RoutingState,
-	#[cfg(any(feature = "private-cookies", feature = "signed-cookies"))]
-	some_cookie_key: Option<cookie::Key>,
+	properties: ContextProperties,
 }
 
 impl<B> RequestContext<B> {
 	#[inline(always)]
-	pub(crate) fn new(request: Request<B>, routing_state: RoutingState) -> Self {
+	pub(crate) fn new(
+		request: Request<B>,
+		routing_state: RoutingState,
+		properties: ContextProperties,
+	) -> Self {
 		Self {
 			request,
 			routing_state,
-			#[cfg(any(feature = "private-cookies", feature = "signed-cookies"))]
-			some_cookie_key: None,
+			properties,
 		}
 	}
 
-	#[cfg(any(feature = "private-cookies", feature = "signed-cookies"))]
 	#[inline(always)]
-	pub(crate) fn with_cookie_key(mut self, cookie_key: cookie::Key) -> Self {
-		self.some_cookie_key = Some(cookie_key);
-
+	pub(crate) fn clone_valid_properties_from(&mut self, mut context_properties: &ContextProperties) {
 		self
+			.properties
+			.clone_valid_properties_from(context_properties);
 	}
 
 	/// Returns a reference to the request method.
@@ -139,7 +140,7 @@ impl<B> RequestContext<B> {
 		cookies_from_request(
 			self.headers_ref(),
 			#[cfg(any(feature = "private-cookies", feature = "signed-cookies"))]
-			self.some_cookie_key.clone(),
+			self.properties.clone_cookie_key(),
 		)
 	}
 
@@ -317,12 +318,7 @@ impl<B> RequestContext<B> {
 	{
 		let (mut head_parts, body) = self.request.into_parts();
 		let result = T::from_request(&mut head_parts, body).await;
-		let mut request_head = RequestHead::new(head_parts, self.routing_state);
-
-		#[cfg(any(feature = "private-cookies", feature = "signed-cookies"))]
-		if self.some_cookie_key.is_some() {
-			request_head = request_head.with_cookie_key(self.some_cookie_key.expect(SCOPE_VALIDITY));
-		}
+		let mut request_head = RequestHead::new(head_parts, self.routing_state, self.properties);
 
 		(request_head, result)
 	}
@@ -336,9 +332,9 @@ impl<B> RequestContext<B> {
 		let RequestContext {
 			request,
 			routing_state,
-			#[cfg(any(feature = "private-cookies", feature = "signed-cookies"))]
-			some_cookie_key,
+			properties,
 		} = self;
+
 		let (head, body) = request.into_parts();
 
 		let new_body = func(body);
@@ -347,8 +343,7 @@ impl<B> RequestContext<B> {
 		RequestContext {
 			request,
 			routing_state,
-			#[cfg(any(feature = "private-cookies", feature = "signed-cookies"))]
-			some_cookie_key,
+			properties,
 		}
 	}
 }
@@ -418,16 +413,9 @@ impl<B> RequestContext<B> {
 		self.routing_state.subtree_handler_exists
 	}
 
-	#[cfg(any(feature = "private-cookies", feature = "signed-cookies"))]
 	#[inline(always)]
-	pub(crate) fn into_parts(self) -> (Request<B>, RoutingState, Option<cookie::Key>) {
-		(self.request, self.routing_state, self.some_cookie_key)
-	}
-
-	#[cfg(not(any(feature = "private-cookies", feature = "signed-cookies")))]
-	#[inline(always)]
-	pub(crate) fn into_parts(self) -> (Request<B>, RoutingState) {
-		(self.request, self.routing_state)
+	pub(crate) fn into_parts(self) -> (Request<B>, RoutingState, ContextProperties) {
+		(self.request, self.routing_state, self.properties)
 	}
 }
 
@@ -456,13 +444,16 @@ pub struct RequestHead {
 	extensions: Extensions,
 
 	routing_state: RoutingState,
-	#[cfg(any(feature = "private-cookies", feature = "signed-cookies"))]
-	some_cookie_key: Option<cookie::Key>,
+	context_properties: ContextProperties,
 }
 
 impl RequestHead {
 	#[inline(always)]
-	pub(crate) fn new(head_parts: RequestHeadParts, routing_state: RoutingState) -> Self {
+	pub(crate) fn new(
+		head_parts: RequestHeadParts,
+		routing_state: RoutingState,
+		context_properties: ContextProperties,
+	) -> Self {
 		Self {
 			method: head_parts.method,
 			uri: head_parts.uri,
@@ -470,24 +461,15 @@ impl RequestHead {
 			headers: head_parts.headers,
 			extensions: head_parts.extensions,
 			routing_state,
-			#[cfg(any(feature = "private-cookies", feature = "signed-cookies"))]
-			some_cookie_key: None,
+			context_properties,
 		}
 	}
 
-	#[cfg(any(feature = "private-cookies", feature = "signed-cookies"))]
-	#[inline(always)]
-	pub(crate) fn with_cookie_key(mut self, cookie_key: cookie::Key) -> Self {
-		self.some_cookie_key = Some(cookie_key);
-
-		self
-	}
-
-	#[cfg(any(feature = "private-cookies", feature = "signed-cookies"))]
-	#[inline(always)]
-	pub(crate) fn take_cookie_key(&mut self) -> Option<cookie::Key> {
-		self.some_cookie_key.take()
-	}
+	// #[cfg(any(feature = "private-cookies", feature = "signed-cookies"))]
+	// #[inline(always)]
+	// pub(crate) fn clone_cookie_key(&self) -> Option<cookie::Key> {
+	// 	self.context_properties.some_cookie_key.clone()
+	// }
 }
 
 impl RequestHead {
@@ -560,7 +542,7 @@ impl RequestHead {
 		cookies_from_request(
 			&self.headers,
 			#[cfg(any(feature = "private-cookies", feature = "signed-cookies"))]
-			self.some_cookie_key.clone(),
+			self.context_properties.clone_cookie_key(),
 		)
 	}
 
@@ -606,6 +588,36 @@ impl RequestHead {
 			.routing_state
 			.route_traversal
 			.remaining_segments(self.uri.path())
+	}
+}
+
+// --------------------------------------------------
+// ContextProperties
+
+#[derive(Default, Clone)]
+pub(crate) struct ContextProperties {
+	#[cfg(any(feature = "private-cookies", feature = "signed-cookies"))]
+	some_cookie_key: Option<cookie::Key>,
+}
+
+impl ContextProperties {
+	#[cfg(any(feature = "private-cookies", feature = "signed-cookies"))]
+	#[inline]
+	pub(crate) fn set_cookie_key(&mut self, cookie_key: cookie::Key) {
+		self.some_cookie_key = Some(cookie_key);
+	}
+
+	#[cfg(any(feature = "private-cookies", feature = "signed-cookies"))]
+	#[inline]
+	pub(crate) fn clone_cookie_key(&self) -> Option<cookie::Key> {
+		self.some_cookie_key.clone()
+	}
+
+	pub(crate) fn clone_valid_properties_from(&mut self, mut context_properties: &Self) {
+		#[cfg(any(feature = "private-cookies", feature = "signed-cookies"))]
+		if context_properties.some_cookie_key.is_some() {
+			self.some_cookie_key = context_properties.some_cookie_key.clone();
+		}
 	}
 }
 
