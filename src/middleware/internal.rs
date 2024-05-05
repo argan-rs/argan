@@ -202,10 +202,10 @@ where
 	type Future = H::Future;
 
 	#[inline(always)]
-	fn handle(&self, mut request: RequestContext<B>, args: Args<'_, ()>) -> Self::Future {
-		self.boxed_modifier.0(request.request_mut().extensions_mut());
+	fn handle(&self, mut request_context: RequestContext<B>, args: Args<'_, ()>) -> Self::Future {
+		self.boxed_modifier.0(request_context.request_mut().extensions_mut());
 
-		self.inner_handler.handle(request, args)
+		self.inner_handler.handle(request_context, args)
 	}
 }
 

@@ -12,7 +12,7 @@ macro_rules! option {
 			$($option_name:ident $(($($tokens:ty),+))?,)+
 		}
 	) => {
-		mod config_private {
+		mod option_private {
 			use super::*;
 
 			#[allow(private_interfaces)]
@@ -31,7 +31,7 @@ macro_rules! option {
 			}
 		}
 
-		$vis use config_private::$config_name;
+		$vis use option_private::$config_name;
 	};
 }
 

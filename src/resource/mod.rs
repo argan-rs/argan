@@ -27,7 +27,7 @@ use crate::{
 	},
 	middleware::{_request_receiver, targets::LayerTarget},
 	pattern::{split_uri_host_and_path, Pattern, Similarity},
-	request::{FromRequest, Request, RequestHead},
+	request::{ContextProperties, FromRequest, Request, RequestHead},
 	response::Response,
 	routing::{RouteSegments, RoutingState},
 };
@@ -64,7 +64,7 @@ pub struct Resource {
 	method_handlers: MethodHandlers,
 	some_mistargeted_request_handler: Option<BoxedHandler>,
 
-	context: Context,
+	context_properties: ContextProperties,
 	extensions: Extensions,
 	middleware: Vec<LayerTarget<Self>>,
 
@@ -171,7 +171,7 @@ impl Resource {
 			some_wildcard_resource: None,
 			method_handlers: MethodHandlers::new(),
 			some_mistargeted_request_handler: None,
-			context: Context::default(),
+			context_properties: ContextProperties::default(),
 			extensions: Extensions::new(),
 			middleware: Vec::new(),
 			config_flags,
@@ -1311,7 +1311,7 @@ impl Resource {
 
 			match config_option {
 				#[cfg(any(feature = "private-cookies", feature = "signed-cookies"))]
-				CookieKey(cookie_key) => self.context.some_cookie_key = Some(cookie_key),
+				CookieKey(cookie_key) => self.context_properties.set_cookie_key(cookie_key),
 				RequestExtensionsModifier(request_extensions_modifier_layer) => {
 					let request_receiver_layer_target = _request_receiver(request_extensions_modifier_layer);
 
@@ -1373,7 +1373,7 @@ impl Resource {
 			some_wildcard_resource,
 			method_handlers,
 			mut some_mistargeted_request_handler,
-			context,
+			context_properties: context,
 			mut extensions,
 			mut middleware,
 			config_flags,
@@ -1554,14 +1554,6 @@ impl IntoArray<Resource, 1> for Resource {
 	fn into_array(self) -> [Resource; 1] {
 		[self]
 	}
-}
-
-// -------------------------
-
-#[derive(Default, Clone)]
-struct Context {
-	#[cfg(any(feature = "private-cookies", feature = "signed-cookies"))]
-	some_cookie_key: Option<cookie::Key>,
 }
 
 // --------------------------------------------------

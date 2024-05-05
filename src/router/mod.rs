@@ -16,6 +16,7 @@ use crate::{
 		targets::LayerTarget,
 	},
 	pattern::{split_uri_host_and_path, Pattern, Similarity},
+	request::ContextProperties,
 	resource::{Iteration, Resource},
 	response::{BoxedErrorResponse, Response},
 };
@@ -43,7 +44,7 @@ pub struct Router {
 	regex_hosts: Vec<Host>,
 	some_root_resource: Option<Box<Resource>>,
 
-	context: Context,
+	context_properties: ContextProperties,
 	extensions: Extensions,
 	middleware: Vec<LayerTarget<Self>>,
 }
@@ -56,7 +57,7 @@ impl Router {
 			regex_hosts: Vec::new(),
 			some_root_resource: None,
 
-			context: Context::default(),
+			context_properties: ContextProperties::default(),
 			extensions: Extensions::new(),
 			middleware: Vec::new(),
 		}
@@ -620,7 +621,7 @@ impl Router {
 
 			match config_option {
 				#[cfg(any(feature = "private-cookies", feature = "signed-cookies"))]
-				CookieKey(cookie_key) => self.context.some_cookie_key = Some(cookie_key),
+				CookieKey(cookie_key) => self.context_properties.set_cookie_key(cookie_key),
 				RequestExtensionsModifier(request_extensions_modifier_layer) => {
 					let request_passer_layer_target = _request_passer(request_extensions_modifier_layer);
 
@@ -678,7 +679,7 @@ impl Router {
 			static_hosts,
 			regex_hosts,
 			some_root_resource,
-			context,
+			context_properties: context,
 			extensions,
 			middleware,
 		} = self;
@@ -729,14 +730,6 @@ impl Router {
 	pub fn into_leaked_service(self) -> LeakedRouterService {
 		LeakedRouterService::from(self.into_service())
 	}
-}
-
-// -------------------------
-
-#[derive(Default)]
-struct Context {
-	#[cfg(any(feature = "private-cookies", feature = "signed-cookies"))]
-	some_cookie_key: Option<cookie::Key>,
 }
 
 // --------------------------------------------------------------------------------

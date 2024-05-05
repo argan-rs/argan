@@ -32,12 +32,12 @@ use crate::{
 	},
 	middleware::{targets::LayerTarget, BoxedLayer, Layer},
 	pattern::{ParamsList, Pattern},
-	request::{Request, RequestContext},
+	request::{ContextProperties, Request, RequestContext},
 	response::{BoxedErrorResponse, InfallibleResponseFuture, IntoResponse, Redirect, Response},
 	routing::{self, RouteTraversal, RoutingState, UnusedRequest},
 };
 
-use super::{config::ConfigFlags, Context, Resource};
+use super::{config::ConfigFlags, Resource};
 
 // --------------------------------------------------------------------------------
 // --------------------------------------------------------------------------------
@@ -48,7 +48,7 @@ use super::{config::ConfigFlags, Context, Resource};
 #[derive(Clone)]
 pub struct ResourceService {
 	pattern: Pattern,
-	context: Context,
+	context_properties: ContextProperties,
 	extensions: Extensions,
 
 	request_receiver: MaybeBoxed<RequestReceiver>,
@@ -59,14 +59,14 @@ impl ResourceService {
 	#[inline(always)]
 	pub(super) fn new(
 		pattern: Pattern,
-		context: Context,
+		context_properties: ContextProperties,
 		extensions: Extensions,
 		request_receiver: MaybeBoxed<RequestReceiver>,
 		some_mistargeted_request_handler: Option<ArcHandler>,
 	) -> Self {
 		Self {
 			pattern,
-			context,
+			context_properties,
 			extensions,
 			request_receiver,
 			some_mistargeted_request_handler,
@@ -89,26 +89,23 @@ impl ResourceService {
 	#[inline]
 	pub(crate) fn handle<B>(
 		&self,
-		request: RequestContext<B>,
+		request_context: RequestContext<B>,
 		mut args: Args<'_, ()>,
 	) -> BoxedFuture<Result<Response, BoxedErrorResponse>>
 	where
 		B: HttpBody<Data = Bytes> + Send + Sync + 'static,
 		B::Error: Into<BoxedError>,
 	{
-		let mut request = request.map(Body::new);
-
-		#[cfg(any(feature = "private-cookies", feature = "signed-cookies"))]
-		if self.context.some_cookie_key.is_some() {
-			request =
-				request.with_cookie_key(self.context.some_cookie_key.clone().expect(SCOPE_VALIDITY));
-		}
+		let mut request_context = request_context.map(Body::new);
+		request_context.clone_valid_properties_from(&self.context_properties);
 
 		let mut args = args.extensions_replaced(NodeExtensions::new_borrowed(&self.extensions), &());
 
 		match &self.request_receiver {
-			MaybeBoxed::Boxed(boxed_request_receiver) => boxed_request_receiver.handle(request, args),
-			MaybeBoxed::Unboxed(request_receiver) => request_receiver.handle(request, args),
+			MaybeBoxed::Boxed(boxed_request_receiver) => {
+				boxed_request_receiver.handle(request_context, args)
+			}
+			MaybeBoxed::Unboxed(request_receiver) => request_receiver.handle(request_context, args),
 		}
 	}
 }
@@ -177,26 +174,21 @@ where
 			handler_extension: Cow::Borrowed(&()),
 		};
 
-		let mut request = RequestContext::new(request, routing_state);
-
-		#[cfg(any(feature = "private-cookies", feature = "signed-cookies"))]
-		if self.context.some_cookie_key.is_some() {
-			request =
-				request.with_cookie_key(self.context.some_cookie_key.clone().expect(SCOPE_VALIDITY));
-		}
+		let request_context =
+			RequestContext::new(request, routing_state, self.context_properties.clone());
 
 		if matched {
 			match &self.request_receiver {
 				MaybeBoxed::Boxed(boxed_request_receiver) => {
-					InfallibleResponseFuture::from(boxed_request_receiver.handle(request, args))
+					InfallibleResponseFuture::from(boxed_request_receiver.handle(request_context, args))
 				}
 				MaybeBoxed::Unboxed(request_receiver) => {
-					InfallibleResponseFuture::from(request_receiver.handle(request, args))
+					InfallibleResponseFuture::from(request_receiver.handle(request_context, args))
 				}
 			}
 		} else {
 			InfallibleResponseFuture::from(handle_mistargeted_request(
-				request,
+				request_context,
 				args,
 				self.some_mistargeted_request_handler.as_ref(),
 			))
@@ -331,20 +323,22 @@ impl Handler for RequestReceiver {
 	type Future = BoxedFuture<Result<Self::Response, Self::Error>>;
 
 	#[inline]
-	fn handle(&self, mut request: RequestContext, mut args: Args) -> Self::Future {
-		if request.routing_has_remaining_segments() {
+	fn handle(&self, mut request_context: RequestContext, mut args: Args) -> Self::Future {
+		if request_context.routing_has_remaining_segments() {
 			let resource_is_subtree_handler = self.is_subtree_hander();
 
 			if let Some(request_passer) = self.some_request_passer.as_ref() {
 				if resource_is_subtree_handler {
-					request.note_subtree_handler();
+					request_context.note_subtree_handler();
 				}
 
-				let next_segment_index = request.routing_next_segment_index();
+				let next_segment_index = request_context.routing_next_segment_index();
 
 				let response_future = match request_passer {
-					MaybeBoxed::Boxed(boxed_request_passer) => boxed_request_passer.handle(request, args),
-					MaybeBoxed::Unboxed(request_passer) => request_passer.handle(request, args),
+					MaybeBoxed::Boxed(boxed_request_passer) => {
+						boxed_request_passer.handle(request_context, args)
+					}
+					MaybeBoxed::Unboxed(request_passer) => request_passer.handle(request_context, args),
 				};
 
 				if !resource_is_subtree_handler {
@@ -387,7 +381,7 @@ impl Handler for RequestReceiver {
 
 			if !resource_is_subtree_handler {
 				return handle_mistargeted_request(
-					request,
+					request_context,
 					args,
 					self.some_mistargeted_request_handler.as_ref(),
 				);
@@ -395,7 +389,7 @@ impl Handler for RequestReceiver {
 		}
 
 		if let Some(request_handler) = self.some_request_handler.as_ref() {
-			let request_path_ends_with_slash = request.path_ends_with_slash();
+			let request_path_ends_with_slash = request_context.path_ends_with_slash();
 			let resource_path_ends_with_slash = self.config_flags.has(ConfigFlags::ENDS_WITH_SLASH);
 
 			let handle = if request_path_ends_with_slash && !resource_path_ends_with_slash {
@@ -403,7 +397,7 @@ impl Handler for RequestReceiver {
 					.config_flags
 					.has(ConfigFlags::REDIRECTS_ON_UNMATCHING_SLASH)
 				{
-					let path = request.uri_ref().path();
+					let path = request_context.uri_ref().path();
 
 					return Box::pin(ready(Ok(
 						Redirect::permanently_to(&path[..path.len() - 1]).into_response(),
@@ -418,7 +412,7 @@ impl Handler for RequestReceiver {
 					.config_flags
 					.has(ConfigFlags::REDIRECTS_ON_UNMATCHING_SLASH)
 				{
-					let path = request.uri_ref().path();
+					let path = request_context.uri_ref().path();
 
 					let mut new_path = String::with_capacity(path.len() + 1);
 					new_path.push_str(path);
@@ -438,14 +432,16 @@ impl Handler for RequestReceiver {
 
 			if handle {
 				return match request_handler.as_ref() {
-					MaybeBoxed::Boxed(boxed_request_handler) => boxed_request_handler.handle(request, args),
-					MaybeBoxed::Unboxed(request_handler) => request_handler.handle(request, args),
+					MaybeBoxed::Boxed(boxed_request_handler) => {
+						boxed_request_handler.handle(request_context, args)
+					}
+					MaybeBoxed::Unboxed(request_handler) => request_handler.handle(request_context, args),
 				};
 			}
 		}
 
 		handle_mistargeted_request(
-			request,
+			request_context,
 			args,
 			self.some_mistargeted_request_handler.as_ref(),
 		)
@@ -514,9 +510,9 @@ impl Handler for RequestPasser {
 	type Future = BoxedFuture<Result<Self::Response, Self::Error>>;
 
 	#[inline]
-	fn handle(&self, mut request: RequestContext, mut args: Args) -> Self::Future {
+	fn handle(&self, mut request_context: RequestContext, mut args: Args) -> Self::Future {
 		let some_next_resource = 'some_next_resource: {
-			let (next_segment, uri_params) = request
+			let (next_segment, uri_params) = request_context
 				.routing_next_segment_and_uri_params_mut()
 				.expect("request passer shouldn't be called when there is no next path segment");
 
@@ -565,32 +561,23 @@ impl Handler for RequestPasser {
 		};
 
 		if let Some(next_resource) = some_next_resource {
-			#[cfg(any(feature = "private-cookies", feature = "signed-cookies"))]
-			if next_resource.context.some_cookie_key.is_some() {
-				request = request.with_cookie_key(
-					next_resource
-						.context
-						.some_cookie_key
-						.clone()
-						.expect(SCOPE_VALIDITY),
-				);
-			}
+			request_context.clone_valid_properties_from(&next_resource.context_properties);
 
 			let mut args =
 				args.extensions_replaced(NodeExtensions::new_borrowed(&next_resource.extensions), &());
 
 			match &next_resource.request_receiver {
 				MaybeBoxed::Boxed(boxed_request_receiver) => {
-					return boxed_request_receiver.handle(request, args);
+					return boxed_request_receiver.handle(request_context, args);
 				}
 				MaybeBoxed::Unboxed(request_receiver) => {
-					return request_receiver.handle(request, args);
+					return request_receiver.handle(request_context, args);
 				}
 			}
 		}
 
 		handle_mistargeted_request(
-			request,
+			request_context,
 			args,
 			self.some_mistargeted_request_handler.as_ref(),
 		)
@@ -690,19 +677,19 @@ impl Handler for RequestHandler {
 	type Error = BoxedErrorResponse;
 	type Future = BoxedFuture<Result<Self::Response, Self::Error>>;
 
-	fn handle(&self, request: RequestContext, args: Args) -> Self::Future {
-		let method = request.method_ref();
+	fn handle(&self, request_context: RequestContext, args: Args) -> Self::Future {
+		let method = request_context.method_ref();
 		let some_method_handler = self.method_handlers.iter().find(|(m, _)| m == method);
 
 		if let Some((_, ref handler)) = some_method_handler {
-			return handler.handle(request, args);
+			return handler.handle(request_context, args);
 		}
 
 		if method == Method::HEAD {
 			let some_method_handler = self.method_handlers.iter().find(|(m, _)| m == Method::GET);
 
 			if let Some((_, ref handler)) = some_method_handler {
-				let response_future = handler.handle(request, args);
+				let response_future = handler.handle(request_context, args);
 
 				return Box::pin(async {
 					response_future.await.map(|mut response| {
@@ -714,7 +701,7 @@ impl Handler for RequestHandler {
 			}
 		}
 
-		self.wildcard_method_handler.handle(request, args)
+		self.wildcard_method_handler.handle(request_context, args)
 	}
 }
 
@@ -931,7 +918,7 @@ mod test {
 		type Error = BoxedErrorResponse;
 		type Future = BoxedFuture<Result<Self::Response, Self::Error>>;
 
-		fn handle(&self, request: RequestContext<B>, args: Args<'_, ()>) -> Self::Future {
+		fn handle(&self, request_context: RequestContext<B>, args: Args<'_, ()>) -> Self::Future {
 			Box::pin(ready(Ok("Hello from Middleware!".into_response())))
 		}
 	}
