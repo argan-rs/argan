@@ -44,7 +44,10 @@ use self::{
 mod service;
 pub use service::{ArcResourceService, LeakedResourceService, ResourceService};
 
+#[cfg(feature = "file-stream")]
 mod static_files;
+
+#[cfg(feature = "file-stream")]
 pub use static_files::StaticFiles;
 
 // --------------------------------------------------------------------------------

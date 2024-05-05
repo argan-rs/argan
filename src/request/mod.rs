@@ -56,8 +56,10 @@ pub use argan_core::request::*;
 
 // --------------------------------------------------
 
+#[cfg(feature = "websockets")]
 pub mod websocket;
 
+#[cfg(feature = "websockets")]
 use self::websocket::{websocket_handshake, WebSocketUpgrade, WebSocketUpgradeError};
 
 // --------------------------------------------------------------------------------
@@ -301,6 +303,7 @@ impl<B> RequestContext<B> {
 	}
 
 	/// Consumes the `RequestContext` and returns an extractor to establish a WebSocket connection.
+	#[cfg(feature = "websockets")]
 	#[doc(hidden)]
 	#[inline(always)]
 	pub fn into_websocket_upgrade(self) -> Result<WebSocketUpgrade, WebSocketUpgradeError> {

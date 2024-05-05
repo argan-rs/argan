@@ -5,7 +5,6 @@
 use std::{convert::Infallible, io::BufRead, num::ParseFloatError};
 
 use argan_core::request::RequestHeadParts;
-use tokio::io::AsyncBufReadExt;
 
 use crate::{
 	common::{marker::Sealed, trim, SCOPE_VALIDITY},

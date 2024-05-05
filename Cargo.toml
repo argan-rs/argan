@@ -32,6 +32,9 @@ query-params = ["dep:serde_urlencoded"]
 json = ["dep:serde_json", "multer/json"]
 form = ["dep:serde_urlencoded"]
 multipart-form = ["dep:multer"]
+sse = ["dep:tokio"]
+websockets = ["dep:fastwebsockets", "dep:base64", "dep:sha1"]
+file-stream = ["dep:tokio", "dep:rand", "dep:mime_guess", "dep:flate2"]
 full = [
 	"regex",
 	"private-cookies",
@@ -40,6 +43,9 @@ full = [
 	"json",
 	"form",
 	"multipart-form",
+	"sse",
+	"file-stream",
+	"websockets",
 ]
 # default = ["full"]
 
@@ -52,20 +58,13 @@ http-body-util = { workspace = true }
 futures-util = { workspace = true }
 thiserror = {workspace = true}
 mime = { workspace = true }
-base64 = "0.22"
-fastwebsockets = { version = "0.7", features = ["upgrade"] }
-flate2 = "1"
 httparse = "1"
 httpdate = "1"
 hyper = { version = "1", features = ["full"] }
 hyper-util = { version = "0.1", features = ["tokio"] }
-mime_guess = "2"
 percent-encoding = "2"
 pin-project = "1"
-rand = { version = "0.8", default-features = false, features = ["small_rng"] }
 serde = { version = "1", features = ["derive"] }
-sha1 = "0.10"
-tokio = { version = "1", features = ["rt-multi-thread"] }
 tower-layer = "0.3"
 tower-service = "0.3"
 
@@ -75,6 +74,13 @@ cookie = { version = "0.18", features = ["percent-encode"], optional = true }
 serde_json = { version = "1", optional = true }
 serde_urlencoded = { version = "0.7", optional = true }
 multer = { version = "3", optional = true }
+tokio = { version = "1", optional = true }
+mime_guess = { version = "2", optional = true }
+flate2 = { version = "1", optional = true }
+rand = { version = "0.8", default-features = false, features = ["small_rng"], optional = true }
+fastwebsockets = { version = "0.7", features = ["upgrade"], optional = true }
+base64 = { version = "0.22", optional = true }
+sha1 = { version = "0.10", optional = true }
 
 [dev-dependencies]
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "test-util", "parking_lot"] }
