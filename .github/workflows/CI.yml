@@ -1,0 +1,108 @@
+name: CI
+
+on:
+  push:
+    branches: ["main", "dev"]
+  pull_request:
+
+
+jobs:
+  check-code-style:
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout
+    - uses: actions/checkout@v4
+
+    - name: Install rust toolchain
+    - uses: dtolnay/rust-toolchain@stable
+      with:
+        components: clippy, rustfmt
+
+    - name: Cache
+    - uses: Swatinem/rust-cache@v2
+
+    - name: Check with clippy
+      run: cargo clippy --workspace --all-targets --all-features -- -D warnings
+
+    - name: Check with rustfmt
+      run: cargo fmt --check --all
+
+
+  check-features:
+    needs: check-code-style
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+      - uses: actions/checkout@v4
+
+      - name: Install rust toolchain
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Install cargo hack
+        uses: taiki-e/install-action@cargo-hack
+
+      - name: Check features
+        run: cargo hack check --all --each-feature --no-dev-deps
+
+
+  test:
+    name: Test on ${{ matrix.os }} with Rust (${{ matrix.rust }})
+    needs: check-code-style
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        rust: [stable, beta, nightly]
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - name: Checkout
+      - uses: actions/checkout@v4
+
+      - name: Install rust toolchain
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ matrix.rust }}
+
+      - name: Cache
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Run tests
+        run: cargo test --workspace --all-features --all-targets
+
+
+  docs:
+    needs: check-code-style
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+      - uses: actions/checkout@v4
+
+      - name: Install rust toolchain
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Generate docs
+        run: cargo doc --all-features --no-deps
+
+
+  test-docs:
+    needs: check-code-style
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+      - uses: actions/checkout@v4
+
+      - name: Install rust toolchain
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Run doc tests
+        run: cargo test --doc --all-features
