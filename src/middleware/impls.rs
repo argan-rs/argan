@@ -15,15 +15,15 @@ use super::*;
 ///
 /// ```
 /// use argan::{
-///		Resource,
-///		response::{Response, BoxedErrorResponse},
-///		middleware::{_request_handler, ErrorHandlerLayer},
+///   Resource,
+///   response::{Response, BoxedErrorResponse},
+///   middleware::{_request_handler, ErrorHandlerLayer},
 /// };
 ///
 /// async fn error_handler(error: BoxedErrorResponse) -> Result<Response, BoxedErrorResponse> {
-///		eprintln!("Error: {}", error);
+///   eprintln!("Error: {}", error);
 ///
-///		Ok(error.into_response())
+///   Ok(error.into_response())
 /// }
 ///
 /// let mut resource = Resource::new("/resource");

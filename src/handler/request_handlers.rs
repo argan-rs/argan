@@ -111,27 +111,15 @@ pub(crate) enum WildcardMethodHandler {
 
 impl WildcardMethodHandler {
 	pub(crate) fn is_default(&self) -> bool {
-		if let Self::Default = self {
-			true
-		} else {
-			false
-		}
+		matches!(self, Self::Default)
 	}
 
 	pub(crate) fn is_custom(&self) -> bool {
-		if let Self::Custom(_) = self {
-			true
-		} else {
-			false
-		}
+		matches!(self, Self::Custom(_))
 	}
 
 	pub(crate) fn is_none(&self) -> bool {
-		if let Self::None(_) = self {
-			true
-		} else {
-			false
-		}
+		matches!(self, Self::None(_))
 	}
 
 	pub(crate) fn wrap(&mut self, boxed_layer: BoxedLayer) {
@@ -274,7 +262,7 @@ impl Handler for MistargetedRequestHandler {
 
 pub(crate) fn wrap_mistargeted_request_handler(
 	mut some_mistargeted_request_handler: Option<BoxedHandler>,
-	middleware: &mut Vec<LayerTarget<Resource>>,
+	middleware: &mut [LayerTarget<Resource>],
 ) -> Option<BoxedHandler> {
 	for layer in middleware.iter_mut().rev() {
 		if let LayerTarget::MistargetedRequestHandler(_) = layer {
@@ -313,7 +301,7 @@ pub(crate) fn handle_mistargeted_request(
 	let mut response = StatusCode::NOT_FOUND.into_response();
 
 	if request_context.noted_subtree_handler() {
-		let args = args.to_owned();
+		let args = args.into_owned();
 
 		response
 			.extensions_mut()

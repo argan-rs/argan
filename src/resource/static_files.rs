@@ -40,8 +40,8 @@ use super::{config::ConfigFlags, Resource};
 // --------------------------------------------------------------------------------
 // --------------------------------------------------------------------------------
 
-const UNENCODED: &'static str = "unencoded";
-const ENCODED: &'static str = "encoded";
+const UNENCODED: &str = "unencoded";
+const ENCODED: &str = "encoded";
 
 // --------------------------------------------------
 
@@ -254,7 +254,7 @@ async fn get_handler(
 		return Err(StaticFileError::FileNotFound);
 	};
 
-	let remaining_path = normalize_path(remaining_path.as_ref());
+	let remaining_path = normalize_path(remaining_path);
 
 	let (coding, path_buf, path_metadata, should_encode) = evaluate_optimal_coding(
 		head.headers_ref(),
@@ -318,14 +318,14 @@ async fn get_handler(
 
 // ----------
 
-async fn evaluate_optimal_coding<'h, P1: AsRef<Path>, P2: AsRef<str>>(
-	request_headers: &'h HeaderMap,
+async fn evaluate_optimal_coding<P1: AsRef<Path>, P2: AsRef<str>>(
+	request_headers: &HeaderMap,
 	files_dir: P1,
 	relative_path_to_file: P2,
 	dynamic_compression: bool,
 	min_size_to_compress: u64,
 	max_size_to_compress: u64,
-) -> Result<(&'h str, PathBuf, Metadata, bool), StaticFileError> {
+) -> Result<(&str, PathBuf, Metadata, bool), StaticFileError> {
 	let files_dir = files_dir.as_ref();
 	let relative_path_to_file = relative_path_to_file.as_ref();
 
@@ -415,14 +415,11 @@ async fn evaluate_optimal_coding<'h, P1: AsRef<Path>, P2: AsRef<str>>(
 
 			if dynamic_compression {
 				let file_size = metadata.size();
-				if file_size >= min_size_to_compress && file_size <= max_size_to_compress {
-					if preferred_encoding.1 > 0.0 {
-						return Ok((preferred_encoding.0, path_buf, metadata, true));
-					}
-
-					// if other_encoding.1 > 0.0 {
-					// 	return Ok((other_encoding.0, path_buf, true));
-					// }
+				if file_size >= min_size_to_compress
+					&& file_size <= max_size_to_compress
+					&& preferred_encoding.1 > 0.0
+				{
+					return Ok((preferred_encoding.0, path_buf, metadata, true));
 				}
 			}
 
@@ -432,8 +429,7 @@ async fn evaluate_optimal_coding<'h, P1: AsRef<Path>, P2: AsRef<str>>(
 		};
 
 		if elements.iter().any(|(value, weight)| {
-			(value.eq_ignore_ascii_case("identity") && *weight == 0.0)
-				|| (value.eq_ignore_ascii_case("*") && *weight == 0.0)
+			(value.eq_ignore_ascii_case("identity") || value.eq_ignore_ascii_case("*")) && *weight == 0.0
 		}) {
 			if some_path_buf_and_metadata.is_some() {
 				// Identity is forbidden. Elements cointain gzip, but we don't have
@@ -505,7 +501,7 @@ fn evaluate_preconditions<'r>(
 		if let Some(hashes_to_match) = request_headers.get(IF_MATCH).map(|value| value.as_bytes()) {
 			// step 1
 			if hashes_to_match != b"*" {
-				match hash_storage.get(&path) {
+				match hash_storage.get(path) {
 					Ok(file_hash) => {
 						if !hashes_to_match
 							.split(|ch| *ch == b',')
@@ -558,7 +554,7 @@ fn evaluate_preconditions<'r>(
 				true
 			} else {
 				if some_file_hash.is_none() {
-					some_file_hash = hash_storage.get(&path).ok();
+					some_file_hash = hash_storage.get(path).ok();
 				};
 
 				if let Some(file_hash) = some_file_hash.as_ref() {
@@ -590,25 +586,23 @@ fn evaluate_preconditions<'r>(
 		}
 	}
 
-	if check_the_next_step {
-		if request_method == Method::GET || request_method == Method::HEAD {
-			// step 4
-			if let Some(time_to_match) = request_headers
-				.get(IF_MODIFIED_SINCE)
-				.and_then(|value| value.to_str().ok())
-			{
-				let modified_time = match path_metadata.modified() {
-					Ok(modified_time) => modified_time,
-					Err(error) => return PreconditionsResult::IoError(error),
-				};
+	if check_the_next_step && (request_method == Method::GET || request_method == Method::HEAD) {
+		// step 4
+		if let Some(time_to_match) = request_headers
+			.get(IF_MODIFIED_SINCE)
+			.and_then(|value| value.to_str().ok())
+		{
+			let modified_time = match path_metadata.modified() {
+				Ok(modified_time) => modified_time,
+				Err(error) => return PreconditionsResult::IoError(error),
+			};
 
-				let Ok(http_date_to_match) = HttpDate::from_str(time_to_match) else {
-					return PreconditionsResult::InvalidDate;
-				};
+			let Ok(http_date_to_match) = HttpDate::from_str(time_to_match) else {
+				return PreconditionsResult::InvalidDate;
+			};
 
-				if HttpDate::from(modified_time) == http_date_to_match {
-					return PreconditionsResult::NotModified;
-				}
+			if HttpDate::from(modified_time) == http_date_to_match {
+				return PreconditionsResult::NotModified;
 			}
 		}
 	}
@@ -638,7 +632,7 @@ fn evaluate_preconditions<'r>(
 					let file_hash = if let Some(file_hash) = some_file_hash {
 						file_hash
 					} else {
-						match hash_storage.get(&path) {
+						match hash_storage.get(path) {
 							Ok(file_hash) => file_hash,
 							Err(_) => return PreconditionsResult::None,
 						}

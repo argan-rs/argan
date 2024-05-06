@@ -173,26 +173,23 @@ impl RequestPasser {
 		let mut maybe_boxed_request_passer = MaybeBoxed::Unboxed(request_passer);
 
 		for mut layer in middleware.into_iter().rev() {
-			match layer {
-				LayerTarget::RequestPasser(_) => {
-					let LayerTarget::RequestPasser(boxed_layer) = layer.take() else {
-						unreachable!()
-					};
+			if let LayerTarget::RequestPasser(_) = layer {
+				let LayerTarget::RequestPasser(boxed_layer) = layer.take() else {
+					unreachable!()
+				};
 
-					match maybe_boxed_request_passer {
-						MaybeBoxed::Boxed(boxed_request_passer) => {
-							maybe_boxed_request_passer =
-								MaybeBoxed::Boxed(boxed_layer.wrap(boxed_request_passer.into()));
-						}
-						MaybeBoxed::Unboxed(request_passer) => {
-							let mut boxed_requst_passer = BoxedHandler::new(request_passer);
+				match maybe_boxed_request_passer {
+					MaybeBoxed::Boxed(boxed_request_passer) => {
+						maybe_boxed_request_passer =
+							MaybeBoxed::Boxed(boxed_layer.wrap(boxed_request_passer.into()));
+					}
+					MaybeBoxed::Unboxed(request_passer) => {
+						let mut boxed_requst_passer = BoxedHandler::new(request_passer);
 
-							maybe_boxed_request_passer =
-								MaybeBoxed::Boxed(boxed_layer.wrap(boxed_requst_passer.into()));
-						}
+						maybe_boxed_request_passer =
+							MaybeBoxed::Boxed(boxed_layer.wrap(boxed_requst_passer.into()));
 					}
 				}
-				_ => {}
 			}
 		}
 

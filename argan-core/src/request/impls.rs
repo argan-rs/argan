@@ -32,7 +32,7 @@ where
 		head_parts: &mut RequestHeadParts,
 		body: B,
 	) -> impl Future<Output = Result<Self, Self::Error>> {
-		T::from_request(head_parts, body).map(|result| Ok(result))
+		T::from_request(head_parts, body).map(Ok)
 	}
 }
 

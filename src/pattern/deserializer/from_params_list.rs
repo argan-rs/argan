@@ -370,7 +370,7 @@ mod test {
 			match pattern {
 				Pattern::Static(_) => assert!(pattern.is_static_match(match_segment).is_some_and(|r| r)),
 				Pattern::Regex(_, _) => assert!(pattern
-					.is_regex_match(match_segment.into(), &mut params_list)
+					.is_regex_match(match_segment, &mut params_list)
 					.is_some_and(|r| r),),
 				Pattern::Wildcard(_) => assert!(pattern
 					.is_wildcard_match(match_segment.into(), &mut params_list)

@@ -30,9 +30,9 @@ pub struct Body(BoxedBody);
 
 impl Body {
 	#[inline(always)]
-	pub fn new<B: Sized>(body: B) -> Self
+	pub fn new<B>(body: B) -> Self
 	where
-		B: HttpBody<Data = Bytes> + Send + Sync + 'static,
+		B: HttpBody<Data = Bytes> + Sized + Send + Sync + 'static,
 		B::Error: Into<BoxedError>,
 	{
 		Self(BoxedBody::new(body.map_err(Into::into)))

@@ -72,7 +72,7 @@ pub(crate) mod marker {
 }
 
 // Used when expecting a valid value in Options or Results.
-pub(crate) const SCOPE_VALIDITY: &'static str = "scope validity";
+pub(crate) const SCOPE_VALIDITY: &str = "scope validity";
 
 // --------------------------------------------------------------------------------
 
@@ -240,7 +240,7 @@ impl<'n> NodeExtensions<'n> {
 	}
 
 	#[inline(always)]
-	pub(crate) fn to_owned(self) -> NodeExtensions<'static> {
+	pub(crate) fn into_owned(self) -> NodeExtensions<'static> {
 		NodeExtensions(Cow::Owned(self.0.into_owned()))
 	}
 }
