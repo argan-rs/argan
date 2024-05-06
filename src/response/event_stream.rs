@@ -209,7 +209,7 @@ impl Event {
 		let mut previous_char = ' ';
 		let mut next_segment_index = 0;
 
-		while let Some((i, ch)) = value_chars.next() {
+		for (i, ch) in value_chars {
 			match ch {
 				'\r' => {
 					let value = &value_str[next_segment_index..i];
@@ -260,7 +260,7 @@ impl Event {
 		}
 
 		let json = serde_json::to_string(&json_data)?;
-		self = self.with_data(&json);
+		self = self.with_data(json);
 
 		self.flags.add(EventFlags::SERIALIZED_DATA);
 
@@ -364,6 +364,7 @@ impl IntoResponse for EventError {
 
 #[cfg(all(test, feature = "full"))]
 mod test {
+	#![allow(clippy::octal_escapes)]
 	use core::panic;
 
 	use super::*;
@@ -406,7 +407,7 @@ mod test {
 		let mut event_bytes = Event::new()
 			.with_id("42")
 			.with_comment("comment")
-			.with_json_data(&data)
+			.with_json_data(data)
 			.unwrap()
 			.with_retry(Duration::from_secs(10))
 			.into_bytes();
@@ -485,7 +486,7 @@ mod test {
 		let _ = Event::new()
 			.with_id("42")
 			.with_data("data")
-			.with_json_data(&data);
+			.with_json_data(data);
 	}
 
 	// -------------------------
@@ -501,7 +502,7 @@ mod test {
 
 		let _ = Event::new()
 			.with_retry(Duration::from_secs(5))
-			.with_json_data(&data)
+			.with_json_data(data)
 			.unwrap()
 			.with_data("data");
 	}
@@ -567,7 +568,7 @@ mod test {
 
 				let mut event = Event::new()
 					.with_id("42")
-					.with_json_data(&data)
+					.with_json_data(data)
 					.unwrap()
 					.with_comment("...")
 					.with_retry(Duration::from_secs(1));

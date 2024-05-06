@@ -63,7 +63,7 @@ impl Display for ResponseError {
 		f.write_fmt(format_args!("[{}]", self.status_code))?;
 
 		if let Some(boxed_error) = self.some_boxed_error.as_ref() {
-			f.write_fmt(format_args!(" {}", boxed_error.to_string()))?
+			f.write_fmt(format_args!(" {}", boxed_error))?
 		}
 
 		Ok(())

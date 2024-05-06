@@ -104,12 +104,10 @@ impl Pattern {
 				} => {
 					let subpattern = if let Some(subpattern) = some_subpattern.as_ref() {
 						restore_slashes(subpattern.into())
+					} else if index == end_index {
+						Cow::Borrowed(".+")
 					} else {
-						if index == end_index {
-							Cow::Borrowed(".+")
-						} else {
-							Cow::Borrowed("[^.]+")
-						}
+						Cow::Borrowed("[^.]+")
 					};
 
 					regex_pattern.push_str(&format!("(?P<{}>{})", &capture_name, subpattern));
@@ -364,14 +362,12 @@ impl Params {
 	}
 }
 
-impl ToString for Params {
-	fn to_string(&self) -> String {
-		let mut string = String::new();
-
+impl Display for Params {
+	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
 		match self {
 			#[cfg(feature = "regex")]
 			Self::Regex(regex_names, capture_locations, values) => {
-				string.push_str("regex params: [");
+				f.write_str("regex params: [")?;
 
 				let mut first = true;
 				for (name, index) in regex_names.as_ref().iter() {
@@ -382,21 +378,21 @@ impl ToString for Params {
 					let value = &values[start..end];
 
 					if first {
-						string.push_str(&format!("{}:{}", name, value));
+						f.write_str(&format!("{}:{}", name, value))?;
 						first = false
 					} else {
-						string.push_str(&format!(", {}:{}", name, value));
+						f.write_str(&format!(", {}:{}", name, value))?;
 					}
 				}
 
-				string.push(']');
+				f.write_str("]")?;
 			}
 			Self::Wildcard(name, value) => {
-				string.push_str(&format!("wildcard param: [{}:{}]", name, value));
+				f.write_str(&format!("wildcard param: [{}:{}]", name, value))?;
 			}
 		}
 
-		string
+		Ok(())
 	}
 }
 
@@ -414,7 +410,7 @@ pub(crate) fn split_uri_host_and_path(uri_pattern: &str) -> (Option<&str>, Optio
 		.strip_prefix("https://")
 		.or_else(|| uri_pattern.strip_prefix("http://"))
 	{
-		if let Some(position) = uri.find("/") {
+		if let Some(position) = uri.find('/') {
 			if position == 0 {
 				return (None, Some(uri));
 			}
@@ -440,7 +436,7 @@ fn into_static_pattern(pattern: Cow<str>) -> Pattern {
 	let encoded_static_pattern =
 		Cow::<str>::from(percent_encode(static_pattern.as_bytes(), ASCII_SET));
 
-	return Pattern::Static(encoded_static_pattern.into());
+	Pattern::Static(encoded_static_pattern.into())
 }
 
 fn restore_slashes(pattern: Cow<str>) -> Cow<str> {
@@ -620,14 +616,12 @@ fn split_at_delimiter(
 	let mut escaped = false;
 
 	while let Some(ch) = chars.next() {
-		if escaper(ch) {
-			if !escaped {
-				if let Some(next_ch) = chars.peek() {
-					if delimiter(*next_ch) {
-						escaped = true;
+		if escaper(ch) && !escaped {
+			if let Some(next_ch) = chars.peek() {
+				if delimiter(*next_ch) {
+					escaped = true;
 
-						continue;
-					}
+					continue;
 				}
 			}
 		}
@@ -758,10 +752,8 @@ fn split_off_subpattern(chars: &mut Peekable<Chars<'_>>) -> Option<String> {
 				}
 			}
 			')' => {
-				if unescaped || in_character_class < 0 {
-					if in_named_capture_group == 0 {
-						in_named_capture_group -= 1;
-					}
+				if (unescaped || in_character_class < 0) && in_named_capture_group == 0 {
+					in_named_capture_group -= 1;
 				}
 			}
 			'?' => {
@@ -1269,7 +1261,7 @@ mod test {
 				match case.kind {
 					Kind::Static => assert!(pattern.is_static_match(text).unwrap()),
 					Kind::Regex => {
-						assert!(pattern.is_regex_match(*text, &mut params_list).unwrap());
+						assert!(pattern.is_regex_match(text, &mut params_list).unwrap());
 
 						let params = params_list.iter().next().unwrap();
 						assert_eq!(params.to_string(), expected_params.unwrap())
@@ -1288,9 +1280,9 @@ mod test {
 			let mut params_list = ParamsList::new();
 			for text in case.nonmatching {
 				match case.kind {
-					Kind::Static => assert!(!pattern.is_static_match(*text).unwrap()),
+					Kind::Static => assert!(!pattern.is_static_match(text).unwrap()),
 					Kind::Regex => {
-						assert!(!pattern.is_regex_match(*text, &mut params_list).unwrap());
+						assert!(!pattern.is_regex_match(text, &mut params_list).unwrap());
 					}
 					Kind::Wildcard => {
 						assert!(!pattern

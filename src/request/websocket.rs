@@ -357,7 +357,7 @@ impl WebSocket {
 
 	/// Sends a new message.
 	pub async fn send(&mut self, message: Message) -> Result<(), WebSocketError> {
-		Ok(match message {
+		match message {
 			Message::Text(text) => {
 				let frame = Frame::text(Payload::Owned(text.into()));
 
@@ -387,13 +387,14 @@ impl WebSocket {
 
 				self.0.write_frame(frame).await?
 			}
-		})
+		};
+		Ok(())
 	}
 
 	/// Sends a *'close frame'* to the peer and closes the connection.
 	#[inline(always)]
 	pub async fn close(mut self) -> Result<(), WebSocketError> {
-		Ok(self.send(Message::Close(None)).await?)
+		self.send(Message::Close(None)).await
 	}
 }
 

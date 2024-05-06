@@ -39,18 +39,18 @@ pub(crate) const FORM_BODY_SIZE_LIMIT: usize = { 2 * 1024 * 1024 };
 /// that implements [`serde::Deserialize`].
 ///
 /// ```
-///	use argan::data::form::Form;
+/// use argan::data::form::Form;
 /// use serde::Deserialize;
 ///
 /// #[derive(Deserialize)]
 /// struct Person {
-///		first_name: String,
-///		last_name: String,
-///		age: u8,
+///   first_name: String,
+///   last_name: String,
+///   age: u8,
 /// }
 ///
 /// async fn add_person(Form(person): Form<Person>) {
-///		// ...
+///   // ...
 /// }
 /// ```
 ///
@@ -63,11 +63,11 @@ pub(crate) const FORM_BODY_SIZE_LIMIT: usize = { 2 * 1024 * 1024 };
 ///
 /// #[derive(Deserialize)]
 /// struct SurveyData {
-///		// ...
+///   // ...
 /// }
 ///
 /// async fn save_survey_data(Form(survey_data): Form<SurveyData, { 512 * 1024 }>) {
-///		// ...
+///   // ...
 /// }
 /// ```
 ///
@@ -109,11 +109,9 @@ where
 
 	if content_type_str == mime::APPLICATION_WWW_FORM_URLENCODED {
 		match Limited::new(body, size_limit).collect().await {
-			Ok(body) => Ok(
-				serde_urlencoded::from_bytes::<T>(&body.to_bytes())
-					.map(|value| value)
-					.map_err(Into::<FormError>::into)?,
-			),
+			Ok(body) => {
+				Ok(serde_urlencoded::from_bytes::<T>(&body.to_bytes()).map_err(Into::<FormError>::into)?)
+			}
 			Err(error) => Err(
 				error
 					.downcast_ref::<LengthLimitError>()
@@ -181,14 +179,14 @@ const MULTIPART_FORM_BODY_SIZE_LIMIT: usize = { 8 * 1024 * 1024 };
 /// use argan::data::form::{MultipartForm, Constraints, MultipartFormError};
 ///
 /// async fn upload_handler(multipart_form: MultipartForm) -> Result<(), MultipartFormError> {
-///		let constraints = Constraints::new().with_allowed_parts(vec!["name", "picture"]);
-///		let mut parts = multipart_form.with_constraints(constraints).into_parts();
+///   let constraints = Constraints::new().with_allowed_parts(vec!["name", "picture"]);
+///   let mut parts = multipart_form.with_constraints(constraints).into_parts();
 ///
-///		while let Some(part) = parts.next().await? {
-///			// ...
-///		}
+///   while let Some(part) = parts.next().await? {
+///     // ...
+///   }
 ///
-///		Ok(())
+///   Ok(())
 /// }
 /// ```
 #[cfg(feature = "multipart-form")]
@@ -293,13 +291,11 @@ where
 		.map(|boundary| {
 			let body_stream = BodyStream::new(body);
 
-			let multipart_form = MultipartForm {
+			MultipartForm {
 				body_stream,
 				boundary,
 				some_constraints: None,
-			};
-
-			multipart_form
+			}
 		})
 		.map_err(Into::<MultipartFormError>::into)
 }
@@ -316,6 +312,12 @@ pub struct Constraints {
 }
 
 #[cfg(feature = "multipart-form")]
+impl Default for Constraints {
+	fn default() -> Self {
+		Self::new()
+	}
+}
+
 impl Constraints {
 	/// Creates a new `Constraints` with only a body size limit, which defaults to 8MiB.
 	pub fn new() -> Self {
@@ -365,7 +367,7 @@ pub struct Parts(multer::Multipart<'static>);
 #[cfg(feature = "multipart-form")]
 impl Parts {
 	/// Returns the next part of the multipart form.
-	pub async fn next<'p>(&'p mut self) -> Result<Option<Part<'p>>, MultipartFormError> {
+	pub async fn next(&mut self) -> Result<Option<Part<'_>>, MultipartFormError> {
 		self
 			.0
 			.next_field()

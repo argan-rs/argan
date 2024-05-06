@@ -243,7 +243,7 @@ macro_rules! request_args_handler_fn {
 				mut args: Args<'_, Ext>,
 			) -> Self::Future {
 				let func_clone = self.func.clone();
-				let args = args.to_owned();
+				let args = args.into_owned();
 
 				Box::pin(async move {
 					$(

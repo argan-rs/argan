@@ -87,12 +87,12 @@ impl Resource {
 	/// ```
 	/// use argan::Resource;
 	///
-	///	let mut root = Resource::new("/");
-	///	let resource_2 = Resource::new("/resource_1/resource_2");
+	/// let mut root = Resource::new("/");
+	/// let resource_2 = Resource::new("/resource_1/resource_2");
 	///
-	///	// When we add `resource_2` to the root, it won't be a direct child of the root.
-	///	// Instead, it will be added under `/resource_1`.
-	///	root.add_subresource(resource_2);
+	/// // When we add `resource_2` to the root, it won't be a direct child of the root.
+	/// // Instead, it will be added under `/resource_1`.
+	/// root.add_subresource(resource_2);
 	/// ```
 	pub fn new<P>(uri_pattern: P) -> Resource
 	where
@@ -262,8 +262,11 @@ impl Resource {
 	}
 
 	#[cfg(test)]
-	pub(crate) fn wildcard_resources(&self) -> Option<&Box<Resource>> {
-		self.some_wildcard_resource.as_ref()
+	pub(crate) fn wildcard_resources(&self) -> Option<&Resource> {
+		self
+			.some_wildcard_resource
+			.as_ref()
+			.map(|boxed_resource| boxed_resource.as_ref())
 	}
 
 	#[inline(always)]
@@ -369,7 +372,7 @@ impl Resource {
 	///
 	/// // This doesn't try to merge the handler sets of the duplicate resources.
 	/// resource_1.add_subresource(resource_2);
-	///	```
+	/// ```
 	pub fn add_subresource<R, const N: usize>(&mut self, new_resources: R)
 	where
 		R: IntoArray<Resource, N>,
@@ -485,7 +488,9 @@ impl Resource {
 
 					self.some_wildcard_resource = Some(wildcard_resource);
 				} else {
-					new_resource.some_host_pattern = self.some_host_pattern.clone();
+					new_resource
+						.some_host_pattern
+						.clone_from(&self.some_host_pattern);
 					new_resource.prefix_segment_patterns = self.path_pattern();
 					self.some_wildcard_resource = Some(Box::new(new_resource));
 				}
@@ -734,7 +739,9 @@ impl Resource {
 
 				self.some_wildcard_resource = Some(wildcard_resource);
 			} else {
-				other_wildcard_resource.some_host_pattern = self.some_host_pattern.clone();
+				other_wildcard_resource
+					.some_host_pattern
+					.clone_from(&self.some_host_pattern);
 				other_wildcard_resource.prefix_segment_patterns = self.path_pattern();
 				self.some_wildcard_resource = Some(other_wildcard_resource);
 			}
@@ -906,9 +913,9 @@ impl Resource {
 	///
 	/// let mut root = Resource::new("/");
 	/// root.subresource_mut("/resource_1 !*").set_handler_for([
-	///		_get(|| async {}),
-	///		_post(|| async {}),
-	///	]);
+	///   _get(|| async {}),
+	///   _post(|| async {}),
+	/// ]);
 	///
 	/// // ...
 	///
@@ -1208,8 +1215,8 @@ impl Resource {
 	/// let mut root = Resource::new("/");
 	/// root.set_handler_for(_get(|| async {}));
 	/// root.subresource_mut("/resource_1/resource_2").set_handler_for([
-	///  _get(|| async {}),
-	///  _method("LOCK", || async {}),
+	///   _get(|| async {}),
+	///   _method("LOCK", || async {}),
 	/// ]);
 	/// ```
 	pub fn set_handler_for<H, const N: usize>(&mut self, handler_kinds: H)
@@ -1241,26 +1248,26 @@ impl Resource {
 	/// # use tower_http::compression::CompressionLayer;
 	/// # use http::method::Method;
 	/// # use argan::{
-	///	# 	handler::{Handler, Args, _get},
-	///	# 	middleware::{Layer, _method_handler, _mistargeted_request_handler},
-	///	# 	resource::Resource,
-	///	# 	request::RequestContext,
-	///	# 	response::{Response, IntoResponse, BoxedErrorResponse},
-	///	# 	common::BoxedFuture,
-	///	# };
+	/// #   handler::{Handler, Args, _get},
+	/// #   middleware::{Layer, _method_handler, _mistargeted_request_handler},
+	/// #   resource::Resource,
+	/// #   request::RequestContext,
+	/// #   response::{Response, IntoResponse, BoxedErrorResponse},
+	/// #   common::BoxedFuture,
+	/// # };
 	///
 	/// #[derive(Clone)]
 	/// struct MiddlewareLayer;
 	///
 	/// impl<H> Layer<H> for MiddlewareLayer
 	/// where
-	/// 	H: Handler + Clone + Send + Sync,
+	///   H: Handler + Clone + Send + Sync,
 	/// {
-	/// 	type Handler = Middleware<H>;
+	///   type Handler = Middleware<H>;
 	///
-	/// 	fn wrap(&self, handler: H) -> Self::Handler {
-	/// 		Middleware(handler)
-	/// 	}
+	///   fn wrap(&self, handler: H) -> Self::Handler {
+	///     Middleware(handler)
+	///   }
 	/// }
 	///
 	/// #[derive(Clone)]
@@ -1268,25 +1275,25 @@ impl Resource {
 	///
 	/// impl<B, H> Handler<B> for Middleware<H>
 	/// where
-	/// 	H: Handler + Clone + Send + Sync,
+	///   H: Handler + Clone + Send + Sync,
 	/// {
-	/// 	type Response = Response;
-	/// 	type Error = BoxedErrorResponse;
-	/// 	type Future = BoxedFuture<Result<Self::Response, Self::Error>>;
+	///   type Response = Response;
+	///   type Error = BoxedErrorResponse;
+	///   type Future = BoxedFuture<Result<Self::Response, Self::Error>>;
 	///
-	/// 	fn handle(&self, request: RequestContext<B>, args: Args<'_, ()>) -> Self::Future {
-	/// 		Box::pin(ready(Ok("Hello from Middleware!".into_response())))
-	/// 	}
+	///   fn handle(&self, request: RequestContext<B>, args: Args<'_, ()>) -> Self::Future {
+	///     Box::pin(ready(Ok("Hello from Middleware!".into_response())))
+	///   }
 	/// }
 	///
-	///	let mut resource = Resource::new("/resource");
+	/// let mut resource = Resource::new("/resource");
 	///
-	///	resource.add_layer_to([
-	///		_mistargeted_request_handler(MiddlewareLayer),
-	///		_method_handler(Method::GET, CompressionLayer::new()),
-	///	]);
+	/// resource.add_layer_to([
+	///   _mistargeted_request_handler(MiddlewareLayer),
+	///   _method_handler(Method::GET, CompressionLayer::new()),
+	/// ]);
 	///
-	///	resource.set_handler_for(_get(|| async {}));
+	/// resource.set_handler_for(_get(|| async {}));
 	/// ```
 	pub fn add_layer_to<L, const N: usize>(&mut self, layer_targets: L)
 	where
@@ -1913,7 +1920,7 @@ mod test {
 		//																	|	->	/{rx_3_1:p0}
 
 		let parent_route = "/st_0_0/{wl_1_0}".to_string();
-		let mut parent = Resource::new(&parent_route);
+		let mut parent = Resource::new(parent_route);
 
 		struct Case<'a> {
 			full_path: &'a str,

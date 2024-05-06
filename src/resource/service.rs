@@ -465,7 +465,7 @@ impl RequestPasser {
 		some_regex_resources: Option<Arc<[ResourceService]>>,
 		some_wildcard_resource: Option<Arc<ResourceService>>,
 		some_mistargeted_request_handler: Option<ArcHandler>,
-		middleware: &mut Vec<LayerTarget<Resource>>,
+		middleware: &mut [LayerTarget<Resource>],
 	) -> MaybeBoxed<Self> {
 		let request_passer = Self {
 			some_static_resources,
@@ -477,26 +477,23 @@ impl RequestPasser {
 		let mut maybe_boxed_request_passer = MaybeBoxed::Unboxed(request_passer);
 
 		for layer in middleware.iter_mut().rev() {
-			match layer {
-				LayerTarget::RequestPasser(_) => {
-					let LayerTarget::RequestPasser(boxed_layer) = layer.take() else {
-						unreachable!()
-					};
+			if let LayerTarget::RequestPasser(_) = layer {
+				let LayerTarget::RequestPasser(boxed_layer) = layer.take() else {
+					unreachable!()
+				};
 
-					match maybe_boxed_request_passer {
-						MaybeBoxed::Boxed(boxed_request_passer) => {
-							maybe_boxed_request_passer =
-								MaybeBoxed::Boxed(boxed_layer.wrap(boxed_request_passer.into()));
-						}
-						MaybeBoxed::Unboxed(request_passer) => {
-							let boxed_request_passer = BoxedHandler::new(request_passer);
+				match maybe_boxed_request_passer {
+					MaybeBoxed::Boxed(boxed_request_passer) => {
+						maybe_boxed_request_passer =
+							MaybeBoxed::Boxed(boxed_layer.wrap(boxed_request_passer.into()));
+					}
+					MaybeBoxed::Unboxed(request_passer) => {
+						let boxed_request_passer = BoxedHandler::new(request_passer);
 
-							maybe_boxed_request_passer =
-								MaybeBoxed::Boxed(boxed_layer.wrap(boxed_request_passer.into()));
-						}
+						maybe_boxed_request_passer =
+							MaybeBoxed::Boxed(boxed_layer.wrap(boxed_request_passer.into()));
 					}
 				}
-				_ => {}
 			}
 		}
 
@@ -596,7 +593,7 @@ impl RequestHandler {
 	pub(crate) fn new(
 		method_handlers: Vec<(Method, BoxedHandler)>,
 		wildcard_method_handler: WildcardMethodHandler,
-		middleware: &mut Vec<LayerTarget<Resource>>,
+		middleware: &mut [LayerTarget<Resource>],
 		some_mistargeted_request_handler: Option<ArcHandler>,
 	) -> Result<MaybeBoxed<Self>, Method> {
 		let mut request_handler = Self {
@@ -618,9 +615,7 @@ impl RequestHandler {
 					};
 
 					for method in methods.into_iter().rev() {
-						if let Err(method) = request_handler.wrap_method_handler(method, boxed_layer.clone()) {
-							return Err(method);
-						}
+						request_handler.wrap_method_handler(method, boxed_layer.clone())?
 					}
 				}
 				LayerTarget::WildcardMethodHandler(_) => {
@@ -693,7 +688,7 @@ impl Handler for RequestHandler {
 
 				return Box::pin(async {
 					response_future.await.map(|mut response| {
-						let _ = std::mem::replace(response.body_mut(), Body::default());
+						let _ = std::mem::take(response.body_mut());
 
 						response
 					})

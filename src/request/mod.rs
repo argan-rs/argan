@@ -155,9 +155,7 @@ impl<B> RequestContext<B> {
 	{
 		let mut from_params_list = self.routing_state.uri_params.deserializer();
 
-		T::deserialize(&mut from_params_list)
-			.map(|value| value)
-			.map_err(Into::into)
+		T::deserialize(&mut from_params_list).map_err(Into::into)
 	}
 
 	/// Returns the query params deserialized as type `T`. `T` must implement the
@@ -174,9 +172,7 @@ impl<B> RequestContext<B> {
 			.query()
 			.ok_or(QueryParamsError::NoDataIsAvailable)?;
 
-		serde_urlencoded::from_str::<T>(query_string)
-			.map(|value| value)
-			.map_err(|error| QueryParamsError::InvalidData(error.into()))
+		serde_urlencoded::from_str::<T>(query_string).map_err(QueryParamsError::InvalidData)
 	}
 
 	/// Returns the remaining segments of the request's path.
@@ -376,9 +372,7 @@ impl<B> RequestContext<B> {
 
 	#[inline(always)]
 	pub(crate) fn routing_host_and_uri_params_mut(&mut self) -> Option<(&str, &mut ParamsList)> {
-		let Some(host) = self.request.uri().host() else {
-			return None;
-		};
+		let host = self.request.uri().host()?;
 
 		Some((host, &mut self.routing_state.uri_params))
 	}
@@ -387,13 +381,10 @@ impl<B> RequestContext<B> {
 	pub(crate) fn routing_next_segment_and_uri_params_mut(
 		&mut self,
 	) -> Option<(&str, &mut ParamsList)> {
-		let Some((next_segment, _)) = self
+		let (next_segment, _) = self
 			.routing_state
 			.route_traversal
-			.next_segment(self.request.uri().path())
-		else {
-			return None;
-		};
+			.next_segment(self.request.uri().path())?;
 
 		Some((next_segment, &mut self.routing_state.uri_params))
 	}
@@ -558,9 +549,7 @@ impl RequestHead {
 	{
 		let mut from_params_list = self.routing_state.uri_params.deserializer();
 
-		T::deserialize(&mut from_params_list)
-			.map(|value| value)
-			.map_err(Into::into)
+		T::deserialize(&mut from_params_list).map_err(Into::into)
 	}
 
 	/// Returns the query params deserialized as type `T`. `T` must implement the
@@ -576,9 +565,7 @@ impl RequestHead {
 			.query()
 			.ok_or(QueryParamsError::NoDataIsAvailable)?;
 
-		serde_urlencoded::from_str::<T>(query_string)
-			.map(|value| value)
-			.map_err(|error| QueryParamsError::InvalidData(error.into()))
+		serde_urlencoded::from_str::<T>(query_string).map_err(QueryParamsError::InvalidData)
 	}
 
 	/// Returns the remaining segments of the request's path.
@@ -619,7 +606,9 @@ impl ContextProperties {
 	pub(crate) fn clone_valid_properties_from(&mut self, mut context_properties: &Self) {
 		#[cfg(any(feature = "private-cookies", feature = "signed-cookies"))]
 		if context_properties.some_cookie_key.is_some() {
-			self.some_cookie_key = context_properties.some_cookie_key.clone();
+			self
+				.some_cookie_key
+				.clone_from(&context_properties.some_cookie_key);
 		}
 	}
 }

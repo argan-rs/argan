@@ -26,12 +26,12 @@ pub struct Host {
 impl Host {
 	/// Creates a new `Host` with the given pattern and root resource.
 	///
-	///	```
-	///	use argan::{Host, Resource};
+	/// ```
+	/// use argan::{Host, Resource};
 	///
-	///	let root = Resource::new("/");
-	///	let host = Host::new("http://{sub_domain}.example.com", root);
-	///	```
+	/// let root = Resource::new("/");
+	/// let host = Host::new("http://{sub_domain}.example.com", root);
+	/// ```
 	///
 	/// The `Host` node checks the request's host and, if matches, passes the request to
 	/// its root resource.
@@ -61,7 +61,7 @@ impl Host {
 			if resource_host_pattern.compare(&host_pattern) != Similarity::Same {
 				panic!(
 					"resource is intended to belong to a host {}",
-					resource_host_pattern.to_string(),
+					resource_host_pattern,
 				);
 			}
 		}
@@ -188,11 +188,9 @@ pub(crate) fn parse_host_pattern<P: AsRef<str>>(
 		.or_else(|| host_pattern_str.strip_prefix("http://"))
 		.unwrap_or(host_pattern_str);
 
-	let host_pattern = if host_pattern_str.ends_with('/') {
-		Pattern::parse(&host_pattern_str[..host_pattern_str.len() - 1])
-	} else {
-		Pattern::parse(host_pattern_str)
-	};
+	let host_pattern = host_pattern_str
+		.strip_suffix('/')
+		.map_or(Pattern::parse(host_pattern_str), Pattern::parse);
 
 	if host_pattern.is_wildcard() {
 		return Err(HostPatternError::Wildcard);

@@ -40,7 +40,7 @@ use crate::{
 
 // --------------------------------------------------
 
-#[cfg(any(feature = "cookies"))]
+#[cfg(feature = "cookies")]
 pub mod cookies;
 
 #[cfg(any(feature = "form", feature = "multipart-form"))]
@@ -58,7 +58,7 @@ use header::content_type;
 // --------------------------------------------------
 // Text
 
-pub(crate) const TEXT_BODY_SIZE_LIMIT: usize = { 1 * 1024 * 1024 };
+pub(crate) const TEXT_BODY_SIZE_LIMIT: usize = { 1024 * 1024 };
 
 // ----------
 
@@ -67,10 +67,10 @@ pub(crate) const TEXT_BODY_SIZE_LIMIT: usize = { 1 * 1024 * 1024 };
 /// `Text` consumes the request body and converts it to a [`String`].
 ///
 /// ```
-///	use argan::data::Text;
+/// use argan::data::Text;
 ///
 /// async fn text_data(Text(text): Text) {
-///		// ...
+///   // ...
 /// }
 /// ```
 ///
@@ -81,7 +81,7 @@ pub(crate) const TEXT_BODY_SIZE_LIMIT: usize = { 1 * 1024 * 1024 };
 /// use argan::data::Text;
 ///
 /// async fn text_data(Text(text): Text<{ 512 * 1024 }>) {
-///		// ...
+///   // ...
 /// }
 /// ```
 #[derive(Debug)]
@@ -96,7 +96,7 @@ where
 	type Error = TextExtractorError;
 
 	async fn from_request(head_parts: &mut RequestHeadParts, body: B) -> Result<Self, Self::Error> {
-		request_into_text_data(&head_parts, body, SIZE_LIMIT)
+		request_into_text_data(head_parts, body, SIZE_LIMIT)
 			.await
 			.map(Self)
 	}
@@ -116,9 +116,9 @@ where
 
 	if content_type == mime::TEXT_PLAIN_UTF_8 || content_type == mime::TEXT_PLAIN {
 		match Limited::new(body, size_limit).collect().await {
-			Ok(body) => String::from_utf8(body.to_bytes().into())
-				.map(|value| value)
-				.map_err(Into::<TextExtractorError>::into),
+			Ok(body) => {
+				String::from_utf8(body.to_bytes().into()).map_err(Into::<TextExtractorError>::into)
+			}
 			Err(error) => Err(
 				error
 					.downcast_ref::<LengthLimitError>()
@@ -156,10 +156,10 @@ pub(crate) const BINARY_BODY_SIZE_LIMIT: usize = { 2 * 1024 * 1024 };
 /// `Binary` consumes the request body and converts it into [`Bytes`].
 ///
 /// ```
-///	use argan::data::Binary;
+/// use argan::data::Binary;
 ///
 /// async fn binary_data(Binary(bytes): Binary) {
-///		// ...
+///   // ...
 /// }
 /// ```
 ///
@@ -170,7 +170,7 @@ pub(crate) const BINARY_BODY_SIZE_LIMIT: usize = { 2 * 1024 * 1024 };
 /// use argan::data::Binary;
 ///
 /// async fn binary_data(Binary(bytes): Binary<{ 512 * 1024 }>) {
-///		// ...
+///   // ...
 /// }
 /// ```
 #[derive(Debug)]
@@ -234,10 +234,10 @@ data_extractor_error! {
 /// ignoring its content type.
 ///
 /// ```
-///	use argan::data::FullBody;
+/// use argan::data::FullBody;
 ///
 /// async fn full_body(FullBody(bytes): FullBody) {
-///		// ...
+///   // ...
 /// }
 /// ```
 ///
@@ -248,7 +248,7 @@ data_extractor_error! {
 /// use argan::data::FullBody;
 ///
 /// async fn full_body(FullBody(bytes): FullBody<{ 512 * 1024 }>) {
-///		// ...
+///   // ...
 /// }
 /// ```
 #[derive(Debug)]
@@ -409,7 +409,7 @@ mod test {
 				CONTENT_TYPE,
 				HeaderValue::from_static(mime::APPLICATION_OCTET_STREAM.as_ref()),
 			)
-			.body(full_body.clone())
+			.body(full_body)
 			.unwrap()
 			.into_parts();
 
@@ -421,7 +421,7 @@ mod test {
 
 		// ----------
 
-		let (mut head_parts, body) = Request::new(full_body.clone()).into_parts();
+		let (mut head_parts, body) = Request::new(full_body).into_parts();
 
 		let error = Binary::<1024>::from_request(&mut head_parts, body)
 			.await
@@ -440,7 +440,7 @@ mod test {
 				CONTENT_TYPE,
 				HeaderValue::from_static(mime::TEXT_PLAIN.as_ref()),
 			)
-			.body(full_body.clone())
+			.body(full_body)
 			.unwrap()
 			.into_parts();
 
@@ -461,7 +461,7 @@ mod test {
 				CONTENT_TYPE,
 				HeaderValue::from_static(mime::APPLICATION_OCTET_STREAM.as_ref()),
 			)
-			.body(full_body.clone())
+			.body(full_body)
 			.unwrap()
 			.into_parts();
 
@@ -485,7 +485,7 @@ mod test {
 				CONTENT_TYPE,
 				HeaderValue::from_static(mime::TEXT_PLAIN_UTF_8.as_ref()),
 			)
-			.body(full_body.clone())
+			.body(full_body)
 			.unwrap()
 			.into_parts();
 
@@ -502,7 +502,7 @@ mod test {
 				CONTENT_TYPE,
 				HeaderValue::from_static(mime::APPLICATION_OCTET_STREAM.as_ref()),
 			)
-			.body(full_body.clone())
+			.body(full_body)
 			.unwrap()
 			.into_parts();
 
@@ -514,7 +514,7 @@ mod test {
 
 		// ----------
 
-		let (mut head_parts, body) = Request::new(full_body.clone()).into_parts();
+		let (mut head_parts, body) = Request::new(full_body).into_parts();
 
 		let FullBody(data) = FullBody::<1024>::from_request(&mut head_parts, body)
 			.await
@@ -530,7 +530,7 @@ mod test {
 				CONTENT_TYPE,
 				HeaderValue::from_static(mime::APPLICATION_OCTET_STREAM.as_ref()),
 			)
-			.body(full_body.clone())
+			.body(full_body)
 			.unwrap()
 			.into_parts();
 
@@ -545,7 +545,7 @@ mod test {
 
 		// ----------
 
-		let (mut head_parts, body) = Request::new(full_body.clone()).into_parts();
+		let (mut head_parts, body) = Request::new(full_body).into_parts();
 
 		let error = FullBody::<8>::from_request(&mut head_parts, body)
 			.await

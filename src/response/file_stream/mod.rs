@@ -372,17 +372,15 @@ impl IntoResponse for FileStream {
 	fn into_response(mut self) -> Response {
 		if self.some_boundary.is_some() {
 			multipart_ranges_response(self)
-		} else {
-			if self.ranges.len() > 1 {
-				self.some_boundary = Some(
-					generate_boundary(48)
-						.expect("boundary should be valid when the length is no longer than 70 characters"),
-				);
+		} else if self.ranges.len() > 1 {
+			self.some_boundary = Some(
+				generate_boundary(48)
+					.expect("boundary should be valid when the length is no longer than 70 characters"),
+			);
 
-				multipart_ranges_response(self)
-			} else {
-				single_range_response(self)
-			}
+			multipart_ranges_response(self)
+		} else {
+			single_range_response(self)
 		}
 	}
 }
@@ -418,9 +416,9 @@ fn single_range_response(mut file_stream: FileStream) -> Response {
 
 		let mut content_range_value = String::new();
 		content_range_value.push_str("bytes ");
-		content_range_value.push_str(&file_stream.ranges[0].start_str());
+		content_range_value.push_str(file_stream.ranges[0].start_str());
 		content_range_value.push('-');
-		content_range_value.push_str(&file_stream.ranges[0].end_str());
+		content_range_value.push_str(file_stream.ranges[0].end_str());
 		content_range_value.push('/');
 		content_range_value.push_str(&file_stream.file_size);
 
@@ -585,17 +583,15 @@ impl HttpBody for FileStream {
 	) -> Poll<Option<Result<Frame<Self::Data>, Self::Error>>> {
 		if self.some_boundary.is_some() {
 			stream_multipart_ranges(self, cx)
-		} else {
-			if self.ranges.len() > 1 {
-				self.some_boundary = Some(
-					generate_boundary(48)
-						.expect("boundary should be valid when the length is no longer than 70 characters"),
-				);
+		} else if self.ranges.len() > 1 {
+			self.some_boundary = Some(
+				generate_boundary(48)
+					.expect("boundary should be valid when the length is no longer than 70 characters"),
+			);
 
-				stream_multipart_ranges(self, cx)
-			} else {
-				stream_single_range(self, cx)
-			}
+			stream_multipart_ranges(self, cx)
+		} else {
+			stream_single_range(self, cx)
 		}
 	}
 }
@@ -635,10 +631,8 @@ fn stream_single_range(
 
 				if let MaybeEncoded::Identity(_) = file_stream.maybe_encoded_file {
 					file_stream.current_range_remaining_size -= size as u64;
-				} else {
-					if size == 0 {
-						return Poll::Ready(None);
-					}
+				} else if size == 0 {
+					return Poll::Ready(None);
 				}
 
 				return Poll::Ready(Some(Ok(Frame::data(buffer.freeze()))));
@@ -675,12 +669,9 @@ fn stream_multipart_ranges(
 		} else {
 			return Poll::Ready(None);
 		}
-	} else if file_stream.current_range_index == 0
-		&& file_stream.current_range_remaining_size == file_stream.current_range_size
-	{
-		true
 	} else {
-		false
+		file_stream.current_range_index == 0
+			&& file_stream.current_range_remaining_size == file_stream.current_range_size
 	};
 
 	let boundary = file_stream
@@ -1065,7 +1056,7 @@ fn get_valid_rangges(
 			}
 
 			if merge {
-				valid_ranges.last_mut().map(|range| {
+				if let Some(range) = valid_ranges.last_mut() {
 					if !ascending_range {
 						range.start = current_start;
 					}
@@ -1073,7 +1064,7 @@ fn get_valid_rangges(
 					if range.end.0 < current_end.0 {
 						range.end = current_end;
 					}
-				});
+				}
 			} else {
 				valid_ranges.push(RangeValue {
 					start: current_start,
@@ -1138,7 +1129,7 @@ fn combine_valid_and_suffix_ranges(
 				.iter()
 				.enumerate()
 				.rev()
-				.find_map(|indexed_range| check_position(indexed_range))
+				.find_map(check_position)
 			{
 				valid_ranges.truncate(position + 1);
 
@@ -1151,30 +1142,24 @@ fn combine_valid_and_suffix_ranges(
 				valid_ranges.clear();
 				valid_ranges.push(RangeValue::new(0, file_end));
 			}
-		} else {
-			if let Some((mut position, bigger_than_end, end)) = valid_ranges
-				.iter()
-				.enumerate()
-				.find_map(|indexed_range| check_position(indexed_range))
-			{
-				if !bigger_than_end || suffix_range_start - end < 128 {
-					valid_ranges[position].end = (file_end, file_end.to_string().into());
-					valid_ranges.rotate_left(position);
-					valid_ranges.truncate(valid_ranges.len() - position);
-				} else {
-					if position > 0 {
-						position -= 1;
-						valid_ranges[position] = RangeValue::new(suffix_range_start, file_end);
-						valid_ranges.rotate_left(position);
-						valid_ranges.truncate(valid_ranges.len() - position);
-					} else {
-						valid_ranges.insert(position, RangeValue::new(suffix_range_start, file_end));
-					}
-				}
+		} else if let Some((mut position, bigger_than_end, end)) =
+			valid_ranges.iter().enumerate().find_map(check_position)
+		{
+			if !bigger_than_end || suffix_range_start - end < 128 {
+				valid_ranges[position].end = (file_end, file_end.to_string().into());
+				valid_ranges.rotate_left(position);
+				valid_ranges.truncate(valid_ranges.len() - position);
+			} else if position > 0 {
+				position -= 1;
+				valid_ranges[position] = RangeValue::new(suffix_range_start, file_end);
+				valid_ranges.rotate_left(position);
+				valid_ranges.truncate(valid_ranges.len() - position);
 			} else {
-				valid_ranges.clear();
-				valid_ranges.push(RangeValue::new(suffix_range_start, file_end));
+				valid_ranges.insert(position, RangeValue::new(suffix_range_start, file_end));
 			}
+		} else {
+			valid_ranges.clear();
+			valid_ranges.push(RangeValue::new(suffix_range_start, file_end));
 		}
 	}
 
@@ -1224,16 +1209,8 @@ impl FromStr for RawRangeValue {
 		}
 
 		Ok(RawRangeValue {
-			some_start: if let Some(start_u64) = some_start_u64 {
-				Some((start_u64, start.into()))
-			} else {
-				None
-			},
-			some_end: if let Some(end_u64) = some_end_u64 {
-				Some((end_u64, end.into()))
-			} else {
-				None
-			},
+			some_start: some_start_u64.map(|start_u64| (start_u64, start.into())),
+			some_end: some_end_u64.map(|end_u64| (end_u64, end.into())),
 		})
 	}
 }
@@ -1741,14 +1718,14 @@ mod test {
 
 	#[tokio::test]
 	async fn single_range_streaming() {
-		const FILE: &'static str = "test_single_range";
+		const FILE: &str = "test_single_range";
 
 		let mut contents = Vec::<u8>::with_capacity(FILE_SIZE);
 		for i in 0..FILE_SIZE {
 			contents.push({ i % 7 } as u8);
 		}
 
-		let _ = std::fs::write(FILE, &contents).unwrap();
+		std::fs::write(FILE, &contents).unwrap();
 
 		let _deferred = Deferred::call(|| std::fs::remove_file(FILE).unwrap());
 
@@ -2141,7 +2118,7 @@ mod test {
 			contents.push({ i % 7 } as u8);
 		}
 
-		let _ = std::fs::write(FILE, &contents).unwrap();
+		std::fs::write(FILE, &contents).unwrap();
 
 		let _deferred = Deferred::call(|| std::fs::remove_file(FILE).unwrap());
 

@@ -364,7 +364,7 @@ where
 	fn handle(&self, mut request_context: RequestContext, mut args: Args) -> Self::Future {
 		let (mut request, routing_state, context_properties) = request_context.into_parts();
 
-		let args = args.to_owned();
+		let args = args.into_owned();
 
 		request
 			.extensions_mut()
@@ -441,9 +441,9 @@ impl<'n> Args<'n, ()> {
 }
 
 impl<'n, HandlerExt: Clone> Args<'n, HandlerExt> {
-	pub(crate) fn to_owned(&mut self) -> Args<'static, HandlerExt> {
+	pub(crate) fn into_owned(mut self) -> Args<'static, HandlerExt> {
 		Args {
-			node_extensions: self.take_node_extensions().to_owned(),
+			node_extensions: self.take_node_extensions().into_owned(),
 			handler_extension: Cow::Owned(self.handler_extension.clone().into_owned()),
 		}
 	}

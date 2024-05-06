@@ -49,6 +49,12 @@ pub struct Router {
 	middleware: Vec<LayerTarget<Self>>,
 }
 
+impl Default for Router {
+	fn default() -> Self {
+		Self::new()
+	}
+}
+
 impl Router {
 	/// Creates a new `Router`.
 	pub fn new() -> Router {
@@ -66,13 +72,13 @@ impl Router {
 	/// Adds the given host(s).
 	///
 	/// ```
-	///	use argan::{Router, Host, Resource};
+	/// use argan::{Router, Host, Resource};
 	///
-	///	let mut host = Host::new("http://example.com", Resource::new("/"));
-	///	let mut host_with_sub = Host::new("http://abc.example.com", Resource::new("/"));
+	/// let mut host = Host::new("http://example.com", Resource::new("/"));
+	/// let mut host_with_sub = Host::new("http://abc.example.com", Resource::new("/"));
 	///
-	///	let mut router = Router::new();
-	///	router.add_host([host, host_with_sub]);
+	/// let mut router = Router::new();
+	/// router.add_host([host, host_with_sub]);
 	/// ```
 	///
 	/// If a new host has a duplicate among the existing hosts, their resource trees will
@@ -82,21 +88,21 @@ impl Router {
 	/// use argan::{Router, Host, Resource};
 	/// use argan::handler::{_get, _post};
 	///
-	///	let mut router = Router::new();
+	/// let mut router = Router::new();
 	///
 	/// let mut root = Resource::new("/");
 	/// root
-	///		.subresource_mut("/resource_1/resource_2/resource_3")
-	///		.set_handler_for(_get(|| async {}));
+	///   .subresource_mut("/resource_1/resource_2/resource_3")
+	///   .set_handler_for(_get(|| async {}));
 	///
 	/// router.add_host(Host::new("example.com", root));
 	///
 	/// let mut root = Resource::new("/");
-	///	root.subresource_mut("/resource_1/resource_2")
-	///		.set_handler_for(_get(|| async {}));
+	/// root.subresource_mut("/resource_1/resource_2")
+	///   .set_handler_for(_get(|| async {}));
 	///
 	/// router.add_host(Host::new("example.com", root));
-	///	```
+	/// ```
 	///
 	/// # Panics
 	///
@@ -108,26 +114,26 @@ impl Router {
 	/// use argan::{Router, Host, Resource};
 	/// use argan::handler::{_get, _post};
 	///
-	///	let mut router = Router::new();
+	/// let mut router = Router::new();
 	///
 	/// let mut root = Resource::new("/");
 	/// root
-	///		.subresource_mut("/resource_1/resource_2/resource_3")
-	///		.set_handler_for(_get(|| async {}));
+	///   .subresource_mut("/resource_1/resource_2/resource_3")
+	///   .set_handler_for(_get(|| async {}));
 	///
 	/// router.add_host(Host::new("example.com", root));
 	///
 	/// let mut root = Resource::new("/");
 	/// let mut resource_2 = root.subresource_mut("/resource_1/resource_2");
-	///	resource_2.set_handler_for(_get(|| async {}));
+	/// resource_2.set_handler_for(_get(|| async {}));
 	///
 	/// resource_2
-	///		.subresource_mut("/resource_3")
-	///		.set_handler_for(_get(|| async {}));
+	///   .subresource_mut("/resource_3")
+	///   .set_handler_for(_get(|| async {}));
 	///
 	/// // This doesn't try to merge the handler sets of the duplicate resources.
 	/// router.add_host(Host::new("example.com", root));
-	///	```
+	/// ```
 	pub fn add_host<H, const N: usize>(&mut self, new_hosts: H)
 	where
 		H: IntoArray<Host, N>,
@@ -154,13 +160,13 @@ impl Router {
 	/// Adds the given resource(s).
 	///
 	/// ```
-	///	use argan::{Router, Resource};
+	/// use argan::{Router, Resource};
 	///
-	///	let host_resource = Resource::new("http://example.com/resource");
-	///	let root = Resource::new("/");
+	/// let host_resource = Resource::new("http://example.com/resource");
+	/// let root = Resource::new("/");
 	///
-	///	let mut router = Router::new();
-	///	router.add_resource([host_resource, root]);
+	/// let mut router = Router::new();
+	/// router.add_resource([host_resource, root]);
 	/// ```
 	///
 	/// In the above example, `Router` will have a host with the pattern *"example.com"*
@@ -175,14 +181,14 @@ impl Router {
 	/// use argan::{Router, Resource};
 	/// use argan::handler::{_get, _post};
 	///
-	///	let mut router = Router::new();
+	/// let mut router = Router::new();
 	///
 	/// let mut resource_3 = Resource::new("/resource_1/resource_2/resource_3");
 	/// resource_3.set_handler_for(_get(|| async {}));
 	///
 	/// router.add_resource(resource_3);
 	///
-	///	let mut resource_2 = Resource::new("/resource_1/resource_2");
+	/// let mut resource_2 = Resource::new("/resource_1/resource_2");
 	/// let mut resource_3 = Resource::new("/resource_3");
 	/// resource_3.set_handler_for(_post(|| async {}));
 	///
@@ -190,7 +196,7 @@ impl Router {
 	///
 	/// // This doesn't try to merge the handler sets of the duplicate resources.
 	/// router.add_resource(resource_2);
-	///	```
+	/// ```
 	pub fn add_resource<R, const N: usize>(&mut self, new_resources: R)
 	where
 		R: IntoArray<Resource, N>,
@@ -216,7 +222,7 @@ impl Router {
 			return;
 		}
 
-		if let Some(host_pattern) = new_resource.host_pattern_ref().map(Clone::clone) {
+		if let Some(host_pattern) = new_resource.host_pattern_ref().cloned() {
 			let root = if new_resource.is("/") {
 				new_resource
 			} else {
@@ -235,15 +241,13 @@ impl Router {
 
 		if new_resource.is("/") {
 			self.merge_or_replace_root(new_resource);
+		} else if let Some(boxed_root) = self.some_root_resource.as_mut() {
+			boxed_root.add_subresource(new_resource);
 		} else {
-			if let Some(boxed_root) = self.some_root_resource.as_mut() {
-				boxed_root.add_subresource(new_resource);
-			} else {
-				let mut root = Resource::with_pattern(Pattern::parse("/"));
-				root.add_subresource(new_resource);
+			let mut root = Resource::with_pattern(Pattern::parse("/"));
+			root.add_subresource(new_resource);
 
-				self.some_root_resource = Some(Box::new(root));
-			}
+			self.some_root_resource = Some(Box::new(root));
 		}
 	}
 
@@ -293,13 +297,13 @@ impl Router {
 	/// Adds the given resources under the prefix URI components.
 	///
 	/// ```
-	///	use argan::{Router, Resource};
+	/// use argan::{Router, Resource};
 	///
-	///	let resource_2_0 = Resource::new("/resource_2_0");
-	///	let resource_2_1 = Resource::new("/resource_2_1");
+	/// let resource_2_0 = Resource::new("/resource_2_0");
+	/// let resource_2_1 = Resource::new("/resource_2_1");
 	///
-	///	let mut router = Router::new();
-	///	router.add_resource_under("http://example.com/resource_1", [resource_2_0, resource_2_1]);
+	/// let mut router = Router::new();
+	/// router.add_resource_under("http://example.com/resource_1", [resource_2_0, resource_2_1]);
 	/// ```
 	///
 	/// # Panics
@@ -339,7 +343,7 @@ impl Router {
 		some_path_pattern_str: Option<&str>,
 		new_resource: Resource,
 	) {
-		let some_host_pattern = some_host_pattern_str.map(|host_pattern| Pattern::parse(host_pattern));
+		let some_host_pattern = some_host_pattern_str.map(Pattern::parse);
 
 		let new_resource_is_root = new_resource.is("/");
 
@@ -426,9 +430,9 @@ impl Router {
 	///
 	/// let mut router = Router::new();
 	/// router.resource_mut("/resource_1 !*").set_handler_for([
-	///		_get(|| async {}),
-	///		_post(|| async {}),
-	///	]);
+	///   _get(|| async {}),
+	///   _post(|| async {}),
+	/// ]);
 	///
 	/// // ...
 	///
@@ -546,25 +550,25 @@ impl Router {
 	/// # use tower_http::compression::CompressionLayer;
 	/// # use http::method::Method;
 	/// # use argan::{
-	///	# 	handler::{Handler, Args, _get},
-	///	# 	middleware::{Layer, _request_passer},
-	///	# 	request::RequestContext,
-	///	# 	response::{Response, IntoResponse, BoxedErrorResponse},
-	///	# 	common::BoxedFuture,
-	///	# };
+	/// #   handler::{Handler, Args, _get},
+	/// #   middleware::{Layer, _request_passer},
+	/// #   request::RequestContext,
+	/// #   response::{Response, IntoResponse, BoxedErrorResponse},
+	/// #   common::BoxedFuture,
+	/// # };
 	///
 	/// #[derive(Clone)]
 	/// struct MiddlewareLayer;
 	///
 	/// impl<H> Layer<H> for MiddlewareLayer
 	/// where
-	/// 	H: Handler + Clone + Send + Sync,
+	///   H: Handler + Clone + Send + Sync,
 	/// {
-	/// 	type Handler = Middleware<H>;
+	///   type Handler = Middleware<H>;
 	///
-	/// 	fn wrap(&self, handler: H) -> Self::Handler {
-	/// 		Middleware(handler)
-	/// 	}
+	///   fn wrap(&self, handler: H) -> Self::Handler {
+	///     Middleware(handler)
+	///   }
 	/// }
 	///
 	/// #[derive(Clone)]
@@ -572,24 +576,24 @@ impl Router {
 	///
 	/// impl<B, H> Handler<B> for Middleware<H>
 	/// where
-	/// 	H: Handler + Clone + Send + Sync,
+	///   H: Handler + Clone + Send + Sync,
 	/// {
-	/// 	type Response = Response;
-	/// 	type Error = BoxedErrorResponse;
-	/// 	type Future = BoxedFuture<Result<Self::Response, Self::Error>>;
+	///   type Response = Response;
+	///   type Error = BoxedErrorResponse;
+	///   type Future = BoxedFuture<Result<Self::Response, Self::Error>>;
 	///
-	/// 	fn handle(&self, request: RequestContext<B>, args: Args<'_, ()>) -> Self::Future {
-	/// 		Box::pin(ready(Ok("Hello from Middleware!".into_response())))
-	/// 	}
+	///   fn handle(&self, request: RequestContext<B>, args: Args<'_, ()>) -> Self::Future {
+	///     Box::pin(ready(Ok("Hello from Middleware!".into_response())))
+	///   }
 	/// }
 	///
 	/// // ...
 	///
-	///	use argan::Router;
+	/// use argan::Router;
 	///
-	///	let mut router = Router::new();
+	/// let mut router = Router::new();
 	///
-	///	router.add_layer_to(_request_passer((CompressionLayer::new(), MiddlewareLayer)));
+	/// router.add_layer_to(_request_passer((CompressionLayer::new(), MiddlewareLayer)));
 	/// ```
 	pub fn add_layer_to<L, const N: usize>(&mut self, layer_targets: L)
 	where
@@ -666,9 +670,8 @@ impl Router {
 				break param;
 			};
 
-			match func(&mut param, root) {
-				Iteration::Stop => break param,
-				_ => {}
+			if let Iteration::Stop = func(&mut param, root) {
+				break param;
 			}
 		}
 	}

@@ -33,6 +33,6 @@ pub(crate) mod marker {
 
 // --------------------------------------------------
 // Used when expecting a valid value in Options or Results.
-pub(crate) const SCOPE_VALIDITY: &'static str = "scope validity";
+pub(crate) const SCOPE_VALIDITY: &str = "scope validity";
 
 // --------------------------------------------------------------------------------

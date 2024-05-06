@@ -33,18 +33,18 @@ pub(crate) const JSON_BODY_SIZE_LIMIT: usize = { 2 * 1024 * 1024 };
 /// that implements [`serde::Deserialize`].
 ///
 /// ```
-///	use argan::data::json::Json;
+/// use argan::data::json::Json;
 /// use serde::Deserialize;
 ///
 /// #[derive(Deserialize)]
 /// struct Person {
-///		first_name: String,
-///		last_name: String,
-///		age: u8,
+///   first_name: String,
+///   last_name: String,
+///   age: u8,
 /// }
 ///
 /// async fn add_person(Json(person): Json<Person>) {
-///		// ...
+///   // ...
 /// }
 /// ```
 ///
@@ -57,11 +57,11 @@ pub(crate) const JSON_BODY_SIZE_LIMIT: usize = { 2 * 1024 * 1024 };
 ///
 /// #[derive(Deserialize)]
 /// struct SurveyData {
-///		// ...
+///   // ...
 /// }
 ///
 /// async fn save_survey_data(Json(survey_data): Json<SurveyData, { 512 * 1024 }>) {
-///		// ...
+///   // ...
 /// }
 /// ```
 pub struct Json<T, const SIZE_LIMIT: usize = JSON_BODY_SIZE_LIMIT>(pub T);
@@ -97,9 +97,7 @@ where
 
 	if content_type == mime::APPLICATION_JSON {
 		match Limited::new(body, size_limit).collect().await {
-			Ok(body) => serde_json::from_slice::<T>(&body.to_bytes())
-				.map(|value| value)
-				.map_err(Into::<JsonError>::into),
+			Ok(body) => serde_json::from_slice::<T>(&body.to_bytes()).map_err(Into::<JsonError>::into),
 			Err(error) => Err(
 				error
 					.downcast_ref::<LengthLimitError>()

@@ -33,7 +33,7 @@ pub use cookie::{Cookie, CookieBuilder, Expiration, Iter, Key, KeyError, ParseEr
 
 // --------------------------------------------------------------------------------
 
-const NO_KEY: &'static str = "key should have been set for the handler or a node";
+const NO_KEY: &str = "key should have been set for the handler or a node";
 
 // --------------------------------------------------
 // Cookies
@@ -83,9 +83,9 @@ impl CookieJar {
 	/// let cookie = Cookie::new("some_cokie_1", "value");
 	///
 	/// jar.add([
-	///		_plain(cookie),
-	///		_plain(("some_cookie_2", "value")),
-	///		_private(("some_private_cookie", "value")),
+	///   _plain(cookie),
+	///   _plain(("some_cookie_2", "value")),
+	///   _private(("some_private_cookie", "value")),
 	/// ]);
 	/// ```
 	///
@@ -161,28 +161,28 @@ impl CookieJar {
 	///
 	/// ```
 	/// use argan::{
-	///		resource::Resource,
-	///		request::RequestHead,
-	///		handler::_get,
-	///		data::cookies::{Cookie, CookieJar, Key, _plain, _private},
-	///	};
+	///   resource::Resource,
+	///   request::RequestHead,
+	///   handler::_get,
+	///   data::cookies::{Cookie, CookieJar, Key, _plain, _private},
+	/// };
 	///
 	/// async fn handler(mut request_head: RequestHead) -> CookieJar {
-	///		let mut jar = request_head.cookies();
+	///   let mut jar = request_head.cookies();
 	///
-	/// 	let cookie = Cookie::build("some_cookie").path("/resource").domain("example.com");
+	///   let cookie = Cookie::build("some_cookie").path("/resource").domain("example.com");
 	///
-	/// 	jar.remove([
-	///			_plain(cookie),
-	///			_plain("some_cookie_2"),
-	///			_private("some_private_cookie"),
-	/// 	]);
+	///   jar.remove([
+	///     _plain(cookie),
+	///     _plain("some_cookie_2"),
+	///     _private("some_private_cookie"),
+	///   ]);
 	///
-	/// 	jar
+	///   jar
 	/// }
 	///
-	///	let mut resource = Resource::new("/");
-	///	resource.set_handler_for(_get(handler));
+	/// let mut resource = Resource::new("/");
+	/// resource.set_handler_for(_get(handler));
 	/// ```
 	pub fn remove<C, const N: usize>(&mut self, cookies: C)
 	where
@@ -252,9 +252,8 @@ pub(crate) fn cookies_from_request(
 				.map(Cookie::split_parse_encoded)
 				.map(|cookies| {
 					cookies.fold(CookieJar::new(), |mut jar, result| {
-						match result {
-							Ok(cookie) => jar.inner.add_original(cookie.into_owned()),
-							Err(_) => {} // Ignored.
+						if let Ok(cookie) = result {
+							jar.inner.add_original(cookie.into_owned());
 						}
 
 						jar
@@ -264,8 +263,8 @@ pub(crate) fn cookies_from_request(
 		.unwrap_or_default();
 
 	#[cfg(any(feature = "private-cookies", feature = "signed-cookies"))]
-	if some_key.is_some() {
-		return cookie_jar.with_key(some_key.expect(SCOPE_VALIDITY));
+	if let Some(key) = some_key {
+		return cookie_jar.with_key(key);
 	}
 
 	cookie_jar
