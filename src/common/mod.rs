@@ -2,25 +2,11 @@
 
 // ----------
 
-use std::{
-	any::Any,
-	borrow::Cow,
-	fmt::Display,
-	future::Future,
-	io::ErrorKind,
-	pin::Pin,
-	task::{Context, Poll},
-	time::Duration,
-};
+use std::{any::Any, borrow::Cow};
 
-use http::{Extensions, StatusCode};
+use http::Extensions;
 
-use crate::{
-	handler::BoxedHandler,
-	pattern::Pattern,
-	response::{ErrorResponse, IntoResponse, Response},
-	routing::RouteSegments,
-};
+use crate::{handler::BoxedHandler, pattern::Pattern, routing::RouteSegments};
 
 // ----------
 
@@ -289,11 +275,6 @@ impl<A: Any + Clone + Send + Sync> AnyCloneable for A {
 
 #[cfg(test)]
 mod test {
-	use super::*;
-
-	// --------------------------------------------------------------------------------
-	// --------------------------------------------------------------------------------
-
 	#[test]
 	fn normalize_path() {
 		let cases = [

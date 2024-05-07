@@ -3,22 +3,17 @@
 // ----------
 
 use core::panic;
-use std::{any, future::ready, num::NonZeroIsize, str::FromStr, sync::Arc};
+use std::{any, sync::Arc};
 
-use http::{Extensions, StatusCode, Uri};
+use http::Extensions;
 
 use crate::{
 	common::{config::ConfigOption, IntoArray, SCOPE_VALIDITY},
-	handler::{BoxedHandler, Handler},
 	host::Host,
-	middleware::{
-		BoxedLayer, IntoLayer, Layer, RequestExtensionsModifierLayer, _request_passer,
-		targets::LayerTarget,
-	},
+	middleware::{_request_passer, targets::LayerTarget},
 	pattern::{split_uri_host_and_path, Pattern, Similarity},
 	request::ContextProperties,
 	resource::{Iteration, Resource},
-	response::{BoxedErrorResponse, Response},
 };
 
 // --------------------------------------------------
@@ -145,7 +140,7 @@ impl Router {
 		}
 	}
 
-	fn add_single_host(&mut self, mut new_host: Host) {
+	fn add_single_host(&mut self, new_host: Host) {
 		let (pattern, root) = new_host.into_pattern_and_root();
 
 		if let Some(host) = self.existing_host_mut(&pattern) {
@@ -208,7 +203,7 @@ impl Router {
 		}
 	}
 
-	fn add_single_resource(&mut self, mut new_resource: Resource) {
+	fn add_single_resource(&mut self, new_resource: Resource) {
 		if let Some(host) = new_resource
 			.host_pattern_ref()
 			.and_then(|host_pattern| self.existing_host_mut(host_pattern))
@@ -267,7 +262,7 @@ impl Router {
 	}
 
 	fn add_new_host(&mut self, host_pattern: Pattern, root: Resource) {
-		let mut host = match host_pattern {
+		let host = match host_pattern {
 			Pattern::Static(_) => &mut self.static_hosts,
 			#[cfg(feature = "regex")]
 			Pattern::Regex(_, _) => &mut self.regex_hosts,
@@ -395,7 +390,7 @@ impl Router {
 			let boxed_root = if let Some(boxed_root) = self.some_root_resource.as_mut() {
 				boxed_root
 			} else {
-				let mut root = Resource::with_pattern(Pattern::parse("/"));
+				let root = Resource::with_pattern(Pattern::parse("/"));
 				self.some_root_resource = Some(Box::new(root));
 
 				self.some_root_resource.as_mut().expect(SCOPE_VALIDITY)

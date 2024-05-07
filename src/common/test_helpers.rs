@@ -11,9 +11,9 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
 	data::json::Json,
-	handler::{_get, _method, _post, _wildcard_method},
+	handler::{_get, _post, _wildcard_method},
 	pattern::DeserializerError,
-	request::{PathParamsError, Request, RequestContext, RequestHead},
+	request::{PathParamsError, Request, RequestHead},
 	resource::Resource,
 	response::{IntoResponseResult, Response},
 };

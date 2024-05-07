@@ -9,13 +9,12 @@ use http::{Extensions, StatusCode};
 use hyper::service::Service;
 
 use crate::{
-	common::{MaybeBoxed, NodeExtensions, Uncloneable, SCOPE_VALIDITY},
-	handler::{futures::ResponseToResultFuture, Args, BoxedHandler, Handler},
-	host::{Host, HostService},
+	common::{MaybeBoxed, NodeExtensions},
+	handler::{Args, BoxedHandler, Handler},
+	host::HostService,
 	middleware::{targets::LayerTarget, Layer},
-	pattern::ParamsList,
 	request::{ContextProperties, Request, RequestContext},
-	resource::{Resource, ResourceService},
+	resource::ResourceService,
 	response::{BoxedErrorResponse, InfallibleResponseFuture, IntoResponse, Response},
 	routing::{RouteTraversal, RoutingState},
 };
@@ -58,7 +57,7 @@ where
 	type Error = Infallible;
 	type Future = InfallibleResponseFuture;
 
-	fn call(&self, mut request: Request<B>) -> Self::Future {
+	fn call(&self, request: Request<B>) -> Self::Future {
 		let routing_state = RoutingState::new(RouteTraversal::for_route(request.uri().path()));
 
 		let args = Args {
@@ -184,7 +183,7 @@ impl RequestPasser {
 							MaybeBoxed::Boxed(boxed_layer.wrap(boxed_request_passer.into()));
 					}
 					MaybeBoxed::Unboxed(request_passer) => {
-						let mut boxed_requst_passer = BoxedHandler::new(request_passer);
+						let boxed_requst_passer = BoxedHandler::new(request_passer);
 
 						maybe_boxed_request_passer =
 							MaybeBoxed::Boxed(boxed_layer.wrap(boxed_requst_passer.into()));
@@ -206,7 +205,8 @@ where
 	type Error = BoxedErrorResponse;
 	type Future = BoxedFuture<Result<Self::Response, Self::Error>>;
 
-	fn handle(&self, mut request: RequestContext<B>, mut args: Args) -> Self::Future {
+	fn handle(&self, mut request: RequestContext<B>, args: Args) -> Self::Future {
+		#[allow(unused_variables)]
 		if let Some((uri_host, uri_params)) = request.routing_host_and_uri_params_mut() {
 			if let Some(host) = self.some_static_hosts.as_ref().and_then(|hosts| {
 				hosts.iter().find(|host| {

@@ -2,65 +2,29 @@
 
 // ----------
 
-use std::{
-	borrow::Cow,
-	convert::Infallible,
-	fmt::{Debug, Display},
-	future::{ready, Future, Ready},
-};
+use std::{fmt::Debug, future::Future};
 
 use argan_core::{
 	body::{Body, HttpBody},
-	request, BoxedError, BoxedFuture,
+	BoxedError,
 };
-use bytes::Bytes;
-use futures_util::TryFutureExt;
-use http::{
-	header::{ToStrError, CONTENT_TYPE},
-	Extensions, HeaderMap, HeaderName, HeaderValue, Method, StatusCode, Uri, Version,
-};
-use serde::{
-	de::{DeserializeOwned, Error},
-	Deserialize, Deserializer,
-};
+use http::{Extensions, HeaderMap, HeaderValue, Method, StatusCode, Uri, Version};
+use serde::Deserialize;
 
 use crate::{
-	common::{marker::Sealed, IntoArray, Uncloneable, SCOPE_VALIDITY},
-	data::{
-		header::{content_type, ContentTypeError},
-		request_into_binary_data, request_into_full_body, request_into_text_data, BinaryExtractorError,
-		FullBodyExtractorError, TextExtractorError, BINARY_BODY_SIZE_LIMIT, TEXT_BODY_SIZE_LIMIT,
-	},
+	common::IntoArray,
 	handler::Args,
-	pattern::{self, FromParamsList, ParamsList},
-	response::{BoxedErrorResponse, IntoResponse, IntoResponseHeadParts, Response},
+	pattern::{self, ParamsList},
+	response::{BoxedErrorResponse, IntoResponse, Response},
 	routing::RoutingState,
-	ImplError, StdError,
 };
 
 #[cfg(feature = "cookies")]
 use crate::data::cookies::{cookies_from_request, CookieJar};
 
-#[cfg(feature = "json")]
-use crate::data::json::{request_into_json_data, Json, JsonError, JSON_BODY_SIZE_LIMIT};
-
-#[cfg(feature = "form")]
-use crate::data::form::{
-	request_into_form_data, request_into_multipart_form, FormError, MultipartForm,
-	MultipartFormError, FORM_BODY_SIZE_LIMIT,
-};
-
 // ----------
 
 pub use argan_core::request::*;
-
-// --------------------------------------------------
-
-#[cfg(feature = "websockets")]
-pub mod websocket;
-
-#[cfg(feature = "websockets")]
-use self::websocket::{websocket_handshake, WebSocketUpgrade, WebSocketUpgradeError};
 
 // --------------------------------------------------------------------------------
 // --------------------------------------------------------------------------------
@@ -90,7 +54,7 @@ impl<B> RequestContext<B> {
 	}
 
 	#[inline(always)]
-	pub(crate) fn clone_valid_properties_from(&mut self, mut context_properties: &ContextProperties) {
+	pub(crate) fn clone_valid_properties_from(&mut self, context_properties: &ContextProperties) {
 		self
 			.properties
 			.clone_valid_properties_from(context_properties);
@@ -188,124 +152,16 @@ impl<B> RequestContext<B> {
 			.remaining_segments(self.request.uri().path())
 	}
 
-	/// Consumes the `RequestContext`, collects the request body and returns it as [`Bytes`].
-	#[doc(hidden)]
-	pub async fn into_full_body(self, size_limit: SizeLimit) -> Result<Bytes, FullBodyExtractorError>
+	/// Consumes the `RequestContext`, returning the request's head and body.
+	pub async fn into_head_and_body(self) -> (RequestHead, B)
 	where
 		B: HttpBody,
 		B::Error: Into<BoxedError>,
 	{
-		let size_limit = match size_limit {
-			SizeLimit::Default => BINARY_BODY_SIZE_LIMIT,
-			SizeLimit::Value(value) => value,
-		};
-
-		let (_, body) = self.request.into_parts();
-
-		request_into_full_body(body, size_limit).await
-	}
-
-	/// Consumes the `RequestContext`, collects the request body if the `Content-Type` is
-	/// either `octet-stream` or `application/octet-stream` and returns it as [`Bytes`].
-	#[doc(hidden)]
-	pub async fn into_binary_data(self, size_limit: SizeLimit) -> Result<Bytes, BinaryExtractorError>
-	where
-		B: HttpBody,
-		B::Error: Into<BoxedError>,
-	{
-		let size_limit = match size_limit {
-			SizeLimit::Default => BINARY_BODY_SIZE_LIMIT,
-			SizeLimit::Value(value) => value,
-		};
-
 		let (head_parts, body) = self.request.into_parts();
+		let request_head = RequestHead::new(head_parts, self.routing_state, self.properties);
 
-		request_into_binary_data(&head_parts, body, size_limit).await
-	}
-
-	/// Consumes the `RequestContext`, collects the request body if the `Content-Type` is
-	/// either `text/plain` or `text/plain; charset=utf-8` and returns it converted to
-	/// [`String`].
-	#[doc(hidden)]
-	pub async fn into_text_data(self, size_limit: SizeLimit) -> Result<String, TextExtractorError>
-	where
-		B: HttpBody,
-		B::Error: Into<BoxedError>,
-	{
-		let size_limit = match size_limit {
-			SizeLimit::Default => TEXT_BODY_SIZE_LIMIT,
-			SizeLimit::Value(value) => value,
-		};
-
-		let (head_parts, body) = self.request.into_parts();
-
-		request_into_text_data(&head_parts, body, size_limit).await
-	}
-
-	/// Consumes the `RequestContext`, collects the request body if the `Content-Type` is
-	/// `application/json` and returns it deserialized as type `T`. `T` must implement
-	/// [`serde::Deserialize`].
-	#[cfg(feature = "json")]
-	#[doc(hidden)]
-	pub async fn into_json_data<T>(self, size_limit: SizeLimit) -> Result<T, JsonError>
-	where
-		B: HttpBody,
-		B::Error: Into<BoxedError>,
-		T: DeserializeOwned,
-	{
-		let size_limit = match size_limit {
-			SizeLimit::Default => JSON_BODY_SIZE_LIMIT,
-			SizeLimit::Value(value) => value,
-		};
-
-		let (head_parts, body) = self.request.into_parts();
-
-		request_into_json_data::<T, B>(&head_parts, body, size_limit).await
-	}
-
-	/// Consumes the `RequestContext`, collects the request body if the `Content-Type` is
-	/// `application/x-www-form-urlencoded` and returns it deserialized as type `T`. `T`
-	/// must implement [`serde::Deserialize`].
-	#[cfg(feature = "form")]
-	#[doc(hidden)]
-	pub async fn into_form_data<T>(self, size_limit: SizeLimit) -> Result<T, FormError>
-	where
-		B: HttpBody,
-		B::Error: Into<BoxedError>,
-		T: DeserializeOwned,
-	{
-		let size_limit = match size_limit {
-			SizeLimit::Default => FORM_BODY_SIZE_LIMIT,
-			SizeLimit::Value(value) => value,
-		};
-
-		let (head_parts, body) = self.request.into_parts();
-
-		request_into_form_data::<T, B>(&head_parts, body, size_limit).await
-	}
-
-	/// Consumes the `RequestContext` and returns a `multipart/form-data` extractor.
-	#[doc(hidden)]
-	#[cfg(feature = "multpart-form")]
-	#[inline(always)]
-	pub fn into_multipart_form(self) -> Result<MultipartForm<B>, MultipartFormError>
-	where
-		B: HttpBody<Data = Bytes> + Send + Sync + 'static,
-		B::Error: Into<BoxedError>,
-	{
-		let (head_parts, body) = self.request.into_parts();
-
-		request_into_multipart_form(&head_parts, body)
-	}
-
-	/// Consumes the `RequestContext` and returns an extractor to establish a WebSocket connection.
-	#[cfg(feature = "websockets")]
-	#[doc(hidden)]
-	#[inline(always)]
-	pub fn into_websocket_upgrade(self) -> Result<WebSocketUpgrade, WebSocketUpgradeError> {
-		let (mut head, _) = self.request.into_parts();
-
-		websocket_handshake(&mut head)
+		(request_head, body)
 	}
 
 	/// Consumes the `RequestContext`, extracting the `RequestHead` and type `T`.
@@ -317,7 +173,7 @@ impl<B> RequestContext<B> {
 	{
 		let (mut head_parts, body) = self.request.into_parts();
 		let result = T::from_request(&mut head_parts, body).await;
-		let mut request_head = RequestHead::new(head_parts, self.routing_state, self.properties);
+		let request_head = RequestHead::new(head_parts, self.routing_state, self.properties);
 
 		(request_head, result)
 	}
@@ -603,7 +459,8 @@ impl ContextProperties {
 		self.some_cookie_key.clone()
 	}
 
-	pub(crate) fn clone_valid_properties_from(&mut self, mut context_properties: &Self) {
+	#[allow(unused_variables)]
+	pub(crate) fn clone_valid_properties_from(&mut self, context_properties: &Self) {
 		#[cfg(any(feature = "private-cookies", feature = "signed-cookies"))]
 		if context_properties.some_cookie_key.is_some() {
 			self

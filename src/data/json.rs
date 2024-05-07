@@ -2,17 +2,15 @@
 
 // ----------
 
-use std::{str::FromStr, string::FromUtf8Error};
-
 use argan_core::request::RequestHeadParts;
 use http::{header::CONTENT_TYPE, HeaderValue, StatusCode};
 use http_body_util::{BodyExt, LengthLimitError, Limited};
 use serde::{de::DeserializeOwned, Serialize};
+use serde_json::error::Category;
 
 use crate::{
-	request::{FromRequest, Request, SizeLimit},
+	request::FromRequest,
 	response::{BoxedErrorResponse, IntoResponse, IntoResponseResult, Response},
-	routing::RoutingState,
 };
 
 use super::*;
@@ -23,7 +21,7 @@ use super::*;
 // --------------------------------------------------
 // Json
 
-pub(crate) const JSON_BODY_SIZE_LIMIT: usize = { 2 * 1024 * 1024 };
+pub(crate) const JSON_BODY_SIZE_LIMIT: usize = 2 * 1024 * 1024;
 
 // ----------
 
@@ -164,6 +162,7 @@ impl From<serde_json::Error> for JsonError {
 
 #[cfg(test)]
 mod test {
+	use argan_core::request::Request;
 	use serde::Deserialize;
 
 	use super::*;

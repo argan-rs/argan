@@ -4,8 +4,8 @@
 
 use crate::{
 	common::{IntoArray, SCOPE_VALIDITY},
-	pattern::{split_uri_host_and_path, Pattern, Similarity},
-	resource::{self, Resource},
+	pattern::{Pattern, Similarity},
+	resource::Resource,
 };
 
 // --------------------------------------------------
@@ -35,7 +35,7 @@ impl Host {
 	///
 	/// The `Host` node checks the request's host and, if matches, passes the request to
 	/// its root resource.
-	pub fn new<P>(host_pattern: P, mut root: Resource) -> Self
+	pub fn new<P>(host_pattern: P, root: Resource) -> Self
 	where
 		P: AsRef<str>,
 	{

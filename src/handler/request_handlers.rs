@@ -1,22 +1,17 @@
-use std::{
-	any::Any,
-	fmt::Debug,
-	future::{ready, Ready},
-};
+use std::{fmt::Debug, future::ready};
 
 use argan_core::BoxedFuture;
-use http::{header::InvalidHeaderValue, Extensions, HeaderName, HeaderValue, Method, StatusCode};
+use http::{header::InvalidHeaderValue, HeaderName, HeaderValue, Method, StatusCode};
 
 use crate::{
-	common::{marker::Private, Uncloneable},
+	common::Uncloneable,
 	middleware::{targets::LayerTarget, BoxedLayer, Layer},
-	request::{Request, RequestContext},
+	request::RequestContext,
 	resource::Resource,
-	response::{BoxedErrorResponse, IntoResponse, Response, ResponseError},
-	routing::{RoutingState, UnusedRequest},
+	response::{BoxedErrorResponse, IntoResponse, Response},
 };
 
-use super::{AdaptiveHandler, ArcHandler, Args, BoxedHandler, FinalHandler, Handler, IntoHandler};
+use super::{AdaptiveHandler, ArcHandler, Args, BoxedHandler, FinalHandler, Handler};
 
 // --------------------------------------------------------------------------------
 // --------------------------------------------------------------------------------
@@ -152,7 +147,7 @@ impl Handler for WildcardMethodHandler {
 	type Error = BoxedErrorResponse;
 	type Future = BoxedFuture<Result<Self::Response, Self::Error>>;
 
-	fn handle(&self, request_context: RequestContext, mut args: Args) -> Self::Future {
+	fn handle(&self, request_context: RequestContext, args: Args) -> Self::Future {
 		match self {
 			Self::Default => handle_unimplemented_method(args),
 			Self::Custom(boxed_handler) => boxed_handler.handle(request_context, args),
@@ -194,7 +189,7 @@ impl Handler for UnimplementedMethodHandler {
 	type Error = BoxedErrorResponse;
 	type Future = BoxedFuture<Result<Self::Response, Self::Error>>;
 
-	fn handle(&self, request_context: RequestContext, args: Args) -> Self::Future {
+	fn handle(&self, _request_context: RequestContext, args: Args) -> Self::Future {
 		handle_unimplemented_method(args)
 	}
 }
@@ -289,8 +284,8 @@ pub(crate) fn wrap_mistargeted_request_handler(
 // -------------------------
 
 pub(crate) fn handle_mistargeted_request(
-	mut request_context: RequestContext,
-	mut args: Args,
+	request_context: RequestContext,
+	args: Args,
 	mut some_custom_handler_with_extensions: Option<&ArcHandler>,
 ) -> BoxedFuture<Result<Response, BoxedErrorResponse>> {
 	if let Some(mistargeted_request_handler) = some_custom_handler_with_extensions.take() {

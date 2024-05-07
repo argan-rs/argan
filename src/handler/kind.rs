@@ -7,7 +7,7 @@ use std::str::FromStr;
 use argan_core::{body::Body, response::Response, BoxedFuture};
 use http::Method;
 
-use crate::response::{BoxedErrorResponse, IntoResponse};
+use crate::response::BoxedErrorResponse;
 
 use super::{BoxedHandler, FinalHandler, Handler, IntoHandler};
 

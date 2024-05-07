@@ -7,13 +7,11 @@
 // ----------
 
 use std::{
-	fmt::Display,
 	fs::File,
 	io::{Error as IoError, ErrorKind, Read, Seek, SeekFrom},
 	path::Path,
 	pin::Pin,
 	str::FromStr,
-	sync::Arc,
 	task::{Context, Poll},
 	time::{SystemTime, UNIX_EPOCH},
 	usize,
@@ -32,7 +30,6 @@ use http::{
 	},
 	HeaderValue, StatusCode,
 };
-use http_body_util::BodyExt;
 use percent_encoding::{percent_encode, NON_ALPHANUMERIC};
 use rand::{rngs::SmallRng, Rng, SeedableRng};
 use tokio::task::JoinError;
@@ -960,7 +957,7 @@ fn parse_range_header_value(
 		return Err(FileStreamError::UnsatisfiableRange);
 	}
 
-	let (mut valid_ranges, some_biggest_suffix_range) =
+	let (valid_ranges, some_biggest_suffix_range) =
 		get_valid_rangges(raw_ranges, ascending_range, file_size)?;
 
 	Ok(combine_valid_and_suffix_ranges(
@@ -1335,6 +1332,8 @@ impl IntoResponse for FileStreamError {
 
 #[cfg(test)]
 mod test {
+	use http_body_util::BodyExt;
+
 	use super::*;
 
 	#[test]
@@ -1342,17 +1341,17 @@ mod test {
 		const FILE_SIZE: u64 = 10000;
 		const END: u64 = FILE_SIZE - 1;
 
-		macro_rules! get_start {
-			() => {
-				(0, 0.to_string().into())
-			};
-		}
-
-		macro_rules! get_end {
-			() => {
-				(END, END.to_string().into())
-			};
-		}
+		// macro_rules! get_start {
+		// 	() => {
+		// 		(0, 0.to_string().into())
+		// 	};
+		// }
+		//
+		// macro_rules! get_end {
+		// 	() => {
+		// 		(END, END.to_string().into())
+		// 	};
+		// }
 
 		macro_rules! get_field {
 			($n:expr) => {
@@ -1710,8 +1709,6 @@ mod test {
 
 	// --------------------------------------------------
 
-	use http_body_util::Collected;
-
 	use crate::common::Deferred;
 
 	const FILE_SIZE: usize = 32 * 1024;
@@ -1735,7 +1732,7 @@ mod test {
 
 		// -------------------------
 
-		let mut response = FileStream::open(FILE).await.unwrap().into_response();
+		let response = FileStream::open(FILE).await.unwrap().into_response();
 
 		assert_eq!(StatusCode::OK, response.status());
 		assert!(response.headers().get(CONTENT_TYPE).is_none());
@@ -1754,9 +1751,6 @@ mod test {
 
 		let mut file_stream = FileStream::open(FILE).await.unwrap();
 		file_stream.configure([_as_attachment(), _content_type(content_type_value.clone())]);
-
-		// file_stream.configure(_as_attachment());
-		// file_stream.configure(_content_type(content_type_value.clone()));
 
 		let response = file_stream.into_response();
 

@@ -13,12 +13,11 @@ use argan_core::{
 	BoxedError,
 };
 use bytes::{BufMut, Bytes, BytesMut};
-use futures_util::{Future, Stream};
+use futures_util::Stream;
 use http::{
 	header::{CACHE_CONTROL, CONTENT_TYPE},
 	HeaderValue, StatusCode,
 };
-use http_body_util::BodyExt;
 use pin_project::pin_project;
 use serde::Serialize;
 use tokio::time::{interval_at, Interval, MissedTickBehavior};
@@ -204,7 +203,7 @@ impl Event {
 		}
 
 		let value_str = data.as_ref();
-		let mut value_chars = value_str.char_indices();
+		let value_chars = value_str.char_indices();
 
 		let mut previous_char = ' ';
 		let mut next_segment_index = 0;
@@ -367,6 +366,8 @@ mod test {
 	#![allow(clippy::octal_escapes)]
 	use core::panic;
 
+	use http_body_util::BodyExt;
+
 	use super::*;
 
 	// --------------------------------------------------------------------------------
@@ -382,7 +383,7 @@ mod test {
 	fn event() {
 		// ----------
 
-		let mut event_bytes = Event::new()
+		let event_bytes = Event::new()
 			.with_name("e")
 			.with_id("42")
 			.with_data("data 1")
@@ -404,7 +405,7 @@ mod test {
 			message: "message",
 		};
 
-		let mut event_bytes = Event::new()
+		let event_bytes = Event::new()
 			.with_id("42")
 			.with_comment("comment")
 			.with_json_data(data)
@@ -539,8 +540,6 @@ mod test {
 	#[tokio::test]
 	async fn event_stream() {
 		use futures_util::stream::unfold;
-		use hyper_util::rt::TokioTimer;
-
 		// --------------------------------------------------------------------------------
 		// --------------------------------------------------------------------------------
 
@@ -551,11 +550,11 @@ mod test {
 
 		// -------------------------
 
-		let stream = unfold(0, move |mut number| async move {
+		let stream = unfold(0, move |number| async move {
 			if number == 0 {
 				tokio::time::sleep(Duration::from_secs(1)).await;
 
-				let mut event = Event::new()
+				let event = Event::new()
 					.with_name("test")
 					.with_id("42")
 					.with_data("data 1\ndata 2");
@@ -566,7 +565,7 @@ mod test {
 			if number == 1 {
 				tokio::time::sleep(Duration::from_secs(1)).await;
 
-				let mut event = Event::new()
+				let event = Event::new()
 					.with_id("42")
 					.with_json_data(data)
 					.unwrap()

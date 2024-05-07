@@ -1,25 +1,15 @@
-use std::{
-	any::Any,
-	convert::Infallible,
-	future::{ready, Future},
-	marker::PhantomData,
-	pin::{pin, Pin},
-	task::{Context, Poll},
-};
+use std::{future::Future, marker::PhantomData};
 
 use argan_core::{
 	body::{Body, HttpBody},
 	BoxedError, BoxedFuture,
 };
 use bytes::Bytes;
-use futures_util::FutureExt;
-use pin_project::pin_project;
 
 use crate::{
-	common::{marker::Private, SCOPE_VALIDITY},
-	request::{ExtractorGuard, FromRequest, Request, RequestContext, RequestHead, RequestHeadParts},
-	response::{BoxedErrorResponse, IntoResponse, IntoResponseResult, Response},
-	routing::RoutingState,
+	common::marker::Private,
+	request::{ExtractorGuard, FromRequest, RequestContext, RequestHead},
+	response::{BoxedErrorResponse, IntoResponseResult, Response},
 };
 
 use super::{Args, BoxedHandler, Handler, IntoHandler};
@@ -143,6 +133,7 @@ macro_rules! request_handler_fn {
 			}
 		}
 
+		#[allow(unused)]
 		#[allow(non_snake_case)]
 		impl<Func, $($T,)? Fut, O> Handler for HandlerFn<Func, (Private, $($RequestHead,)? $($T)?)>
 		where
@@ -171,7 +162,7 @@ macro_rules! request_handler_fn {
 					)?
 
 					$(
-						let mut head = <$RequestHead>::new(head_parts, routing_state, context_properties);
+						let head = <$RequestHead>::new(head_parts, routing_state, context_properties);
 					)?
 
 					func_clone($(head as $RequestHead,)? $($T)?).await.into_response_result()
@@ -221,6 +212,7 @@ macro_rules! request_args_handler_fn {
 			}
 		}
 
+		#[allow(unused)]
 		#[allow(non_snake_case)]
 		impl<Ext, Func, $($G,)* $($T,)? Fut, O> Handler<Body, Ext>
 			for HandlerFn<Func, (Private, $($G, RequestHead,)* $($RequestHead,)? $($T,)? $($Args)?)>
@@ -240,7 +232,7 @@ macro_rules! request_args_handler_fn {
 			fn handle(
 				&self,
 				mut request_context: RequestContext,
-				mut args: Args<'_, Ext>,
+				args: Args<'_, Ext>,
 			) -> Self::Future {
 				let func_clone = self.func.clone();
 				let args = args.into_owned();
@@ -264,7 +256,7 @@ macro_rules! request_args_handler_fn {
 					)?
 
 					$(
-						let mut head = <$RequestHead>::new(head_parts, routing_state, context_properties);
+						let head = <$RequestHead>::new(head_parts, routing_state, context_properties);
 					)?
 
 					func_clone($($G,)* $(head as $RequestHead,)? $($T,)? $(args as $Args,)?)

@@ -3,7 +3,6 @@
 // ----------
 #![forbid(unsafe_code)]
 #![allow(dead_code)]
-#![allow(unused)]
 // ----------
 
 pub(crate) use std::error::Error as StdError;

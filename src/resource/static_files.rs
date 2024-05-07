@@ -1,7 +1,5 @@
 use std::{
-	ffi::OsStr,
 	fs::Metadata,
-	future::Future,
 	io::{Error as IoError, ErrorKind},
 	os::unix::fs::MetadataExt,
 	path::{Path, PathBuf},
@@ -21,18 +19,17 @@ use httpdate::HttpDate;
 use tokio::task::JoinError;
 
 use crate::{
-	common::{normalize_path, patterns_to_route, strip_double_quotes, Uncloneable, SCOPE_VALIDITY},
+	common::{normalize_path, strip_double_quotes, SCOPE_VALIDITY},
 	data::header::{split_header_value_with_weights, SplitHeaderValueError},
-	handler::{_get, request_handlers::handle_mistargeted_request, Handler, IntoHandler},
-	request::{FromRequest, Request, RequestContext, RequestHead},
+	handler::_get,
+	request::RequestHead,
 	response::{
 		file_stream::{
 			ContentCoding, FileStream, FileStreamError, _as_attachment, _content_encoding, _content_type,
 			_to_support_partial_content,
 		},
-		IntoResponse, IntoResponseResult, Response,
+		IntoResponse, Response,
 	},
-	routing::RoutingState,
 };
 
 use super::{config::ConfigFlags, Resource};
@@ -239,12 +236,12 @@ struct DynamicEncodingProps {
 // --------------------------------------------------
 
 async fn get_handler(
-	mut head: RequestHead,
+	head: RequestHead,
 	HandlerProps {
 		files_dir,
 		some_tagger,
 		attachments,
-		partial_content_support,
+		partial_content_support: _, // TODO: Should we make partial content optional?
 		dynamic_encoding_props,
 	}: HandlerProps,
 ) -> Result<Response, StaticFileError> {
@@ -363,7 +360,7 @@ async fn evaluate_optimal_coding<P1: AsRef<Path>, P2: AsRef<str>>(
 					_ => relative_path_to_file.to_string(),
 				};
 
-				let mut path_buf = files_dir
+				let path_buf = files_dir
 					.join(ENCODED)
 					.join(preferred_encoding.0)
 					.join(relative_path_to_file);
@@ -724,7 +721,7 @@ impl IntoResponse for StaticFileError {
 mod test {
 	use std::fs;
 
-	use bytes::Bytes;
+	use argan_core::request::Request;
 	use http::header::{
 		ACCEPT_RANGES, CONTENT_ENCODING, CONTENT_LENGTH, CONTENT_RANGE, CONTENT_TYPE,
 	};
@@ -818,7 +815,7 @@ mod test {
 
 		// --------------------------------------------------
 
-		let mut static_files = StaticFiles::new("/files", &root_dir)
+		let static_files = StaticFiles::new("/files", &root_dir)
 			.into_resource()
 			.into_service();
 

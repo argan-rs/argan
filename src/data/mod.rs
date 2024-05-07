@@ -2,40 +2,16 @@
 
 // ----------
 
-use std::{
-	any,
-	borrow::Cow,
-	convert::Infallible,
-	fmt::Debug,
-	future::{ready, Future, Ready},
-	marker::PhantomData,
-	pin::{pin, Pin},
-	string::FromUtf8Error,
-	task::{Context, Poll},
-};
+use std::{fmt::Debug, string::FromUtf8Error};
 
-use argan_core::{
-	body::{Body, HttpBody},
-	request::RequestHeadParts,
-	BoxedError,
-};
+use argan_core::{body::HttpBody, request::RequestHeadParts, BoxedError};
 use bytes::Bytes;
-use http::{
-	header::{ToStrError, CONTENT_TYPE, COOKIE, SET_COOKIE},
-	Extensions, HeaderValue, StatusCode, Version,
-};
-use http_body_util::{BodyExt, Empty, Full, LengthLimitError, Limited};
-use pin_project::pin_project;
-use serde::{de::DeserializeOwned, Serialize};
-
-#[cfg(feature = "json")]
-use serde_json::error::Category;
+use http::StatusCode;
+use http_body_util::{BodyExt, LengthLimitError, Limited};
 
 use crate::{
-	request::{FromRequest, Request, RequestHead},
-	response::{IntoResponse, IntoResponseHeadParts, Response, ResponseError, ResponseHeadParts},
-	routing::RoutingState,
-	ImplError,
+	request::FromRequest,
+	response::{IntoResponse, Response},
 };
 
 // --------------------------------------------------
@@ -45,6 +21,7 @@ pub mod cookies;
 
 #[cfg(any(feature = "form", feature = "multipart-form"))]
 pub mod form;
+
 pub mod header;
 
 #[cfg(feature = "json")]
@@ -58,7 +35,7 @@ use header::content_type;
 // --------------------------------------------------
 // Text
 
-pub(crate) const TEXT_BODY_SIZE_LIMIT: usize = { 1024 * 1024 };
+pub(crate) const TEXT_BODY_SIZE_LIMIT: usize = 1024 * 1024;
 
 // ----------
 
@@ -147,7 +124,7 @@ data_extractor_error! {
 // --------------------------------------------------
 // Binary
 
-pub(crate) const BINARY_BODY_SIZE_LIMIT: usize = { 2 * 1024 * 1024 };
+pub(crate) const BINARY_BODY_SIZE_LIMIT: usize = 2 * 1024 * 1024;
 
 // ----------
 
@@ -262,7 +239,7 @@ where
 {
 	type Error = FullBodyExtractorError;
 
-	async fn from_request(head_parts: &mut RequestHeadParts, body: B) -> Result<Self, Self::Error> {
+	async fn from_request(_head_parts: &mut RequestHeadParts, body: B) -> Result<Self, Self::Error> {
 		request_into_full_body(body, SIZE_LIMIT).await.map(Self)
 	}
 }
@@ -316,10 +293,9 @@ impl IntoResponse for FullBodyExtractorError {
 
 #[cfg(test)]
 mod test {
-	use argan_core::body::HttpBody;
-	use http::Extensions;
-
-	use crate::routing::{RouteTraversal, RoutingState};
+	use argan_core::request::Request;
+	use http::{header::CONTENT_TYPE, HeaderValue};
+	use http_body_util::Full;
 
 	use super::*;
 
