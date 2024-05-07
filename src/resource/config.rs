@@ -1,6 +1,4 @@
-use std::marker::PhantomData;
-
-use crate::{common::SCOPE_VALIDITY, middleware::RequestExtensionsModifierLayer};
+use crate::common::SCOPE_VALIDITY;
 
 use super::*;
 

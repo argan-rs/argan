@@ -265,6 +265,7 @@ impl<'de> MapAccess<'de> for FromParamsListMapAccess<'_, 'de> {
 		let data_type = self.0.data_type;
 
 		if let Some(from_params) = self.0.current_valid_params_deserializer() {
+			from_params.set_high_level_data_type(data_type);
 			println!("[{}] \tmap value -> ", line!());
 
 			return from_params.deserialize_map_value(seed);

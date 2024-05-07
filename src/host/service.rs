@@ -6,14 +6,16 @@ use http::{Extensions, StatusCode};
 use hyper::service::Service;
 
 use crate::{
-	common::{NodeExtensions, Uncloneable},
-	handler::{futures::ResponseToResultFuture, request_handlers::handle_mistargeted_request, Args},
-	pattern::ParamsList,
+	common::NodeExtensions,
+	handler::Args,
 	request::{ContextProperties, Request, RequestContext},
 	resource::ResourceService,
 	response::{BoxedErrorResponse, InfallibleResponseFuture, IntoResponse, Response},
 	routing::{RouteTraversal, RoutingState},
 };
+
+#[cfg(feature = "regex")]
+use crate::pattern::ParamsList;
 
 use super::*;
 
@@ -70,7 +72,7 @@ where
 	type Error = Infallible;
 	type Future = InfallibleResponseFuture;
 
-	fn call(&self, mut request: Request<B>) -> Self::Future {
+	fn call(&self, request: Request<B>) -> Self::Future {
 		macro_rules! handle_unmatching_host {
 			() => {
 				InfallibleResponseFuture::from(Box::pin(ready(Ok(StatusCode::NOT_FOUND.into_response()))))
@@ -81,13 +83,14 @@ where
 			return handle_unmatching_host!();
 		};
 
+		#[allow(unused_mut)]
 		let mut routing_state = RoutingState::new(RouteTraversal::for_route(request.uri().path()));
 		let args = Args {
 			node_extensions: NodeExtensions::new_owned(Extensions::new()),
 			handler_extension: Cow::Borrowed(&()),
 		};
 
-		if let Some(result) = self.pattern.is_static_match(host) {
+		if let Some(true) = self.pattern.is_static_match(host) {
 			let request_context =
 				RequestContext::new(request, routing_state, ContextProperties::default());
 
@@ -95,7 +98,7 @@ where
 		}
 
 		#[cfg(feature = "regex")]
-		if let Some(result) = self
+		if let Some(true) = self
 			.pattern
 			.is_regex_match(host, &mut routing_state.uri_params)
 		{

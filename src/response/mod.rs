@@ -3,7 +3,7 @@
 // ----------
 
 use std::{
-	any::{type_name, Any},
+	any::type_name,
 	convert::Infallible,
 	fmt::{Debug, Display},
 	future::Future,
@@ -13,11 +13,7 @@ use std::{
 };
 
 use futures_util::FutureExt;
-use http::{
-	header::{InvalidHeaderName, InvalidHeaderValue, LOCATION},
-	response::Parts,
-	HeaderMap, HeaderName, HeaderValue, StatusCode,
-};
+use http::{header::LOCATION, HeaderValue, StatusCode};
 
 // ----------
 

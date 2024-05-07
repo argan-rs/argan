@@ -2,21 +2,21 @@
 
 // ----------
 
-use std::io;
+use std::{io, marker::PhantomData};
 
-use argan_core::request::RequestHeadParts;
-use futures_util::{Stream, StreamExt};
-use http::HeaderMap;
+use argan_core::{body::Body, request::RequestHeadParts};
+use futures_util::StreamExt;
+use http::{header::CONTENT_TYPE, HeaderMap, HeaderValue};
 use http_body_util::{BodyStream, Limited};
 use mime::Mime;
 
 #[cfg(feature = "multipart-form")]
 use multer::parse_boundary;
+use serde::{de::DeserializeOwned, Serialize};
 
 use crate::{
 	common::SCOPE_VALIDITY,
 	response::{BoxedErrorResponse, IntoResponseResult},
-	routing::RoutingState,
 	StdError,
 };
 
@@ -29,7 +29,7 @@ use super::*;
 // Form
 
 #[cfg(feature = "form")]
-pub(crate) const FORM_BODY_SIZE_LIMIT: usize = { 2 * 1024 * 1024 };
+pub(crate) const FORM_BODY_SIZE_LIMIT: usize = 2 * 1024 * 1024;
 
 // ----------
 
@@ -169,7 +169,7 @@ data_extractor_error! {
 // MultipartForm
 
 #[cfg(feature = "multipart-form")]
-const MULTIPART_FORM_BODY_SIZE_LIMIT: usize = { 8 * 1024 * 1024 };
+const MULTIPART_FORM_BODY_SIZE_LIMIT: usize = 8 * 1024 * 1024;
 
 // ----------
 
@@ -227,7 +227,7 @@ where
 
 		let constraints = if let Some(constraints) = self.some_constraints.take() {
 			let Constraints {
-				inner: mut constraints,
+				inner: constraints,
 				body_size_limit,
 				some_part_size_limit,
 				some_size_limits_for_parts,
@@ -550,16 +550,18 @@ impl From<multer::Error> for MultipartFormError {
 			NoBoundary => Self::NoBoundary,
 			#[cfg(feature = "json")]
 			DecodeJson(error) => match error.classify() {
-				Category::Io => Self::JsonIoFailure(error.io_error_kind().expect(SCOPE_VALIDITY)),
-				Category::Syntax => Self::InvalidJsonSyntax {
+				serde_json::error::Category::Io => {
+					Self::JsonIoFailure(error.io_error_kind().expect(SCOPE_VALIDITY))
+				}
+				serde_json::error::Category::Syntax => Self::InvalidJsonSyntax {
 					line: error.line(),
 					column: error.column(),
 				},
-				Category::Data => Self::InvalidJsonData {
+				serde_json::error::Category::Data => Self::InvalidJsonData {
 					line: error.line(),
 					column: error.column(),
 				},
-				Category::Eof => Self::JsonUnexpectedEoF,
+				serde_json::error::Category::Eof => Self::JsonUnexpectedEoF,
 			},
 			_ => Self::UnknownFailure,
 		}
@@ -571,7 +573,7 @@ impl From<multer::Error> for MultipartFormError {
 
 #[cfg(all(test, feature = "full"))]
 mod test {
-	use serde::Deserialize;
+	use serde::{Deserialize, Serialize};
 
 	use super::*;
 
@@ -599,6 +601,9 @@ mod test {
 
 	#[cfg(all(test, feature = "full"))]
 	async fn form() {
+		use argan_core::request::Request;
+		use http::{header::CONTENT_TYPE, HeaderValue};
+
 		let login = "login".to_string();
 		let password = "password".to_string();
 

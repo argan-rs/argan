@@ -1,24 +1,17 @@
 use std::{
 	convert::Infallible,
-	future::{Future, Ready},
+	future::Future,
 	pin::{pin, Pin},
 	task::{Context, Poll},
 };
 
 use argan_core::{
 	body::{Body, Bytes, HttpBody},
-	response::{ErrorResponse, IntoResponse, ResponseError},
 	BoxedError,
 };
-use futures_util::FutureExt;
 use pin_project::pin_project;
 
-use crate::{
-	response::{BoxedErrorResponse, Response},
-	StdError,
-};
-
-use super::ErrorHandler;
+use crate::response::{BoxedErrorResponse, Response};
 
 // --------------------------------------------------------------------------------
 // --------------------------------------------------------------------------------

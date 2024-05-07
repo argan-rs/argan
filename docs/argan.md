@@ -1,4 +1,4 @@
-A web resources tree for G.O.A.T.s aka Rustaceans :)
+A web framework.
 
 ## Resource
 

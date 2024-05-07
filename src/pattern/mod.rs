@@ -1,7 +1,10 @@
 use core::panic;
-use std::{borrow::Cow, fmt::Display, iter::Peekable, slice, str::Chars, sync::Arc};
+use std::{borrow::Cow, fmt::Display, slice, sync::Arc};
 
-use percent_encoding::{percent_encode, AsciiSet, CONTROLS, NON_ALPHANUMERIC};
+#[cfg(feature = "regex")]
+use std::{iter::Peekable, str::Chars};
+
+use percent_encoding::{percent_encode, AsciiSet, CONTROLS};
 
 #[cfg(feature = "regex")]
 use regex::{CaptureLocations, CaptureNames, Regex};
@@ -47,12 +50,12 @@ const ASCII_SET: &AsciiSet = &CONTROLS
 impl Pattern {
 	#[cfg(not(feature = "regex"))]
 	pub(crate) fn parse(pattern: &str) -> Pattern {
-		return into_static_or_wildcard_pattern(pattern.into());
+		into_static_or_wildcard_pattern(pattern.into())
 	}
 
 	#[cfg(feature = "regex")]
 	pub(crate) fn parse(pattern: &str) -> Pattern {
-		let mut chars = pattern.chars().peekable();
+		let chars = pattern.chars().peekable();
 
 		let mut segments = split(chars);
 
@@ -213,8 +216,8 @@ impl Pattern {
 				}
 			}
 			#[cfg(feature = "regex")]
-			Pattern::Regex(capture_names, regex) => {
-				if let Pattern::Regex(other_capture_names, other_regex) = other {
+			Pattern::Regex(_capture_names, regex) => {
+				if let Pattern::Regex(_other_capture_names, other_regex) = other {
 					if regex.as_str() == other_regex.as_str() {
 						return Similarity::Same;
 					}
@@ -497,7 +500,7 @@ fn into_static_or_wildcard_pattern(pattern: Cow<str>) -> Pattern {
 	if let Some(pattern) = pattern.strip_prefix('{') {
 		if let Some(pattern) = pattern.strip_suffix('}') {
 			let mut pattern_bytes = pattern.bytes();
-			if let Some(ch) = pattern_bytes.nth(0) {
+			if let Some(ch) = pattern_bytes.next() {
 				if ch != b'{' {
 					return Pattern::Wildcard(pattern.into());
 				}
@@ -515,7 +518,7 @@ fn into_static_or_wildcard_pattern(pattern: Cow<str>) -> Pattern {
 		}
 	}
 
-	Pattern::Static(restore_slashes(pattern.into()).into())
+	Pattern::Static(restore_slashes(pattern).into())
 }
 
 // --------------------------------------------------

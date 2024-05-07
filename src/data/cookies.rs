@@ -2,28 +2,16 @@
 
 // ----------
 
-use std::{
-	borrow::{Borrow, BorrowMut, Cow},
-	convert::Infallible,
-	default,
-	future::Future,
-	marker::PhantomData,
-};
-
-use argan_core::{request::RequestHeadParts, response::ResponseHeadParts};
-use bytes::Bytes;
-use cookie::{prefix::Prefix, CookieJar as InnerCookieJar};
+use argan_core::response::ResponseHeadParts;
+use cookie::CookieJar as InnerCookieJar;
 use http::{
 	header::{COOKIE, SET_COOKIE},
 	HeaderMap, HeaderValue,
 };
 
 use crate::{
-	common::{IntoArray, SCOPE_VALIDITY},
-	handler::Args,
-	request::RequestHead,
+	common::IntoArray,
 	response::{BoxedErrorResponse, IntoResponse, IntoResponseHeadParts, Response},
-	routing::RoutingState,
 };
 
 // --------------------------------------------------------------------------------
@@ -357,7 +345,7 @@ impl PrivateCookieJar {
 impl IntoResponseHeadParts for PrivateCookieJar {
 	fn into_response_head(
 		self,
-		mut head: ResponseHeadParts,
+		head: ResponseHeadParts,
 	) -> Result<ResponseHeadParts, BoxedErrorResponse> {
 		self.into_jar().into_response_head(head)
 	}
@@ -433,7 +421,7 @@ impl SignedCookieJar {
 impl IntoResponseHeadParts for SignedCookieJar {
 	fn into_response_head(
 		self,
-		mut head: ResponseHeadParts,
+		head: ResponseHeadParts,
 	) -> Result<ResponseHeadParts, BoxedErrorResponse> {
 		self.into_jar().into_response_head(head)
 	}
@@ -473,8 +461,6 @@ mod private {
 
 use private::CookieKind;
 
-use super::header::HeaderMapExt;
-
 /// Passes the cookie to the jar as a *plain* `Cookie`.
 #[inline(always)]
 pub fn _plain<C: Into<Cookie<'static>>>(cookie: C) -> CookieKind {
@@ -500,6 +486,7 @@ pub fn _signed<C: Into<Cookie<'static>>>(cookie: C) -> CookieKind {
 
 #[cfg(all(test, feature = "full"))]
 mod test {
+	use bytes::Bytes;
 	use http::Request;
 	use http_body_util::Empty;
 
@@ -510,7 +497,7 @@ mod test {
 
 	#[test]
 	fn cookies() {
-		let mut request = Request::builder()
+		let request = Request::builder()
 			.uri("/")
 			.header("Cookie", "key1=value1; key2=value2")
 			.body(Empty::<Bytes>::default())
@@ -542,7 +529,7 @@ mod test {
 			cookies_string.push_str("; ");
 		}
 
-		let mut request = Request::builder()
+		let request = Request::builder()
 			.uri("/")
 			.header("Cookie", cookies_string)
 			.body(Empty::<Bytes>::default())

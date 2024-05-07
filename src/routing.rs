@@ -2,7 +2,7 @@ use std::{borrow::Cow, str::Utf8Error};
 
 use percent_encoding::percent_decode_str;
 
-use crate::{pattern::ParamsList, request::Request, resource::ResourceService};
+use crate::{pattern::ParamsList, request::Request};
 
 // --------------------------------------------------------------------------------
 // --------------------------------------------------------------------------------

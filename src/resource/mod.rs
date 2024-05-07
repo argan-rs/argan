@@ -3,33 +3,24 @@
 // ----------
 
 use std::{
-	any::{self, Any, TypeId},
-	convert::Infallible,
+	any,
 	fmt::{Debug, Display},
-	future::Ready,
 	sync::Arc,
 };
 
-use http::{Extensions, Uri};
+use http::Extensions;
 
 use crate::{
-	common::{
-		config::ConfigOption, marker::Private, patterns_to_route, IntoArray, Uncloneable,
-		SCOPE_VALIDITY,
-	},
+	common::{config::ConfigOption, patterns_to_route, IntoArray, SCOPE_VALIDITY},
 	handler::{
 		kind::HandlerKind,
-		request_handlers::{
-			handle_mistargeted_request, wrap_mistargeted_request_handler, ImplementedMethods,
-			MethodHandlers,
-		},
-		BoxedHandler, IntoHandler,
+		request_handlers::{wrap_mistargeted_request_handler, ImplementedMethods, MethodHandlers},
+		BoxedHandler,
 	},
 	middleware::{_request_receiver, targets::LayerTarget},
 	pattern::{split_uri_host_and_path, Pattern, Similarity},
-	request::{ContextProperties, FromRequest, Request, RequestHead},
-	response::Response,
-	routing::{RouteSegments, RoutingState},
+	request::ContextProperties,
+	routing::RouteSegments,
 };
 
 // --------------------------------------------------
@@ -985,7 +976,7 @@ impl Resource {
 					}
 				}
 				#[cfg(feature = "regex")]
-				Pattern::Regex(ref names, ref some_regex) => {
+				Pattern::Regex(_, _) => {
 					let some_position = leaf_resource
 						.regex_resources
 						.iter()
@@ -1382,7 +1373,7 @@ impl Resource {
 			regex_resources,
 			some_wildcard_resource,
 			method_handlers,
-			mut some_mistargeted_request_handler,
+			some_mistargeted_request_handler,
 			context_properties: context,
 			mut extensions,
 			mut middleware,
@@ -2155,7 +2146,7 @@ mod test {
 			.subresource_mut("/st_0_0/{wl_1_0}/{rx_2_0:p}/st_3_0")
 			.set_handler_for(_get(DummyHandler));
 
-		let st_3_0 = parent.subresource_mut("/st_0_0/{wl_1_0}/{rx_2_0:p}/st_3_0/");
+		let _st_3_0 = parent.subresource_mut("/st_0_0/{wl_1_0}/{rx_2_0:p}/st_3_0/");
 	}
 
 	#[test]
@@ -2172,7 +2163,7 @@ mod test {
 			.subresource_mut("/st_0_0/{wl_1_0}/{rx_2_0:p}/st_3_0/")
 			.set_handler_for(_get(DummyHandler));
 
-		let st_3_0 = parent.subresource_mut("/st_0_0/{wl_1_0}/{rx_2_0:p}/st_3_0");
+		let _st_3_0 = parent.subresource_mut("/st_0_0/{wl_1_0}/{rx_2_0:p}/st_3_0");
 	}
 
 	#[test]

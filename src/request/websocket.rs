@@ -12,7 +12,6 @@ use std::{
 
 use argan_core::BoxedError;
 use base64::prelude::*;
-use bytes::Bytes;
 use fastwebsockets::{
 	FragmentCollector, Frame, OpCode, Payload, Role, WebSocket as FastWebSocket,
 	WebSocketError as FastWebSocketError,
@@ -20,17 +19,15 @@ use fastwebsockets::{
 use futures_util::FutureExt;
 use http::{
 	header::{
-		CONNECTION, SEC_WEBSOCKET_ACCEPT, SEC_WEBSOCKET_KEY, SEC_WEBSOCKET_PROTOCOL,
-		SEC_WEBSOCKET_VERSION, UPGRADE,
+		ToStrError, CONNECTION, SEC_WEBSOCKET_ACCEPT, SEC_WEBSOCKET_KEY, SEC_WEBSOCKET_PROTOCOL, SEC_WEBSOCKET_VERSION, UPGRADE
 	},
 	HeaderValue, Method,
 };
-use http_body_util::Empty;
 use hyper::upgrade::{OnUpgrade, Upgraded};
 use hyper_util::rt::TokioIo;
 use sha1::{Digest, Sha1};
 
-use crate::data::header::{split_header_value, HeaderMapExt};
+use crate::data::header::split_header_value;
 
 use super::*;
 
@@ -138,7 +135,7 @@ impl WebSocketUpgrade {
 		let Self {
 			mut response,
 			upgrade_future,
-			some_requested_protocols: requested_protocols,
+			some_requested_protocols: _,
 			some_selected_protocol,
 			message_size_limit,
 			auto_unmasking,
@@ -173,7 +170,7 @@ impl<B> FromRequest<B> for WebSocketUpgrade {
 	type Error = WebSocketUpgradeError;
 
 	fn from_request(
-		mut head_parts: &mut RequestHeadParts,
+		head_parts: &mut RequestHeadParts,
 		_: B,
 	) -> impl Future<Output = Result<Self, Self::Error>> {
 		ready(websocket_handshake(head_parts))
@@ -181,7 +178,7 @@ impl<B> FromRequest<B> for WebSocketUpgrade {
 }
 
 pub(crate) fn websocket_handshake(
-	mut head: &mut RequestHeadParts,
+	head: &mut RequestHeadParts,
 ) -> Result<WebSocketUpgrade, WebSocketUpgradeError> {
 	if head.method != Method::GET {
 		panic!("WebSocket is not supported with methods other than GET")
@@ -211,7 +208,7 @@ pub(crate) fn websocket_handshake(
 		return Err(WebSocketUpgradeError::InvalidSecWebSocketVersion);
 	}
 
-	let Some(mut sec_websocket_accept_value) = head
+	let Some(sec_websocket_accept_value) = head
 		.headers
 		.get(SEC_WEBSOCKET_KEY)
 		.map(|header_value| sec_websocket_accept_value_from(header_value.as_bytes()))

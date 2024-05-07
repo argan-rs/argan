@@ -2,10 +2,7 @@
 
 // ----------
 
-use std::{error::Error, sync::Arc};
-
 use argan_core::BoxedFuture;
-use http::Method;
 use tower_layer::Layer as TowerLayer;
 
 use crate::{
@@ -18,8 +15,7 @@ use crate::{
 mod impls;
 pub use impls::*;
 
-mod layer_stack;
-pub(crate) use layer_stack::*;
+pub(crate) mod layer_stack;
 
 mod internal;
 pub(crate) use internal::*;

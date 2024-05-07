@@ -1,20 +1,8 @@
-use std::{
-	fmt::Debug,
-	future::Future,
-	pin::Pin,
-	task::{Context, Poll},
-};
-
-use argan_core::{request::Request, BoxedFuture};
-use bytes::Bytes;
 use http::Extensions;
-use http_body_util::BodyExt;
-use pin_project::pin_project;
 
 use crate::{
-	handler::{AdaptiveHandler, Args, BoxedHandler, DummyHandler, Handler},
+	handler::{AdaptiveHandler, Args, Handler},
 	request::RequestContext,
-	response::{BoxedErrorResponse, IntoResponse, Response},
 };
 
 use super::Layer;

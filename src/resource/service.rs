@@ -1,40 +1,25 @@
-use std::{
-	any::Any,
-	borrow::Cow,
-	convert::Infallible,
-	fmt::Debug,
-	future::Future,
-	future::{ready, IntoFuture},
-	pin::Pin,
-	process::Output,
-	sync::Arc,
-};
+use std::{borrow::Cow, convert::Infallible, future::ready, sync::Arc};
 
 use argan_core::{
 	body::{Body, HttpBody},
 	BoxedError, BoxedFuture,
 };
 use bytes::Bytes;
-use http::{Extensions, Method, StatusCode, Uri};
-use http_body_util::{BodyExt, Empty};
+use http::{Extensions, Method, StatusCode};
 use hyper::service::Service;
 use percent_encoding::percent_decode_str;
 
 use crate::{
-	common::{marker::Private, MaybeBoxed, NodeExtensions, Uncloneable, SCOPE_VALIDITY},
+	common::{MaybeBoxed, NodeExtensions, Uncloneable, SCOPE_VALIDITY},
 	handler::{
-		futures::ResponseToResultFuture,
-		request_handlers::{
-			self, handle_mistargeted_request, handle_unimplemented_method, MethodHandlers,
-			MistargetedRequestHandler, UnimplementedMethodHandler, WildcardMethodHandler,
-		},
-		ArcHandler, Args, BoxedHandler, Handler, IntoHandler,
+		request_handlers::{handle_mistargeted_request, WildcardMethodHandler},
+		ArcHandler, Args, BoxedHandler, Handler,
 	},
 	middleware::{targets::LayerTarget, BoxedLayer, Layer},
 	pattern::{ParamsList, Pattern},
 	request::{ContextProperties, Request, RequestContext},
 	response::{BoxedErrorResponse, InfallibleResponseFuture, IntoResponse, Redirect, Response},
-	routing::{self, RouteTraversal, RoutingState, UnusedRequest},
+	routing::{RouteTraversal, RoutingState},
 };
 
 use super::{config::ConfigFlags, Resource};
@@ -99,7 +84,7 @@ impl ResourceService {
 		let mut request_context = request_context.map(Body::new);
 		request_context.clone_valid_properties_from(&self.context_properties);
 
-		let mut args = args.extensions_replaced(NodeExtensions::new_borrowed(&self.extensions), &());
+		let args = args.extensions_replaced(NodeExtensions::new_borrowed(&self.extensions), &());
 
 		match &self.request_receiver {
 			MaybeBoxed::Boxed(boxed_request_receiver) => {
@@ -122,7 +107,7 @@ where
 	type Future = InfallibleResponseFuture;
 
 	fn call(&self, request: Request<B>) -> Self::Future {
-		let mut request = request.map(Body::new);
+		let request = request.map(Body::new);
 
 		let route = request.uri().path();
 		let mut route_traversal = RouteTraversal::for_route(route);
@@ -169,7 +154,7 @@ where
 		let mut routing_state = RoutingState::new(route_traversal);
 		routing_state.uri_params = path_params;
 
-		let mut args = Args {
+		let args = Args {
 			node_extensions: NodeExtensions::new_borrowed(&self.extensions),
 			handler_extension: Cow::Borrowed(&()),
 		};
@@ -294,12 +279,12 @@ impl RequestReceiver {
 		for layer in middleware {
 			if let LayerTarget::RequestReceiver(boxed_layer) = layer {
 				match maybe_boxed_request_receiver {
-					MaybeBoxed::Boxed(mut boxed_request_receiver) => {
+					MaybeBoxed::Boxed(boxed_request_receiver) => {
 						maybe_boxed_request_receiver =
 							MaybeBoxed::Boxed(boxed_layer.wrap(boxed_request_receiver.into()));
 					}
 					MaybeBoxed::Unboxed(request_receiver) => {
-						let mut boxed_request_receiver = BoxedHandler::new(request_receiver);
+						let boxed_request_receiver = BoxedHandler::new(request_receiver);
 
 						maybe_boxed_request_receiver =
 							MaybeBoxed::Boxed(boxed_layer.wrap(boxed_request_receiver.into()));
@@ -323,7 +308,7 @@ impl Handler for RequestReceiver {
 	type Future = BoxedFuture<Result<Self::Response, Self::Error>>;
 
 	#[inline]
-	fn handle(&self, mut request_context: RequestContext, mut args: Args) -> Self::Future {
+	fn handle(&self, mut request_context: RequestContext, args: Args) -> Self::Future {
 		if request_context.routing_has_remaining_segments() {
 			let resource_is_subtree_handler = self.is_subtree_hander();
 
@@ -560,7 +545,7 @@ impl Handler for RequestPasser {
 		if let Some(next_resource) = some_next_resource {
 			request_context.clone_valid_properties_from(&next_resource.context_properties);
 
-			let mut args =
+			let args =
 				args.extensions_replaced(NodeExtensions::new_borrowed(&next_resource.extensions), &());
 
 			match &next_resource.request_receiver {
@@ -705,11 +690,8 @@ impl Handler for RequestHandler {
 
 #[cfg(all(test, feature = "full"))]
 mod test {
-	use std::future::Ready;
-
-	use argan_core::response::IntoResponseResult;
 	use http::header::{ACCEPT_ENCODING, CONTENT_ENCODING};
-	use http_body_util::Empty;
+	use http_body_util::{BodyExt, Empty};
 	use tower_http::compression::CompressionLayer;
 
 	use crate::{
@@ -717,7 +699,7 @@ mod test {
 			config::_with_request_extensions_modifier,
 			test_helpers::{new_root, test_service, Case, DataKind, Rx_1_1, Rx_2_0, Wl_3_0},
 		},
-		handler::{DummyHandler, _get, _post},
+		handler::{IntoHandler, _get, _post},
 		middleware::{_request_handler, _request_passer, _request_receiver},
 		request::RequestHead,
 		resource::Resource,
@@ -913,7 +895,7 @@ mod test {
 		type Error = BoxedErrorResponse;
 		type Future = BoxedFuture<Result<Self::Response, Self::Error>>;
 
-		fn handle(&self, request_context: RequestContext<B>, args: Args<'_, ()>) -> Self::Future {
+		fn handle(&self, _request_context: RequestContext<B>, _args: Args<'_, ()>) -> Self::Future {
 			Box::pin(ready(Ok("Hello from Middleware!".into_response())))
 		}
 	}
@@ -959,7 +941,7 @@ mod test {
 	#[tokio::test]
 	async fn resource_request_handler_layer() {
 		let mut root = Resource::new("/");
-		let mut st_1_0 = root.subresource_mut("/st_0_0/st_1_0");
+		let st_1_0 = root.subresource_mut("/st_0_0/st_1_0");
 		st_1_0.set_handler_for(_get(|| async { "Hello from Handler!" }));
 		st_1_0.add_layer_to(_request_handler(Middleware));
 
@@ -983,11 +965,11 @@ mod test {
 	async fn resource_request_handler_tower_layer() {
 		let mut root = Resource::new("/");
 
-		let mut st_1_0 = root.subresource_mut("/st_0_0/st_1_0");
+		let st_1_0 = root.subresource_mut("/st_0_0/st_1_0");
 		st_1_0.set_handler_for(_get(|| async { "Hello from Handler!" }));
 		st_1_0.add_layer_to(_request_handler((CompressionLayer::new(), Middleware)));
 
-		let mut st_1_1 = root.subresource_mut("/st_0_0/st_1_1");
+		let st_1_1 = root.subresource_mut("/st_0_0/st_1_1");
 		st_1_1.set_handler_for(_get(|| async { "Hello from Handler!" }));
 		st_1_1.add_layer_to(_request_handler((Middleware, CompressionLayer::new())));
 

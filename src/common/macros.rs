@@ -12,6 +12,7 @@ macro_rules! option {
 			$($option_name:ident $(($($tokens:ty),+))?,)+
 		}
 	) => {
+		#[allow(unused)]
 		mod option_private {
 			use super::*;
 
