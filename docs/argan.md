@@ -29,10 +29,10 @@ use argan::{
 let mut resource_0_0 = Resource::new("/resource_0_0");
 
 let mut resource_1_1 = Resource::new("/resource_1_1");
-resource_1_1.set_handler_for(_get(|| async { "resource_1_1" }));
+resource_1_1.set_handler_for(_get.to(|| async { "resource_1_1" }));
 
 let mut resource_2_0 = Resource::new("/resource_0_0/resource_1_0/resource_2_0");
-resource_2_0.set_handler_for(_get(|| async { "resource_2_0" }));
+resource_2_0.set_handler_for(_get.to(|| async { "resource_2_0" }));
 
 resource_0_0.add_subresource([resource_1_1, resource_2_0]);
 
@@ -40,10 +40,10 @@ resource_0_0.add_subresource([resource_1_1, resource_2_0]);
 // path pattern from a parent.
 
 let mut resource_2_1 = resource_0_0.subresource_mut("/resource_1_0/resource_2_1");
-resource_2_1.set_handler_for(_get(|| async { "resource_2_1" }));
+resource_2_1.set_handler_for(_get.to(|| async { "resource_2_1" }));
 resource_2_1
     .subresource_mut("/resource_3_0")
-    .set_handler_for(_get(|| async { "resource_3_0" }));
+    .set_handler_for(_get.to(|| async { "resource_3_0" }));
 
 let resource_service = resource_0_0.into_arc_service();
 ```
@@ -83,7 +83,7 @@ async fn hello_world() -> &'static str {
 }
 
 let mut root = Resource::new("/");
-root.set_handler_for(_get(hello_world));
+root.set_handler_for(_get.to(hello_world));
 
 let host_service = Host::new("http://example.com", root).into_arc_service();
 ```
@@ -104,10 +104,10 @@ use argan::{
 let mut router = Router::new();
 
 let mut example_com_root = Resource::new("/");
-example_com_root.set_handler_for(_get(|| async { "example.com" }));
+example_com_root.set_handler_for(_get.to(|| async { "example.com" }));
 
 let mut abc_example_com_root = Resource::new("/");
-abc_example_com_root.set_handler_for(_get(|| async { "abc.example.com" }));
+abc_example_com_root.set_handler_for(_get.to(|| async { "abc.example.com" }));
 
 router.add_host([
     Host::new("http://example.com", example_com_root),
@@ -115,13 +115,13 @@ router.add_host([
 ]);
 
 let mut bca_example_com_root = Resource::new("http://bca.example.com/");
-bca_example_com_root.set_handler_for(_get(|| async { "bca.example.com" }));
+bca_example_com_root.set_handler_for(_get.to(|| async { "bca.example.com" }));
 
 // We can also add a hostless resource tree for requests with a "Host" that doesn't
 // match any of our hosts.
 
 let mut hostless_resource = Resource::new("/resource");
-hostless_resource.set_handler_for(_get(|| async { "resource" }));
+hostless_resource.set_handler_for(_get.to(|| async { "resource" }));
 
 router.add_resource([bca_example_com_root, hostless_resource]);
 

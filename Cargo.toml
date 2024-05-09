@@ -33,8 +33,8 @@ json = ["dep:serde_json", "multer/json"]
 form = ["dep:serde_urlencoded"]
 multipart-form = ["dep:multer"]
 sse = ["dep:tokio"]
-websockets = ["dep:fastwebsockets", "dep:base64", "dep:sha1"]
 file-stream = ["dep:tokio", "dep:rand", "dep:mime_guess", "dep:flate2"]
+websockets = ["dep:fastwebsockets", "dep:base64", "dep:sha1"]
 full = [
 	"regex",
 	"private-cookies",
