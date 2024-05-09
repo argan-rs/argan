@@ -19,13 +19,16 @@ use crate::{
 #[cfg(feature = "cookies")]
 pub mod cookies;
 
-#[cfg(any(feature = "form", feature = "multipart-form"))]
-pub mod form;
-
 pub mod header;
 
 #[cfg(feature = "json")]
 pub mod json;
+
+#[cfg(feature = "form")]
+pub mod form;
+
+#[cfg(feature = "multipart-form")]
+pub mod multipart_form;
 
 use header::content_type;
 
