@@ -175,7 +175,7 @@ impl CookieJar {
 	/// }
 	///
 	/// let mut resource = Resource::new("/");
-	/// resource.set_handler_for(_get(handler));
+	/// resource.set_handler_for(_get.to(handler));
 	/// ```
 	pub fn remove<C, const N: usize>(&mut self, cookies: C)
 	where

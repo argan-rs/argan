@@ -88,13 +88,13 @@ impl Router {
 	/// let mut root = Resource::new("/");
 	/// root
 	///   .subresource_mut("/resource_1/resource_2/resource_3")
-	///   .set_handler_for(_get(|| async {}));
+	///   .set_handler_for(_get.to(|| async {}));
 	///
 	/// router.add_host(Host::new("example.com", root));
 	///
 	/// let mut root = Resource::new("/");
 	/// root.subresource_mut("/resource_1/resource_2")
-	///   .set_handler_for(_get(|| async {}));
+	///   .set_handler_for(_get.to(|| async {}));
 	///
 	/// router.add_host(Host::new("example.com", root));
 	/// ```
@@ -114,17 +114,17 @@ impl Router {
 	/// let mut root = Resource::new("/");
 	/// root
 	///   .subresource_mut("/resource_1/resource_2/resource_3")
-	///   .set_handler_for(_get(|| async {}));
+	///   .set_handler_for(_get.to(|| async {}));
 	///
 	/// router.add_host(Host::new("example.com", root));
 	///
 	/// let mut root = Resource::new("/");
 	/// let mut resource_2 = root.subresource_mut("/resource_1/resource_2");
-	/// resource_2.set_handler_for(_get(|| async {}));
+	/// resource_2.set_handler_for(_get.to(|| async {}));
 	///
 	/// resource_2
 	///   .subresource_mut("/resource_3")
-	///   .set_handler_for(_get(|| async {}));
+	///   .set_handler_for(_get.to(|| async {}));
 	///
 	/// // This doesn't try to merge the handler sets of the duplicate resources.
 	/// router.add_host(Host::new("example.com", root));
@@ -179,13 +179,13 @@ impl Router {
 	/// let mut router = Router::new();
 	///
 	/// let mut resource_3 = Resource::new("/resource_1/resource_2/resource_3");
-	/// resource_3.set_handler_for(_get(|| async {}));
+	/// resource_3.set_handler_for(_get.to(|| async {}));
 	///
 	/// router.add_resource(resource_3);
 	///
 	/// let mut resource_2 = Resource::new("/resource_1/resource_2");
 	/// let mut resource_3 = Resource::new("/resource_3");
-	/// resource_3.set_handler_for(_post(|| async {}));
+	/// resource_3.set_handler_for(_post.to(|| async {}));
 	///
 	/// resource_2.add_subresource(resource_3);
 	///
@@ -425,8 +425,8 @@ impl Router {
 	///
 	/// let mut router = Router::new();
 	/// router.resource_mut("/resource_1 !*").set_handler_for([
-	///   _get(|| async {}),
-	///   _post(|| async {}),
+	///   _get.to(|| async {}),
+	///   _post.to(|| async {}),
 	/// ]);
 	///
 	/// // ...
@@ -884,7 +884,7 @@ mod test {
 
 		{
 			let mut new_root = Resource::new("http://example_0.com/");
-			new_root.set_handler_for(_get(|| async {}));
+			new_root.set_handler_for(_get.to(|| async {}));
 			router.add_resource(new_root);
 
 			let example_0_com = router
@@ -900,7 +900,7 @@ mod test {
 
 		{
 			let mut new_root = Resource::new("/");
-			new_root.set_handler_for(_get(|| async {}));
+			new_root.set_handler_for(_get.to(|| async {}));
 			router.add_resource(new_root);
 
 			let root = router.some_root_resource.as_ref().unwrap();
@@ -1124,7 +1124,7 @@ mod test {
 
 		{
 			let mut new_root = Resource::new("http://example_0.com/");
-			new_root.set_handler_for(_get(|| async {}));
+			new_root.set_handler_for(_get.to(|| async {}));
 			router.add_resource(new_root);
 
 			let example_0_com = router
@@ -1140,7 +1140,7 @@ mod test {
 
 		{
 			let mut new_root = Resource::new("/");
-			new_root.set_handler_for(_get(|| async {}));
+			new_root.set_handler_for(_get.to(|| async {}));
 			router.add_resource(new_root);
 
 			let root = router.some_root_resource.as_ref().unwrap();
@@ -1201,7 +1201,7 @@ mod test {
 		for case in cases {
 			dbg!(case);
 
-			router.resource_mut(case).set_handler_for(_get(handler));
+			router.resource_mut(case).set_handler_for(_get.to(handler));
 		}
 
 		let cases = [

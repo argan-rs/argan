@@ -60,7 +60,10 @@ pub(crate) const FORM_BODY_SIZE_LIMIT: usize = 2 * 1024 * 1024;
 /// ```
 ///
 /// Usually, `GET` and `HEAD` requests carry the data in a query string. With these
-/// requests, data can be obtained via [`RequestHead::query_params_as<T>`].
+/// requests, data can be obtained via [`RequestHead::query_params_as<T>`]. For this
+/// to work `"query-params"` feature flag must be enabled.
+///
+///[`RequestHead::query_params_as<T>`]: crate::request::RequestHead
 pub struct Form<T, const SIZE_LIMIT: usize = FORM_BODY_SIZE_LIMIT>(pub T);
 
 impl<B, T, const SIZE_LIMIT: usize> FromRequest<B> for Form<T, SIZE_LIMIT>
