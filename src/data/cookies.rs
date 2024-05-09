@@ -17,7 +17,10 @@ use crate::{
 // --------------------------------------------------------------------------------
 // --------------------------------------------------------------------------------
 
-pub use cookie::{Cookie, CookieBuilder, Expiration, Iter, Key, KeyError, ParseError, SameSite};
+pub use cookie::{Cookie, CookieBuilder, Expiration, Iter, ParseError, SameSite};
+
+#[cfg(any(feature = "private-cookies", feature = "signed-cookies"))]
+pub use cookie::{Key, KeyError};
 
 // --------------------------------------------------------------------------------
 
@@ -30,6 +33,7 @@ const NO_KEY: &str = "key should have been set for the handler or a node";
 #[derive(Default)]
 pub struct CookieJar {
 	inner: InnerCookieJar,
+	#[cfg(any(feature = "private-cookies", feature = "signed-cookies"))]
 	some_key: Option<Key>,
 }
 
@@ -39,6 +43,7 @@ impl CookieJar {
 	pub fn new() -> CookieJar {
 		Self {
 			inner: InnerCookieJar::new(),
+			#[cfg(any(feature = "private-cookies", feature = "signed-cookies"))]
 			some_key: None,
 		}
 	}
@@ -180,6 +185,7 @@ impl CookieJar {
 		for cookie in cookies {
 			use CookieKind::*;
 
+			#[allow(clippy::infallible_destructuring_match)]
 			let cookie = match cookie {
 				Plain(cookie) => cookie,
 				#[cfg(feature = "private-cookies")]

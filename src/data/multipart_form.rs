@@ -19,7 +19,10 @@ use multer::parse_boundary;
 #[cfg(feature = "json")]
 use serde::de::DeserializeOwned;
 
-use crate::{common::SCOPE_VALIDITY, StdError};
+#[cfg(feature = "json")]
+use crate::common::SCOPE_VALIDITY;
+
+use crate::StdError;
 
 use super::header::content_type;
 
@@ -348,19 +351,15 @@ data_extractor_error! {
 		#[error("no boundary")]
 		(NoBoundary) StatusCode::BAD_REQUEST;
 		/// Returned on syntax error when deserializing the part's payload as JSON data.
-		#[cfg(feature = "json")]
 		#[error("invlaid JSON syntax in line {line}, column {column}")]
 		(InvalidJsonSyntax { line: usize, column: usize}) [{..}]; StatusCode::BAD_REQUEST;
 		/// Returned on semantically incorrect data when deserializing the part's payload as JSON.
-		#[cfg(feature = "json")]
 		#[error("invalid JSON semantics in line {line}, column {column}")]
 		(InvalidJsonData { line: usize, column: usize}) [{..}]; StatusCode::UNPROCESSABLE_ENTITY;
 		/// Returned on read failure when deserializing the part's payload as JSON.
-		#[cfg(feature = "json")]
 		#[error("JSON I/O stream failure")]
 		(JsonIoFailure(io::ErrorKind)) [{..}]; StatusCode::INTERNAL_SERVER_ERROR;
 		/// Returned on unexpected *end of file* when deserializing the part's payload as JSON.
-		#[cfg(feature = "json")]
 		#[error("JSON unexpected end of file")]
 		(JsonUnexpectedEoF) StatusCode::BAD_REQUEST;
 		/// Returned on unknown failure.
