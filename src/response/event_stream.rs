@@ -16,11 +16,16 @@ use bytes::{BufMut, Bytes, BytesMut};
 use futures_util::Stream;
 use http::{
 	header::{CACHE_CONTROL, CONTENT_TYPE},
-	HeaderValue, StatusCode,
+	HeaderValue,
 };
 use pin_project::pin_project;
-use serde::Serialize;
 use tokio::time::{interval_at, Interval, MissedTickBehavior};
+
+#[cfg(feature = "json")]
+use http::StatusCode;
+
+#[cfg(feature = "json")]
+use serde::Serialize;
 
 use crate::response::{IntoResponse, Response};
 
