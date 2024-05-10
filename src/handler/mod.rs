@@ -206,15 +206,38 @@ pub mod context {
 use context::ContextProperty;
 
 // --------------------------------------------------------------------------------
-// FinalHandler trait
+// Boxable handler
 
-trait FinalHandler
+/// Boxable handlers that directly return [`Response`] or [`BoxedErrorResponse`]
+/// without any conversion.
+pub trait BoxableHandler
 where
 	Self: Handler<
 		Response = Response,
 		Error = BoxedErrorResponse,
 		Future = BoxedFuture<Result<Response, BoxedErrorResponse>>,
 	>,
+{
+	// ...
+}
+
+impl<H> BoxableHandler for H
+where
+	H: Handler<
+		Response = Response,
+		Error = BoxedErrorResponse,
+		Future = BoxedFuture<Result<Response, BoxedErrorResponse>>,
+	>,
+{
+	// ...
+}
+
+// --------------------------------------------------------------------------------
+// FinalHandler trait
+
+trait FinalHandler
+where
+	Self: BoxableHandler,
 {
 	fn into_boxed_handler(self) -> BoxedHandler;
 	fn boxed_clone(&self) -> BoxedHandler;

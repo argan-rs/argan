@@ -13,6 +13,7 @@ use super::Layer;
 // --------------------------------------------------
 // LayerFn
 
+#[derive(Clone)]
 pub struct LayerFn<Func>(pub(crate) Func);
 
 impl<Func, InH, OutH> Layer<InH> for LayerFn<Func>
