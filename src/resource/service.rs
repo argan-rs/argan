@@ -276,7 +276,7 @@ impl RequestReceiver {
 
 		let mut maybe_boxed_request_receiver = MaybeBoxed::Unboxed(request_receiver);
 
-		for layer in middleware {
+		for layer in middleware.into_iter().rev() {
 			if let LayerTarget::RequestReceiver(boxed_layer) = layer {
 				match maybe_boxed_request_receiver {
 					MaybeBoxed::Boxed(boxed_request_receiver) => {
