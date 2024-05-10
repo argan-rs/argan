@@ -7,7 +7,7 @@ use std::num::ParseFloatError;
 use argan_core::request::RequestHeadParts;
 
 use crate::{
-	common::{marker::Sealed, trim, SCOPE_VALIDITY},
+	common::{trim, SCOPE_VALIDITY},
 	ImplError,
 };
 
@@ -39,51 +39,51 @@ pub(crate) enum ContentTypeError {
 
 // --------------------------------------------------------------------------------
 
-pub(crate) trait HeaderMapExt: Sealed {
-	fn has_header_with_value<N, V>(&self, header_name: N, value: V) -> Option<bool>
-	where
-		N: AsHeaderName,
-		V: AsRef<[u8]>;
-
-	fn get_all_split<N: AsHeaderName>(&self, header_name: N) -> impl Iterator<Item = &[u8]>;
-}
-
-impl HeaderMapExt for HeaderMap {
-	fn has_header_with_value<N, V>(&self, header_name: N, value: V) -> Option<bool>
-	where
-		N: AsHeaderName,
-		V: AsRef<[u8]>,
-	{
-		let header_values = self.get_all(header_name);
-		let value = value.as_ref();
-
-		let mut found = None;
-
-		for header_value in header_values {
-			if header_value
-				.as_bytes()
-				.split(|ch| *ch == b',')
-				.map(trim)
-				.any(|header_value| header_value.eq_ignore_ascii_case(value))
-			{
-				return Some(true);
-			}
-
-			found = Some(false);
-		}
-
-		found
-	}
-
-	fn get_all_split<N: AsHeaderName>(&self, header_name: N) -> impl Iterator<Item = &[u8]> {
-		self
-			.get_all(header_name)
-			.into_iter()
-			.flat_map(|header_value| header_value.as_bytes().split(|ch| *ch == b',').map(trim))
-	}
-}
-
-impl Sealed for HeaderMap {}
+// pub(crate) trait HeaderMapExt: Sealed {
+// 	fn has_header_with_value<N, V>(&self, header_name: N, value: V) -> Option<bool>
+// 	where
+// 		N: AsHeaderName,
+// 		V: AsRef<[u8]>;
+//
+// 	fn get_all_split<N: AsHeaderName>(&self, header_name: N) -> impl Iterator<Item = &[u8]>;
+// }
+//
+// impl HeaderMapExt for HeaderMap {
+// 	fn has_header_with_value<N, V>(&self, header_name: N, value: V) -> Option<bool>
+// 	where
+// 		N: AsHeaderName,
+// 		V: AsRef<[u8]>,
+// 	{
+// 		let header_values = self.get_all(header_name);
+// 		let value = value.as_ref();
+//
+// 		let mut found = None;
+//
+// 		for header_value in header_values {
+// 			if header_value
+// 				.as_bytes()
+// 				.split(|ch| *ch == b',')
+// 				.map(trim)
+// 				.any(|header_value| header_value.eq_ignore_ascii_case(value))
+// 			{
+// 				return Some(true);
+// 			}
+//
+// 			found = Some(false);
+// 		}
+//
+// 		found
+// 	}
+//
+// 	fn get_all_split<N: AsHeaderName>(&self, header_name: N) -> impl Iterator<Item = &[u8]> {
+// 		self
+// 			.get_all(header_name)
+// 			.into_iter()
+// 			.flat_map(|header_value| header_value.as_bytes().split(|ch| *ch == b',').map(trim))
+// 	}
+// }
+//
+// impl Sealed for HeaderMap {}
 
 // --------------------------------------------------
 
@@ -163,27 +163,27 @@ pub(crate) enum SplitHeaderValueError {
 
 // --------------------------------------------------------------------------------
 
-#[cfg(test)]
-mod test {
-	use http::{header, HeaderMap, HeaderValue};
-
-	use super::HeaderMapExt;
-
-	#[test]
-	fn header_map_ext() {
-		let mut header_map = HeaderMap::new();
-
-		header_map.insert(
-			header::CONNECTION,
-			HeaderValue::from_static("value-1, value-2"),
-		);
-
-		header_map.append(header::CONNECTION, HeaderValue::from_static("value-3"));
-
-		let cases = [b"value-1", b"value-2", b"value-3"];
-
-		for (i, value) in header_map.get_all_split(header::CONNECTION).enumerate() {
-			assert_eq!(value, cases[i]);
-		}
-	}
-}
+// #[cfg(test)]
+// mod test {
+// 	use http::{header, HeaderMap, HeaderValue};
+//
+// 	use super::HeaderMapExt;
+//
+// 	#[test]
+// 	fn header_map_ext() {
+// 		let mut header_map = HeaderMap::new();
+//
+// 		header_map.insert(
+// 			header::CONNECTION,
+// 			HeaderValue::from_static("value-1, value-2"),
+// 		);
+//
+// 		header_map.append(header::CONNECTION, HeaderValue::from_static("value-3"));
+//
+// 		let cases = [b"value-1", b"value-2", b"value-3"];
+//
+// 		for (i, value) in header_map.get_all_split(header::CONNECTION).enumerate() {
+// 			assert_eq!(value, cases[i]);
+// 		}
+// 	}
+// }
