@@ -29,7 +29,8 @@ pub mod request;
 pub mod resource;
 #[doc(inline)]
 pub use resource::Resource;
-#[cfg(features = "file-stream")]
+#[cfg(feature = "file-stream")]
+#[doc(inline)]
 pub use resource::StaticFiles;
 
 pub mod response;

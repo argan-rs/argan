@@ -1,4 +1,4 @@
-A web framework.
+A web framework for Rust.
 
 ## Resource
 
@@ -21,16 +21,13 @@ use argan::{
 //                 |
 //                  --- "/resource_1_1"
 
-// Following resources form the above tree.
-
-// A resource can be created with the pattern of its corresponding segment
-// or an absolute path pattern.
-
+// A resource can be created with the pattern of its corresponding segment.
 let mut resource_0_0 = Resource::new("/resource_0_0");
 
 let mut resource_1_1 = Resource::new("/resource_1_1");
 resource_1_1.set_handler_for(_get.to(|| async { "resource_1_1" }));
 
+// It can also be created with an absolute path pattern.
 let mut resource_2_0 = Resource::new("/resource_0_0/resource_1_0/resource_2_0");
 resource_2_0.set_handler_for(_get.to(|| async { "resource_2_0" }));
 
@@ -38,7 +35,6 @@ resource_0_0.add_subresource([resource_1_1, resource_2_0]);
 
 // We can also create a new subresource or get an existing one with a relative
 // path pattern from a parent.
-
 let mut resource_2_1 = resource_0_0.subresource_mut("/resource_1_0/resource_2_1");
 resource_2_1.set_handler_for(_get.to(|| async { "resource_2_1" }));
 resource_2_1
@@ -52,15 +48,15 @@ A `Resource` itself is mainly made of three components: *request receiver*, *req
 and *request handler*. All three of them are [`Handler`]s and can be
 wrapped with middleware.
 
-The *request receiver* as its name suggests is responsible for receiving a request and handing
+The *request receiver*, as its name suggests, is responsible for receiving a request and handing
 it over to the *request passer* if the resource is not the request's target resource, or to the
 *request handler* if it is.
 
 The *request passer* finds the next resource that matches the next path segment and passes the
 request to that resource. If there is no matching resource, the *request passer* calls the
 resource's custom or the default *mistargeted request handler* to generate a `"404 Not Found"`
-response unless there is a *subtree handler* among the parent resources. In that case it returns
-the request back to that *subtree handler* parent that can handle the request.
+response unless there is a *subtree handler* among the parent resources. In that case, it returns
+the request back to the *subtree handler* parent that can handle the request.
 
 The *request handler* contains all the HTTP *method handler*s of the resource. It is responsible
 for calling the corresponding *method handler* that matches the request's method.
@@ -68,8 +64,8 @@ for calling the corresponding *method handler* that matches the request's method
 ## Host
 
 A [`Host`] is another node in Argan that can be converted into a service. But unlike a [`Router`]
-and [`Resource`] nodes, a [`Host`] doesn't have any [`Handler`] components. Instead it contains a
-root resource and guards the resource tree against the request's `"Host"`.
+and [`Resource`] nodes, a [`Host`] doesn't have any [`Handler`] components. Instead, it contains
+a root resource and guards the resource tree against the request's `"Host"`.
 
 ```
 use argan::{
@@ -90,7 +86,7 @@ let host_service = Host::new("http://example.com", root).into_arc_service();
 
 ## Router
 
-When there is a need for multiple resource trees with different host guards a [`Router`] node
+When there is a need for multiple resource trees with different host guards, a [`Router`] node
 can be used.
 
 ```
@@ -114,6 +110,9 @@ router.add_host([
     Host::new("http://abc.example.com", abc_example_com_root),
 ]);
 
+// If we create a resource with a host pattern, it's automatically placed under that
+// host when we add it to a router.
+
 let mut bca_example_com_root = Resource::new("http://bca.example.com/");
 bca_example_com_root.set_handler_for(_get.to(|| async { "bca.example.com" }));
 
@@ -131,77 +130,78 @@ let router_service = router.into_leaked_service();
 ## Pattern
 
 There are three kinds of patterns in Argan: *static*, *regex*, and *wildcard*. Path segment
-patterns can be of any kind while host pattern can only be *static* or *regex*. Hosts and
+patterns can be of any kind, while host patterns can only be *static* or *regex*. Hosts and
 resources with *static* patterns have the highest priority. That is, when the *request passer*
-is trying to find the next resource, first, it matches the next path segment against resources
-with *static* patterns. Then comes resources with *regex* patterns and finally a resource with
+is trying to find the next resource, first it matches the next path segment against resources
+with *static* patterns. Then come resources with *regex* patterns, and finally a resource with
 a *wildcard* pattern.
 
-*Static* pattern matches the request's path segment exactly.
+The *static* pattern matches the request's path segment exactly.
 
 ```
 use argan::Resource;
 
-// Resources with static patterns.
+// Resources with static patterns:
 
 let news = Resource::new("/news");
 let items = Resource::new("/items");
 ```
 
-*Regex* pattern can have *static* and *regex* subpatterns. *Regex* pattern matches if both
+*Regex* patterns can have *static* and *regex* subpatterns. *Regex* patterns match if both
 subpatterns match the request's path segment in the exact order. *Regex* subpatterns are written
-in the curly braces with its name and regex parts separated by colon: `"{name:regex}"`. If the
-regex subpattern is the last suppattern or the following subpattern is a *static* subpattern
-that starts with a dot `'.'`, then regex part can be omitted to match anything.
+in curly braces with their name and regex parts separated by a colon: `"{name:regex}"`. If the
+*regex* subpattern is the last suppattern or the following subpattern is a *static* subpattern
+that starts with a dot `'.'`, then the regex part can be omitted to match anything.
 
 ```
 use argan::{Host, Resource};
 
-// Resources with regex patterns.
+// Resources with regex patterns:
 
 let sub_domain = Host::new("http://{sub}.example.com", Resource::new("/"));
 
-// Here the `number_of_days` is a path parameter name, which can have a value of `5` or `10`
-// and `-days-forecast` is a static subpattern.
+// Here, `number_of_days` is a path parameter name that can have a value of
+// `5` or `10`, and '-days-forecast' is a static subpattern.
 let n_days_forecast = Resource::new("/{number_of_days:5|10}-days-forecast");
 
-// Here `id:` is a static subpattern and the `prefix` and `number` are the path parameter names.
+// Here, 'id:' is a static subpattern, and the `prefix` and `number` are the
+// path parameter names.
 let id = Resource::new(r"/id:{prefix:A|B|C}{number:\d{5}}");
 
-// Here we have `name` and `ext` path parameter names, Both match anything that's separated
-// with a dot `.`.
+// Here, we have `name` and `ext` path parameter names. Both match anything
+// that's separated with a dot '.'.
 let file = Resource::new("/{name}.{ext}");
 ```
 
-*Wildcard* pattern matches anything in the request's path segment. *Wildcard* pattern has
-only a name in the curly braces.
+The *wildcard* pattern matches anything in the request's path segment. The *wildcard* pattern
+has only a name in the curly braces.
 
 ```
 use argan::Resource;
 
-// Resources with wildcard patterns.
+// Resources with wildcard patterns:
 
 let echo = Resource::new("/{echo}");
 let black_box = Resource::new("/{black_box}");
 ```
 
-A [`Resource`] may contain any number of child resources with a *static* and *regex* patterns.
+A [`Resource`] may contain any number of child resources with *static* and *regex* patterns.
 But it can contain only one resource with a *wildcard* pattern. 
 
 Patterns can be joined together to form a path pattern or a URI pattern. Note that a resource
-with a prefix URI pattern should be used with a [`Router`]. Otherwise, its host pattern, if
-exists also prefix segment patterns will be ignored when it is converted into service. Likewise
+with a prefix URI pattern should be used with a [`Router`]. Otherwise, its host pattern, if it
+exists, and prefix segment patterns will be ignored when it is converted into a service. Likewise,
 a resource with a prefix path pattern should be used as a subresource instead of being converted
-into service.
+into a service.
 
 ```
 use argan::Resource;
 
-// A resource with only an its own segment pattern.
+// A resource with only its own segment pattern.
 let resource = Resource::new("/products");
 
 // A resource with a prefix path pattern. A path pattern is always considered
-// as an absolute path.
+// to be an absolute path.
 let resource = Resource::new("/groups/{group_id}/users/{user_id}");
 
 // A resource with a prfix URI pattern.
@@ -209,41 +209,50 @@ let resource = Resource::new("http://{lang:en|fr}.example.com/about");
 ```
 
 A resource pattern may end with a trailing slash `/`, meaning the request targeting the resource
-must also have a trailing slash in its path, if not, the resource redirects the request to a path
-with a trailing slash. When the resource pattern doesn't have a trailing slash, but request's path
-does, then the resource redirects the request to a path without a trailing slash. This is a default
-behavior.
+must also have a trailing slash in its path. If not, the resource redirects the request to a path
+with a trailing slash. When the resource pattern doesn't have a trailing slash but the request's
+path does, then the resource redirects the request to a path without a trailing slash. This is the
+default behavior.
 
-A resource pattern can also have configuration symbols, `!`, `?`, `*`, attached after a
-single space. They can be used to configure the resource to drop or to handle the request
-on the absence or presence of a trailing slash `/` in the request's path, and also to handle
-the requests that target non-existent subresources, aka as a *subtree* handler. An `!` configures
-the resource to drop the request when the absence or presence of a trailing slash in its path
-doesn't match the resource's pattern. A `?` configures the resource to be lenient to a trailing
-slash in the request's path, which means the resource in any case handles the request. `!` and `?`
-configuration symbols are mutually exclusive. An `*` configures the resource as a *subtree*
-handler. Configuration symbols can only be specified on the resource's own pattern. Prefix segment
-patterns given when the resource is being created or retrieved cannot have configuration symbols.
+A resource pattern can also have configuration symbols, `!`, `?`, and `*`, attached after a single
+space. They can be used to configure the resource to drop or to handle the request in the absence
+or presence of a trailing slash `/` in the request’s path, and also to handle requests that target
+non-existent subresources, aka as a subtree handler. An `!` configures the resource to drop the
+request when the absence or presence of a trailing slash in its path doesn’t match the resource’s
+pattern. A `?` configures the resource to be lenient to a trailing slash in the request’s path,
+which means the resource in any case handles the request. `!` and `?`configuration symbols are
+mutually exclusive. An `*` configures the resource to be a subtree handler. Configuration symbols
+can only be specified on the resource’s own pattern. Prefix segment patterns given when the
+resource is being created or retrieved cannot have configuration symbols.
 
 | symbol(s) on a pattern | resource                                                               |
 |------------------------|------------------------------------------------------------------------|
 | `"/some_pattern"`      | redirects the requests with a trailing slash                           |
 | `"/some_pattern/"`     | redirects the requests without a trailing slash                        |
-| `"/some_pattern \*"`   | redirects the requests with a trailing slash; subtree handler          |
-| `"/some_pattern/ \*"`  | redirects the requests without a trailing slash; subtree handler       |
+| `r"/some_pattern *"`   | redirects the requests with a trailing slash; subtree handler          |
+| `r"/some_pattern/ *"`  | redirects the requests without a trailing slash; subtree handler       |
 | `"/some_pattern !"`    | sends a `"404"` when there is a trailing slash                         |
 | `"/some_pattern/ !"`   | sends a `"404"` when there is no trailing slash                        |
-| `"/some_pattern !\*"`  | sends a `"404"` when there is a tralling slash; subtree handler        | 
-| `"/some_pattern/ !\*"` | sends a `"404"` when there is no tralling slash; subtree handler       |
+| `r"/some_pattern !*"`  | sends a `"404"` when there is a tralling slash; subtree handler        | 
+| `r"/some_pattern/ !*"` | sends a `"404"` when there is no tralling slash; subtree handler       |
 | `"/some_pattern ?"`    | handles the requests with or without a trailing slash                  |
 | `"/some_pattern/ ?"`   | handles the requests with or without a trailing slash                  |
-| `"/some_pattern ?\*"`  | handles the requests with or without a trailing slash; subtree handler |
-| `"/some_pattern/ ?\*"` | handles the requests with or without a trailing slash; subtree handler |
+| `r"/some_pattern ?*"`  | handles the requests with or without a trailing slash; subtree handler |
+| `r"/some_pattern/ ?*"` | handles the requests with or without a trailing slash; subtree handler |
+
+Note that patterns must be specified without a percent-encoding. An exception to this is the slash
+`/`. If a path segment should contain a slash `/`, then it should be replaced with `%2f` or `%2F`.
+
+```
+use argan::Resource;
+
+let resource = Resource::new("/resource%2F1%2F/resource%2F2%2F");
+```
 
 ## Handler
 
-A handler is a type that implements the [`Handler`] trait. In a high-level, Argan applications
-use `async` functions. These functions take specific set of parameters in a specific order and
+A handler is a type that implements the [`Handler`] trait. At the high level, Argan applications
+use `async` functions. These functions take a specific set of parameters in a specific order and
 must return a value of a type that implements either the [`IntoResponse`] or [`ErrorResponse`]
 traits. Following are the parameters in the required order: [`RequestHead`], [`FromRequest`]
 implementor, [`Args`].
@@ -257,70 +266,276 @@ use argan::{
 
 use serde::Deserialize;
 
-// `async` functions that can be used as request handlers.
 // Note that `()` implements the `IntoResponse` trait and can be used
 // as a "success" response with a "200 OK" status code and an empty body.
 
-async fn no_params() {
+
+// --------------------------------------------------------------------------------
+// `async` functions that can be used as request handlers.
+
+// No params.
+async fn handler_1() {
     // ...
 }
 
-async fn with_request_head(head: RequestHead) {
+// With a `RequestHead`.
+async fn handler_2(head: RequestHead) {
     // ...
 }
 
-async fn with_from_request_implementor(Text(text): Text) {
+// With an extractor that implements the `FromRequest` trait.
+async fn handler_3(Text(text): Text) {
     // ...
 }
 
-// In the following function `()` in the `Args` can be a type provided as a handler
+// Here, `()` in the `Args<'static, ()>` can be a type provided as a handler
 // extension via the `IntoHandler::with_extension()` method.
-async fn with_args(args: Args<'static, ()>) {
+//
+// With handler `Args`.
+async fn handler_4(args: Args<'static, ()>) {
     // ...
 }
 
-async fn with_request_head_and_from_request(head: RequestHead, Text(text): Text) {
+// With a `RequestHead` and an extractor.
+async fn handler_5(head: RequestHead, Text(text): Text) {
     // ...
 }
 
-async fn with_request_head_and_args(head: RequestHead, args: Args<'static, ()>) {
+// With a `RequestHead` and handler `Args`.
+async fn handler_6(head: RequestHead, args: Args<'static, ()>) {
     // ...
 }
 
-async fn with_from_request_and_args(Text(text): Text, args: Args<'static, ()>) {
+// With an extractor and handler `Args`.
+async fn handler_7(Text(text): Text, args: Args<'static, ()>) {
     // ...
 }
 
-async fn with_all_three(head: RequestHead, Text(text): Text, args: Args<'static, ()>) {
+// With all three parameters.
+async fn handler_8(head: RequestHead, Text(text): Text, args: Args<'static, ()>) {
     // ...
 }
 ```
 
 In addition to the combinations of these three main parameters, handler functions can take
-up to 12 parameters that implement [`ExtractorGuard`] trait. Those parameters must come before
+up to 12 parameters that implement the [`ExtractorGuard`] trait. Those parameters must come before
 the combinations of the three main parameters.
 
 ## Error handling
 
 Errors in Argan can be handled in the handler functions or at some points in the node tree using
 a middleware. If the handler decides to return an [`ErrorResponse`], that error passes through
-the nodes in the node tree up to the first node that was converted into service. First node may
-be a resource, a host, or a router. If the error reaches the service without being handled,
-the service will convert it into [`Response`] before passing it to the [`hyper`]. 
+the nodes in the node tree up to the first node that was converted into service. The first node
+may be a [`Resource`], a [`Host`], or a [`Router`]. If the error reaches the service without being
+handled, the service will convert it into a [`Response`] before passing it to the [`hyper`]. 
 
 An error handler middleware can be layered on the components of the [`Resource`] and [`Router`]
-via the [`ErrorHandlerLayer`]. The constructor of the [`ErrorHandlerLayer`] takes a parameter
-that implements the [`ErrorHandler`] trait.
+via the [`ErrorHandlerLayer`]. The constructor of the [`ErrorHandlerLayer`] takes a parameter that
+implements the [`ErrorHandler`] trait. The [`ErrorHandler`] trait is blanketly implemented for
+functions with a signature `async fn(BoxedErrorResponse) -> Result<Response, BoxedErrorResponse>`.
+
+```
+use argan::{
+	data::{
+		form::{Form, FormError},
+		json::{Json, JsonError},
+	},
+	handler::{IntoHandler, _get, _post},
+	middleware::{ErrorHandlerLayer, _request_receiver},
+	request::{PathParamsError, RequestHead},
+	response::{BoxedErrorResponse, IntoResponse, IntoResponseResult, Response},
+	Resource,
+};
+use serde::{Deserialize, Serialize};
+
+// --------------------------------------------------
+// Error handlers
+
+async fn path_error_handler(error: BoxedErrorResponse) -> Result<Response, BoxedErrorResponse> {
+	let path_error = error.downcast::<PathParamsError>()?;
+
+	// ...
+
+	path_error.into_response_result()
+}
+
+async fn general_errors_handler(error: BoxedErrorResponse) -> Result<Response, BoxedErrorResponse> {
+	if let Some(form_error) = error.downcast_ref::<FormError>() {
+		// ...
+	}
+
+	if let Some(json_error) = error.downcast_ref::<JsonError>() {
+		// ...
+	}
+
+	// ...
+
+	Ok(error.into_response())
+}
+
+// --------------------------------------------------
+// Method handlers
+
+// Deserialization of the form data may fail. In such a case, the `login` handler won't
+// be called, and the error response will be generated. If we want to deal with the error
+// inside the handler, we can get the result of the extraction by using the expression
+// `result: Result<Form<Credentials>, FormError>` as a function parameter.
+async fn login(Form(credentials): Form<Credentials>) -> Json<Token> {
+	// ...
+
+	let token = Token {
+		jwt: "JWT".to_owned(),
+	};
+
+	Json(token)
+}
+
+#[derive(Deserialize)]
+struct Credentials {
+	user_name: String,
+	password: String,
+}
+
+#[derive(Serialize)]
+struct Token {
+	jwt: String,
+}
+
+// -------------------------
+
+// Here, if the handler returns different kinds of error responses, a `BoxedErrorResponse`
+// can be used instead of the `PathParamsError`.
+async fn item_data(head: RequestHead) -> Result<Json<ItemData>, PathParamsError> {
+	let (category, item) = head.path_params_as::<(&str, &str)>()?;
+
+	// ...
+
+	let item_datan = ItemData {
+		// ...
+	};
+
+	// Serialization may also fail, and an error response will be generated.
+	Ok(Json(item_datan))
+}
+
+#[derive(Serialize)]
+struct ItemData {
+	// ...
+}
+
+// --------------------------------------------------
+
+let mut root = Resource::new("/");
+// It's best for general errors to be handled up in the hierarchy.
+root.add_layer_to(_request_receiver(ErrorHandlerLayer::new(
+    general_errors_handler,
+)));
+
+root
+    .subresource_mut("/login")
+    .set_handler_for(_post.to(login));
+
+root
+    .subresource_mut("/{category}/items/{item}")
+    // The most specific or custom errors can be handled by layering the method handlers.
+    .set_handler_for(_get.to(item_data.wrapped_in(ErrorHandlerLayer::new(path_error_handler))));
+
+// Unhandled errors will automatically be converted into a `Response` by the service.
+let service = root.into_arc_service();
+```
 
 ## Middleware
 
-Middleware can be applied to handlers and resource components using the [`Layer`] implementors.
-In addition to its own trait for layers, Argan also supports Tower layers.
+Argan has a flexible middleware system. Middlewares can be applied to handlers and resource
+components using the [`Layer`] trait implementors. In addition to its own trait, Argan is also
+compatible with the Tower layers.
 
-See [`Router::add_layer_to()`], [`Resource::add_layer_to()`], and
+```
+use std::{future::ready, time::Duration};
+
+use argan::{
+	common::BoxedFuture,
+	handler::{Args, BoxableHandler, Handler, IntoHandler, _get},
+	middleware::{IntoLayer, _request_handler},
+	request::RequestContext,
+	response::{BoxedErrorResponse, IntoResponse, Response},
+	Resource,
+};
+use tower_http::{
+	compression::CompressionLayer, decompression::DecompressionLayer, timeout::TimeoutLayer,
+};
+
+// --------------------------------------------------
+// Middleware
+
+#[derive(Clone)]
+struct Middleware<H> {
+	name: &'static str,
+	handler: H,
+}
+
+impl<H> Handler for Middleware<H>
+where
+	H: BoxableHandler,
+{
+	type Response = Response;
+	type Error = BoxedErrorResponse;
+	type Future = BoxedFuture<Result<Self::Response, Self::Error>>;
+
+	fn handle(&self, request_context: RequestContext, args: Args<'_, ()>) -> Self::Future {
+		println!("middleware: {}", self.name);
+
+		self.handler.handle(request_context, args)
+	}
+}
+
+// --------------------------------------------------
+
+// The `IntoLayer` trait is blankedly implemented for functions that take a handler
+// and return a handler.
+
+fn layer_a<H>(handler: H) -> Middleware<H> {
+	Middleware { name: "A", handler }
+}
+
+fn layer_b<H>(handler: H) -> Middleware<H> {
+	Middleware { name: "B", handler }
+}
+
+fn layer_c<H>(handler: H) -> Middleware<H> {
+	Middleware { name: "C", handler }
+}
+
+// --------------------------------------------------
+
+let mut resource = Resource::new("/resource");
+
+// Layers are applied from right to left and from bottom to top.
+// When the resource's request handler is called, middlewares print `ABC`.
+resource.add_layer_to([
+    _request_handler(layer_a),
+    _request_handler((layer_b.into_layer(), layer_c.into_layer())),
+]);
+
+// The GET method handler will be layered in the following order:
+//
+// timeout layer {
+//   compression layer {
+//     decompression layer {
+//       GET method handler
+//     }
+//   }
+// }
+resource.set_handler_for(_get.to((|| async {}).wrapped_in((
+    TimeoutLayer::new(Duration::from_millis(64)),
+    CompressionLayer::new(),
+    DecompressionLayer::new(),
+))))
+```
+
+See also [`Router::add_layer_to()`], [`Resource::add_layer_to()`], and
 [`IntoHandler::wrapped_in()`](crate::handler::IntoHandler::wrapped_in()) for more information.
 
-TODO.
 
 [`Handler`]: crate::handler::Handler
 [`Args`]: crate::handler::Args
