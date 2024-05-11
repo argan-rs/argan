@@ -8,10 +8,12 @@ use hyper::service::Service;
 use crate::{
 	common::NodeExtensions,
 	handler::Args,
-	request::{ContextProperties, Request, RequestContext},
+	request::{
+		routing::{RouteTraversal, RoutingState},
+		ContextProperties, Request, RequestContext,
+	},
 	resource::ResourceService,
 	response::{BoxedErrorResponse, InfallibleResponseFuture, IntoResponse, Response},
-	routing::{RouteTraversal, RoutingState},
 };
 
 #[cfg(feature = "regex")]

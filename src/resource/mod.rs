@@ -19,8 +19,7 @@ use crate::{
 	},
 	middleware::{_request_receiver, targets::LayerTarget},
 	pattern::{split_uri_host_and_path, Pattern, Similarity},
-	request::ContextProperties,
-	routing::RouteSegments,
+	request::{routing::RouteSegments, ContextProperties},
 };
 
 // --------------------------------------------------

@@ -17,9 +17,11 @@ use crate::{
 	},
 	middleware::{targets::LayerTarget, BoxedLayer, Layer},
 	pattern::{ParamsList, Pattern},
-	request::{ContextProperties, Request, RequestContext},
+	request::{
+		routing::{RouteTraversal, RoutingState},
+		ContextProperties, Request, RequestContext,
+	},
 	response::{BoxedErrorResponse, InfallibleResponseFuture, IntoResponse, Redirect, Response},
-	routing::{RouteTraversal, RoutingState},
 };
 
 use super::{config::ConfigFlags, Resource};

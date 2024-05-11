@@ -19,7 +19,7 @@ unsafe_code = "forbid"
 [package]
 name = "argan"
 version = "0.0.0"
-description = "Experiment."
+description = "A web framework for Rust."
 authors = ["Shohruh Adham <shohruh.adham@gmail.com>"]
 license.workspace = true
 edition.workspace = true
@@ -85,7 +85,7 @@ sha1 = { version = "0.10", optional = true }
 [dev-dependencies]
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "test-util", "parking_lot"] }
 criterion = { version = "0.5", features = ["async_tokio"] }
-tower-http = { version = "0.5", features = ["compression-gzip"] }
+tower-http = { version = "0.5", features = ["compression-gzip", "decompression-gzip", "timeout"] }
 
 [[bench]]
 name = "request_routing"
