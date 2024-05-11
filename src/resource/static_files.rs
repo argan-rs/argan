@@ -53,7 +53,13 @@ const ENCODED: &str = "encoded";
 /// named after their coding (for now only *gzip* is supported).
 ///
 /// ```no_run
-/// use argan::resource::StaticFiles;
+/// use argan::StaticFiles;
+///
+/// // some_dir - encoded - gzip - docs - ...
+///	//	   	   |                 - ...
+///	//			   |
+/// //          - unencoded - docs - ...
+/// //                      - ...
 ///
 /// let static_files = StaticFiles::new("/static", "some_dir");
 /// ```
@@ -69,6 +75,26 @@ const ENCODED: &str = "encoded";
 /// dynamically encode, then `406 Not Acceptable` is returned.
 ///
 /// Note that range requests are not supported for dynamically encoded files.
+///
+/// When the `StaticFiles` is converted into a `Resource`, it's possible to add other
+/// subresources to it. When a request is made targeting a subresource, that subresource
+/// handles the request. The `StaticFiles` will try to handle the request only when there
+/// is no subresource that matches the request's path.
+///
+/// ```no_run
+/// use argan::{Resource, StaticFiles, handler::_get};
+///
+/// let mut static_files = StaticFiles::new("/some_pattern", "some_dir").into_resource();
+/// static_files
+///     .subresource_mut("/resource_1_0")
+///     .set_handler_for(_get.to(|| async {}));
+///
+/// static_files
+///     .subresource_mut("/resource_1_1/resource_2_0")
+///     .set_handler_for(_get.to(|| async {}));
+///
+/// let service = static_files.into_arc_service();
+/// ```
 pub struct StaticFiles {
 	some_resource: Option<Resource>,
 	some_files_dir: Option<Box<Path>>,
