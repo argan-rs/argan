@@ -13,10 +13,12 @@ use crate::{
 	handler::{Args, BoxedHandler, Handler},
 	host::HostService,
 	middleware::{targets::LayerTarget, Layer},
-	request::{ContextProperties, Request, RequestContext},
+	request::{
+		routing::{RouteTraversal, RoutingState},
+		ContextProperties, Request, RequestContext,
+	},
 	resource::ResourceService,
 	response::{BoxedErrorResponse, InfallibleResponseFuture, IntoResponse, Response},
-	routing::{RouteTraversal, RoutingState},
 };
 
 use super::Router;

@@ -6,7 +6,7 @@ use std::{any::Any, borrow::Cow};
 
 use http::Extensions;
 
-use crate::{handler::BoxedHandler, pattern::Pattern, routing::RouteSegments};
+use crate::{handler::BoxedHandler, pattern::Pattern, request::routing::RouteSegments};
 
 // ----------
 

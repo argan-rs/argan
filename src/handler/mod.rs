@@ -19,9 +19,8 @@ use tower_service::Service as TowerService;
 use crate::{
 	common::{IntoArray, NodeExtensions, Uncloneable},
 	middleware::Layer,
-	request::{ContextProperties, RequestContext},
+	request::{routing::RoutingState, ContextProperties, RequestContext},
 	response::{BoxedErrorResponse, Response},
-	routing::RoutingState,
 };
 
 // --------------------------------------------------

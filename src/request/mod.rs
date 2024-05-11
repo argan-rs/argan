@@ -16,7 +16,6 @@ use crate::{
 	handler::Args,
 	pattern::{self, ParamsList},
 	response::{BoxedErrorResponse, IntoResponse, Response},
-	routing::RoutingState,
 };
 
 #[cfg(feature = "cookies")]
@@ -25,6 +24,14 @@ use crate::data::cookies::{cookies_from_request, CookieJar};
 // ----------
 
 pub use argan_core::request::*;
+
+// ----------
+
+pub(crate) mod routing;
+use routing::RoutingState;
+
+#[cfg(feature = "websockets")]
+pub mod websocket;
 
 // --------------------------------------------------------------------------------
 // --------------------------------------------------------------------------------

@@ -348,7 +348,7 @@ mod test {
 
 	use crate::{
 		pattern::{DeserializerError, ParamsList, Pattern},
-		routing::RouteSegments,
+		request::routing::RouteSegments,
 	};
 
 	// --------------------------------------------------

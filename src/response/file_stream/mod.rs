@@ -1,8 +1,4 @@
 //! Low-level file streaming.
-//!
-//! Streaming should be used on files that won't be locked, as reading may block the
-//! runtime. Blocking tasks are spawned only to get file descriptors. Files are read
-//! in 8 KiB slices (this may change in the future) and assumed to be fast.
 
 // ----------
 
@@ -62,7 +58,8 @@ const BUFFER_SIZE: usize = 8 * 1024;
 /// A low-level primitive to stream files with support for `multipart/byteranges` and
 /// dynamic encoding.
 ///
-/// Can be used as a response or as a response body.
+/// Streaming should be used on files that won't be locked. An instance of a `FileStream`
+/// can be used as a response or as a response body.
 pub struct FileStream {
 	maybe_encoded_file: MaybeEncoded,
 	file_size: Box<str>,

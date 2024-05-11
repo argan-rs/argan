@@ -1,7 +1,6 @@
 // ----------
 #![doc = include_str!("../docs/argan.md")]
 // ----------
-#![forbid(unsafe_code)]
 #![allow(dead_code)]
 // ----------
 
@@ -30,11 +29,11 @@ pub mod request;
 pub mod resource;
 #[doc(inline)]
 pub use resource::Resource;
+#[cfg(features = "file-stream")]
+pub use resource::StaticFiles;
 
 pub mod response;
 
 pub mod router;
 #[doc(inline)]
 pub use router::Router;
-
-mod routing;
