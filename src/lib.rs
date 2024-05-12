@@ -1,6 +1,7 @@
 // ----------
 #![doc = include_str!("../docs/argan.md")]
 // ----------
+// Let's keep this for now.
 #![allow(dead_code)]
 // ----------
 

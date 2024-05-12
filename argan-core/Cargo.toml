@@ -1,6 +1,6 @@
 [package]
 name = "argan-core"
-version = "0.0.0"
+version = "0.0.1"
 description = "Core types and traits of the Argan Web Framework."
 authors = ["Shohruh Adham <shohruh.adham@gmail.com>"]
 license.workspace = true
