@@ -632,7 +632,7 @@ impl Router {
 	}
 
 	/// Calls the given function for each root resource (hosts' and router's) with a mutable
-	/// reference to the parameter.
+	/// reference to the `param`.
 	///
 	/// All the variants of `Iteration` other than `Stop` are ignored. If the function retuns
 	/// `Iteration::Stop` or all the root resources have beeen processed, the parameter is
