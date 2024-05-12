@@ -18,7 +18,7 @@ unsafe_code = "forbid"
 
 [package]
 name = "argan"
-version = "0.0.0"
+version = "0.0.1"
 description = "A web framework for Rust."
 authors = ["Shohruh Adham <shohruh.adham@gmail.com>"]
 license.workspace = true
@@ -47,10 +47,9 @@ full = [
 	"file-stream",
 	"websockets",
 ]
-# default = ["full"]
 
 [dependencies]
-argan-core = { version = "0.0.0", path = "argan-core" }
+argan-core = { version = "0.0.1", path = "argan-core" }
 bytes = { workspace = true }
 http = { workspace = true }
 http-body = { workspace = true }
