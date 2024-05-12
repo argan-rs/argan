@@ -1324,11 +1324,12 @@ impl Resource {
 
 	// -------------------------
 
-	/// Calls the given function for each subresource with a mutable reference to the parameter.
+	/// Calls the given function for each subresource with a mutable reference to the `param`.
 	///
-	/// If the function returns `Iteration::Skip` for any resource it's called for, that
-	/// resource's subresources will be skipped. If the function retuns `Iteration::Stop` or
-	/// all the subresources have been processed, the parameter is returned in its final state.
+	/// The function goes through the subresources in a breadth-first manner. If the function
+	/// returns `Iteration::Skip` for any resource it's called for, that resource's subresources
+	/// will be skipped. If the function retuns `Iteration::Stop` or all the subresources have
+	/// been processed, the parameter is returned in its final state.
 	pub fn for_each_subresource<T, F>(&mut self, mut param: T, mut func: F) -> T
 	where
 		F: FnMut(&mut T, &mut Resource) -> Iteration,

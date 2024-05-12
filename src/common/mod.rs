@@ -2,7 +2,7 @@
 
 // ----------
 
-use std::{any::Any, borrow::Cow};
+use std::borrow::Cow;
 
 use http::Extensions;
 
@@ -228,45 +228,6 @@ impl<'n> NodeExtensions<'n> {
 	#[inline(always)]
 	pub(crate) fn into_owned(self) -> NodeExtensions<'static> {
 		NodeExtensions(Cow::Owned(self.0.into_owned()))
-	}
-}
-
-// --------------------------------------------------
-// BoxedAny
-
-pub(crate) struct BoxedAny(Box<dyn AnyCloneable + Send + Sync>);
-
-impl BoxedAny {
-	pub(crate) fn new<T: Any + Clone + Send + Sync>(value: T) -> Self {
-		Self(Box::new(value))
-	}
-
-	pub(crate) fn as_any(&self) -> &(dyn Any + Send + Sync) {
-		self.0.as_ref().as_any()
-	}
-}
-
-impl Clone for BoxedAny {
-	fn clone(&self) -> Self {
-		self.0.as_ref().boxed_clone()
-	}
-}
-
-// --------------------------------------------------
-// AnyClonealbe
-
-trait AnyCloneable {
-	fn as_any(&self) -> &(dyn Any + Send + Sync);
-	fn boxed_clone(&self) -> BoxedAny;
-}
-
-impl<A: Any + Clone + Send + Sync> AnyCloneable for A {
-	fn as_any(&self) -> &(dyn Any + Send + Sync) {
-		self
-	}
-
-	fn boxed_clone(&self) -> BoxedAny {
-		BoxedAny::new(self.clone())
 	}
 }
 
