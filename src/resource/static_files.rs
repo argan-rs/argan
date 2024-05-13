@@ -1,11 +1,19 @@
 use std::{
 	fs::Metadata,
 	io::{Error as IoError, ErrorKind},
-	os::unix::fs::MetadataExt,
 	path::{Path, PathBuf},
 	str::FromStr,
 	sync::Arc,
 };
+
+#[cfg(target_family = "unix")]
+use std::os::unix::fs::MetadataExt;
+
+#[cfg(target_family = "windows")]
+use std::os::windows::fs::MetadataExt;
+
+#[cfg(target_family = "wasm")]
+use std::os::windows::fs::MetadataExt;
 
 use argan_core::BoxedError;
 use http::{
@@ -437,7 +445,12 @@ async fn evaluate_optimal_coding<P1: AsRef<Path>, P2: AsRef<str>>(
 			};
 
 			if dynamic_compression {
+				#[cfg(any(target_family = "unix", target_family = "wasm"))]
 				let file_size = metadata.size();
+
+				#[cfg(target_family = "windows")]
+				let file_size = metadata.file_size();
+
 				if file_size >= min_size_to_compress
 					&& file_size <= max_size_to_compress
 					&& preferred_encoding.1 > 0.0
