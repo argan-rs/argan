@@ -34,7 +34,7 @@ form = ["dep:serde_urlencoded"]
 multipart-form = ["dep:multer"]
 sse = ["dep:tokio"]
 file-stream = ["dep:tokio", "dep:rand", "dep:mime_guess", "dep:flate2"]
-websockets = ["dep:fastwebsockets", "dep:base64", "dep:sha1"]
+websockets = ["dep:fastwebsockets", "dep:base64", "dep:sha1", "dep:tokio"]
 full = [
 	"regex",
 	"private-cookies",
