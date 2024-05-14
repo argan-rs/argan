@@ -34,6 +34,7 @@ categories.workspace = true
 keywords.workspace = true
 repository = "https://github.com/argan-rs/argan"
 readme = "README.md"
+exclude = [".github"]
 
 [features]
 cookies = ["dep:cookie"]
