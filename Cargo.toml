@@ -3,6 +3,13 @@
 [workspace.package]
 license = "MIT OR Apache-2.0"
 edition = "2021"
+categories = [
+	"web-programming",
+	"web-programming::http-server",
+	"web-programming::websocket",
+	"network-programming",
+]
+keywords = ["web", "framework", "server", "http"]
 
 [workspace.dependencies]
 bytes = "1"
@@ -23,6 +30,10 @@ description = "A web framework for Rust."
 authors = ["Shohruh Adham <shohruh.adham@gmail.com>"]
 license.workspace = true
 edition.workspace = true
+categories.workspace = true
+keywords.workspace = true
+repository = "https://github.com/argan-rs/argan"
+readme = "README.md"
 
 [features]
 cookies = ["dep:cookie"]

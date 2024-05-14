@@ -4,7 +4,7 @@
 [![Test status](https://github.com/argan-rs/argan/actions/workflows/CI.yml/badge.svg?branch=main)](https://github.com/argan-rs/argan/actions/workflows/CI.yml)
 [![Documentation](https://docs.rs/argan/badge.svg)](https://docs.rs/argan)
 
-Argan is a web framework for Rust.
+A web framework for Rust.
 
 ## Features
 
@@ -111,6 +111,13 @@ struct Token {
 }
 ```
 
+## Contributions
+
+Pull requests are accepted on the `dev` branch.
+
+Any contribution intentionally submitted for inclusion in Argan by you shall be dual licensed
+under the MIT License and Apache License, Version 2.0, like Argan, without any additional terms
+or conditions.
 
 ## License
 
