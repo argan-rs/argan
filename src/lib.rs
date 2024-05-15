@@ -1,6 +1,8 @@
 // ----------
 #![doc = include_str!("../docs/argan.md")]
 // ----------
+#![cfg_attr(docsrs, feature(doc_auto_cfg))]
+// ----------
 // Let's keep this for now.
 #![allow(dead_code)]
 // ----------

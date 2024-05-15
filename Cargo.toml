@@ -8,6 +8,7 @@ categories = [
 	"web-programming::http-server",
 	"web-programming::websocket",
 	"network-programming",
+	"asynchronous",
 ]
 keywords = ["web", "framework", "server", "http"]
 
@@ -25,7 +26,7 @@ unsafe_code = "forbid"
 
 [package]
 name = "argan"
-version = "0.0.1"
+version = "0.0.2"
 description = "A web framework for Rust."
 authors = ["Shohruh Adham <shohruh.adham@gmail.com>"]
 license.workspace = true
@@ -35,6 +36,10 @@ keywords.workspace = true
 repository = "https://github.com/argan-rs/argan"
 readme = "README.md"
 exclude = [".github"]
+
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]
 
 [features]
 cookies = ["dep:cookie"]
