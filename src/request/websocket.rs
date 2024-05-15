@@ -256,7 +256,7 @@ fn sec_websocket_accept_value_from(key: &[u8]) -> HeaderValue {
 // --------------------------------------------------
 // WebSocketUpgradeError
 
-/// An error type returned on WebSocket upgrade failures.
+/// An error type that's returned on WebSocket upgrade failures.
 #[derive(Debug, crate::ImplError)]
 pub enum WebSocketUpgradeError {
 	/// Returned when `Connection` header is invalid.
@@ -575,7 +575,7 @@ impl From<CloseCode> for u16 {
 // --------------------------------------------------
 // WebSocketError
 
-/// An error type returned on WebSocket communication failure.
+/// An error type that's returned on WebSocket communication failure.
 #[non_exhaustive]
 #[derive(Debug, crate::ImplError)]
 pub enum WebSocketError {

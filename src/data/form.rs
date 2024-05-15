@@ -137,7 +137,7 @@ where
 // ----------
 
 data_extractor_error! {
-	/// An error type returned on failures when extracting or serializing the `Form`.
+	/// An error type that's returned on failure when extracting or serializing the `Form`.
 	#[derive(Debug)]
 	pub FormError {
 		/// Returned when deserializing the body fails.

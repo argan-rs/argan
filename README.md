@@ -11,8 +11,8 @@ A web framework for Rust.
   * Static, regex, and wildcard URI component patterns.
   * Resource and handler extensions.
   * Request data extractors and support for custom guards.
-  * Static file streaming with support for `multipart/byteranges`, pre-encoded files,
-    and dynamic encoding.
+  * Static file streaming with support for range requests, `multipart/byteranges`,
+    pre-encoded files, and dynamic encoding.
   * Server-sent events.
   * WebSockets.
   * Flexible middleware system compatible with Tower.

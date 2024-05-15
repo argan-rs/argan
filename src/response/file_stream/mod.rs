@@ -1300,7 +1300,7 @@ impl PartialEq for RangeValue {
 // --------------------------------------------------
 // FileStreamError
 
-/// An error returned when creating a file stream fails.
+/// An error that's returned when creating a file stream fails.
 #[non_exhaustive]
 #[derive(Debug, crate::ImplError)]
 pub enum FileStreamError {
