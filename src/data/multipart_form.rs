@@ -307,7 +307,7 @@ impl<'p> Part<'p> {
 // ----------
 
 data_extractor_error! {
-	/// An error type returned on failures when extracting the `MultipartForm`.
+	/// An error type that's returned on failure when extracting the `MultipartForm`.
 	#[derive(Debug)]
 	pub MultipartFormError {
 		/// Returned when the form is constrained to certain parts and an unknown part is detected.

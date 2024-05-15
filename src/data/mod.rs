@@ -115,7 +115,7 @@ where
 // ----------
 
 data_extractor_error! {
-	/// An error type returned on failures when extracting a text data.
+	/// An error type that's returned on failure when extracting text data.
 	#[derive(Debug)]
 	pub TextExtractorError {
 		/// Returned on failure when decoding the body as UTF-8 text.
@@ -202,7 +202,7 @@ where
 // ----------
 
 data_extractor_error! {
-	/// An error type returned on failures when extracting a binary data.
+	/// An error type that's returned on failure when extracting binary data.
 	#[derive(Debug)]
 	pub BinaryExtractorError {}
 }
@@ -270,7 +270,7 @@ where
 
 // ----------
 
-/// An error type returned on failures when extracting a full body.
+/// An error type that's returned on failure when extracting full data.
 #[non_exhaustive]
 #[derive(Debug, crate::ImplError)]
 pub enum FullBodyExtractorError {

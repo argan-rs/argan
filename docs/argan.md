@@ -147,11 +147,12 @@ let news = Resource::new("/news");
 let items = Resource::new("/items");
 ```
 
-*Regex* patterns can have *static* and *regex* subpatterns. *Regex* patterns match if both
-subpatterns match the request's path segment in the exact order. *Regex* subpatterns are written
-in curly braces with their name and regex parts separated by a colon: `"{name:regex}"`. If the
-*regex* subpattern is the last suppattern or the following subpattern is a *static* subpattern
-that starts with a dot `'.'`, then the regex part can be omitted to match anything.
+*Regex* patterns are available only when the `"regex"` feature flag is enabled. They can have
+*static* and *regex* subpatterns. *Regex* patterns match if both subpatterns match the request's
+path segment in the exact order. *Regex* subpatterns are written in curly braces with their name
+and regex parts separated by a colon: `"{name:regex}"`. If the *regex* subpattern is the last
+suppattern or the following subpattern is a *static* subpattern that starts with a dot `'.'`,
+then the regex part can be omitted to match anything.
 
 ```
 use argan::{Host, Resource};
@@ -225,7 +226,7 @@ mutually exclusive. An `*` configures the resource to be a subtree handler. Conf
 can only be specified on the resource’s own pattern. Prefix segment patterns given when the
 resource is being created or retrieved cannot have configuration symbols.
 
-| symbol(s) on a pattern | resource                                                               |
+| symbol(s) on a pattern | resource action                                                        |
 |------------------------|------------------------------------------------------------------------|
 | `"/some_pattern"`      | redirects the requests with a trailing slash                           |
 | `"/some_pattern/"`     | redirects the requests without a trailing slash                        |
@@ -536,6 +537,22 @@ resource.set_handler_for(_get.to((|| async {}).wrapped_in((
 See also [`Router::add_layer_to()`], [`Resource::add_layer_to()`], and
 [`IntoHandler::wrapped_in()`](crate::handler::IntoHandler::wrapped_in()) for more information.
 
+## Feature flags
+
+| feature flag      | enables                                      |
+|-------------------|----------------------------------------------|
+| "regex"           | regex patterns                               |
+| "cookies"         | cookies                                      |
+| "private-cookies" | cookies, private cookies, and a cookie `Key` |
+| "signed-cookies"  | cookies, signed cookies, and a cookie `Key`  |
+| "query-params"    | query params                                 |
+| "json"            | the JSON extractor and response type `Json`  |
+| "form"            | the form extractor and response type `Form`  |
+| "multipart-form"  | the multipart form extractor `MultipartForm` |
+| "sse"             | server-sent events                           |
+| "file-stream"     | static file streaming                        |
+| "websockets"      | the WebSockets                               |
+| "full"            | all the features                             |
 
 [`Handler`]: crate::handler::Handler
 [`Args`]: crate::handler::Args

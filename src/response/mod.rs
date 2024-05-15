@@ -152,7 +152,7 @@ where
 // -------------------------
 // ResponseExtensionError
 
-/// An error type returned when the given type value already exists in the [`ResponseHeadParts`].
+/// An error that's returned when the given type value already exists in the [`ResponseHeadParts`].
 pub struct ResponseExtensionError<T>(PhantomData<T>);
 
 impl<T> Debug for ResponseExtensionError<T> {

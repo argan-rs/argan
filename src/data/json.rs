@@ -129,7 +129,7 @@ where
 // ----------
 
 data_extractor_error! {
-	/// An error type returned on failures when extracting or serializing the `Json`.
+	/// An error type that's returned on failure when extracting or serializing the `Json`.
 	#[derive(Debug)]
 	pub JsonError {
 		/// Returned on syntax error when deserializing the body as JSON data.

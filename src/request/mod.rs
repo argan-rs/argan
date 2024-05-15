@@ -489,8 +489,9 @@ pub enum SizeLimit {
 // --------------------------------------------------
 // PathParamsError
 
-/// An error type returned by [`RequestContext::path_params_as()`] and
-/// [`RequestHead::path_params_as()`].
+/// An error type that's returned on failure when extracting path parameters.
+///
+/// See [`RequestContext::path_params_as()`] and [`RequestHead::path_params_as()`].
 #[derive(Debug, crate::ImplError)]
 #[error(transparent)]
 pub struct PathParamsError(#[from] pub(crate) pattern::DeserializerError);
@@ -507,8 +508,9 @@ impl IntoResponse for PathParamsError {
 // --------------------------------------------------
 // QueryParamsError
 
-/// An error type returned by [`RequestContext::query_params_as()`] and
-/// [`RequestHead::query_params_as()`].
+/// An error type that's returned on failure when extracting the query string.
+///
+/// See [`RequestContext::query_params_as()`] and [`RequestHead::query_params_as()`].
 #[cfg(feature = "query-params")]
 #[derive(Debug, crate::ImplError)]
 pub enum QueryParamsError {
