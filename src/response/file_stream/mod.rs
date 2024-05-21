@@ -17,6 +17,7 @@ use argan_core::{
 	body::{Body, Frame, HttpBody},
 	BoxedError,
 };
+use brotli::CompressorReader;
 use bytes::{BufMut, Bytes, BytesMut};
 use flate2::{read::GzEncoder, Compression};
 use http::{
@@ -52,6 +53,7 @@ pub use config::ContentCoding;
 // --------------------------------------------------------------------------------
 
 const BUFFER_SIZE: usize = 8 * 1024;
+const BROTLI_LG_WINDOW_SIZE: usize = 22; // Recommended size (brotli crate).
 
 // -------------------------
 
@@ -128,6 +130,15 @@ impl FileStream {
 		let (file, file_size) = result?;
 
 		let (maybe_encoded_file, content_encoding) = match content_coding {
+			ContentCoding::Brotli(level) => (
+				MaybeEncoded::Brotli(CompressorReader::new(
+					file,
+					BUFFER_SIZE,
+					level,
+					BROTLI_LG_WINDOW_SIZE as u32,
+				)),
+				HeaderValue::from_static("br"),
+			),
 			ContentCoding::Gzip(level) => (
 				MaybeEncoded::Gzip(GzEncoder::new(file, Compression::new(level))),
 				HeaderValue::from_static("gzip"),
@@ -192,6 +203,15 @@ impl FileStream {
 		let (file, file_size) = result?;
 
 		let (maybe_encoded_file, content_encoding) = match content_coding {
+			ContentCoding::Brotli(level) => (
+				MaybeEncoded::Brotli(CompressorReader::new(
+					file,
+					BUFFER_SIZE,
+					level,
+					BROTLI_LG_WINDOW_SIZE as u32,
+				)),
+				HeaderValue::from_static("br"),
+			),
 			ContentCoding::Gzip(level) => (
 				MaybeEncoded::Gzip(GzEncoder::new(file, Compression::new(level))),
 				HeaderValue::from_static("gzip"),
@@ -305,16 +325,34 @@ impl FileStream {
 			match config_option {
 				Attachment => self.config_flags.add(ConfigFlags::ATTACHMENT),
 				PartialContentSupport => {
-					if let MaybeEncoded::Gzip(_) = self.maybe_encoded_file {
+					if self.maybe_encoded_file.is_encoded() {
 						panic!("cannot support partial content with dynamic encoding");
 					}
 
 					self.config_flags.add(ConfigFlags::PARTIAL_CONTENT_SUPPORT);
 				}
 				ContentEncoding(header_value) => {
-					if let MaybeEncoded::Gzip(_) = self.maybe_encoded_file {
-						if header_value.to_str().map_or(true, |value| value != "gzip") {
-							panic!("applied dynamic encoding and Content-Encoding are different");
+					let encoding = header_value
+						.to_str()
+						.expect("Content-Encoding must be a valid header value");
+					match self.maybe_encoded_file {
+						MaybeEncoded::Uninitialized => unreachable!(),
+						MaybeEncoded::Identity(_) => {}
+						MaybeEncoded::Brotli(_) => {
+							if encoding != "br" {
+								panic!(
+									"applied dynamic encoding `brotli` and Content-Encoding `{}` are different",
+									encoding
+								);
+							}
+						}
+						MaybeEncoded::Gzip(_) => {
+							if encoding != "gzip" {
+								panic!(
+									"applied dynamic encoding `gzip` and Content-Encoding `{}` are different",
+									encoding
+								);
+							}
 						}
 					}
 
@@ -322,7 +360,7 @@ impl FileStream {
 				}
 				ContentType(header_value) => self.some_content_type = Some(header_value),
 				Boundary(boundary) => {
-					if let MaybeEncoded::Gzip(_) = self.maybe_encoded_file {
+					if self.maybe_encoded_file.is_encoded() {
 						panic!("boundary cannot be set with dynamic encoding");
 					}
 
@@ -600,6 +638,7 @@ fn stream_single_range(
 				return Poll::Ready(None);
 			}
 
+			// Use `current_range_index` to seek only once.
 			if file_stream.current_range_index == 0 && file_stream.ranges.len() == 1 {
 				let start_position = file_stream.ranges[0].start();
 				let _ = file_stream
@@ -626,6 +665,7 @@ fn stream_single_range(
 				if let MaybeEncoded::Identity(_) = file_stream.maybe_encoded_file {
 					file_stream.current_range_remaining_size -= size as u64;
 				} else if size == 0 {
+					// We can't know the remaining size with dynamic encoding.
 					return Poll::Ready(None);
 				}
 
@@ -813,6 +853,7 @@ pub fn generate_boundary(length: u8) -> Result<Box<str>, FileStreamError> {
 enum MaybeEncoded {
 	Uninitialized,
 	Identity(File),
+	Brotli(CompressorReader<File>),
 	Gzip(GzEncoder<File>),
 }
 
@@ -822,6 +863,14 @@ impl MaybeEncoded {
 		match owned_self {
 			Self::Uninitialized => unreachable!(),
 			Self::Identity(file) => match content_coding {
+				ContentCoding::Brotli(level) => {
+					*self = Self::Brotli(CompressorReader::new(
+						file,
+						BUFFER_SIZE,
+						level,
+						BROTLI_LG_WINDOW_SIZE as u32,
+					))
+				}
 				ContentCoding::Gzip(level) => {
 					*self = Self::Gzip(GzEncoder::new(file, Compression::new(level)))
 				}
@@ -831,6 +880,15 @@ impl MaybeEncoded {
 
 		Ok(())
 	}
+
+	#[inline(always)]
+	fn is_encoded(&self) -> bool {
+		match self {
+			Self::Uninitialized => unreachable!(),
+			Self::Identity(_) => false,
+			_ => true,
+		}
+	}
 }
 
 impl Read for MaybeEncoded {
@@ -838,6 +896,7 @@ impl Read for MaybeEncoded {
 		match self {
 			Self::Uninitialized => unreachable!(),
 			Self::Identity(file) => file.read(buf),
+			Self::Brotli(br_encoder) => br_encoder.read(buf),
 			Self::Gzip(gz_encoder) => gz_encoder.read(buf),
 		}
 	}
@@ -1723,7 +1782,8 @@ mod test {
 
 		let _deferred = Deferred::call(|| std::fs::remove_file(FILE).unwrap());
 
-		let content_encoding_value = HeaderValue::from_static("gzip");
+		let gzip_content_encoding_value = HeaderValue::from_static("gzip");
+		let br_content_encoding_value = HeaderValue::from_static("br");
 		let content_type_value = HeaderValue::from_static(mime::TEXT_PLAIN_UTF_8.as_ref());
 		let file_size_string = &FILE_SIZE.to_string();
 
@@ -1788,7 +1848,7 @@ mod test {
 		let mut file_stream = FileStream::open(FILE).await.unwrap();
 		file_stream.configure([
 			_as_attachment(),
-			_content_encoding(content_encoding_value.clone()),
+			_content_encoding(gzip_content_encoding_value.clone()),
 			_content_type(content_type_value.clone()),
 			_file_name("test".into()),
 		]);
@@ -1805,6 +1865,7 @@ mod test {
 				.to_str()
 				.unwrap()
 		);
+
 		assert_eq!(
 			mime::TEXT_PLAIN_UTF_8.as_ref(),
 			response
@@ -1871,7 +1932,7 @@ mod test {
 		file_stream.configure([
 			_content_type(content_type_value.clone()),
 			_to_support_partial_content(),
-			_content_encoding(content_encoding_value.clone()),
+			_content_encoding(gzip_content_encoding_value.clone()),
 		]);
 
 		let response = file_stream.into_response();
@@ -1924,7 +1985,7 @@ mod test {
 			.unwrap();
 		file_stream.configure([
 			_content_type(content_type_value.clone()),
-			_content_encoding(content_encoding_value.clone()),
+			_content_encoding(gzip_content_encoding_value.clone()),
 		]);
 
 		let response = file_stream.into_response();
@@ -1980,9 +2041,10 @@ mod test {
 		let mut file_stream = FileStream::open_with_encoding(FILE, ContentCoding::Gzip(6))
 			.await
 			.unwrap();
+
 		file_stream.configure([
 			_content_type(content_type_value.clone()),
-			_content_encoding(content_encoding_value.clone()),
+			_content_encoding(gzip_content_encoding_value.clone()),
 		]);
 
 		let response = file_stream.into_response();
@@ -2000,6 +2062,57 @@ mod test {
 
 		assert_eq!(
 			"gzip",
+			response
+				.headers()
+				.get(CONTENT_ENCODING)
+				.unwrap()
+				.to_str()
+				.unwrap()
+		);
+
+		assert_eq!(
+			"none",
+			response
+				.headers()
+				.get(ACCEPT_RANGES)
+				.unwrap()
+				.to_str()
+				.unwrap()
+		);
+
+		assert!(response.headers().get(CONTENT_DISPOSITION).is_none());
+		assert!(response.headers().get(CONTENT_LENGTH).is_none());
+
+		let body = response.into_body().collect().await.unwrap().to_bytes();
+		assert!(FILE_SIZE > body.len());
+		assert_ne!(contents, Into::<Vec<u8>>::into(body));
+
+		// -------------------------
+
+		let mut file_stream = FileStream::open_with_encoding(FILE, ContentCoding::Brotli(6))
+			.await
+			.unwrap();
+
+		file_stream.configure([
+			_content_type(content_type_value.clone()),
+			_content_encoding(br_content_encoding_value),
+		]);
+
+		let response = file_stream.into_response();
+
+		assert_eq!(StatusCode::OK, response.status());
+		assert_eq!(
+			mime::TEXT_PLAIN_UTF_8.as_ref(),
+			response
+				.headers()
+				.get(CONTENT_TYPE)
+				.unwrap()
+				.to_str()
+				.unwrap()
+		);
+
+		assert_eq!(
+			"br",
 			response
 				.headers()
 				.get(CONTENT_ENCODING)
@@ -2274,6 +2387,7 @@ mod test {
 		let mut file_stream = FileStream::open_ranges(FILE, "bytes=12-24, 1024-4095", false)
 			.await
 			.unwrap();
+
 		file_stream.configure([
 			_content_type(content_type_value.clone()),
 			_content_encoding(content_encoding_value.clone()),
@@ -2876,7 +2990,7 @@ mod test {
 	// --------------------------------------------------
 
 	#[tokio::test]
-	#[should_panic = "applied dynamic encoding and Content-Encoding are different"]
+	#[should_panic = "applied dynamic encoding `gzip` and Content-Encoding `br` are different"]
 	async fn unmatching_encoding() {
 		const FILE: &str = "panic-1";
 
