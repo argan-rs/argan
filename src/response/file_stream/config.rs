@@ -14,8 +14,9 @@ use super::*;
 #[non_exhaustive]
 #[derive(Debug, PartialEq)]
 pub enum ContentCoding {
-	Brotli(u32), // Brotli coding with level.
-	Gzip(u32),   // Gzip cooding with level.
+	Gzip(u32),    // Gzip cooding with level.
+	Deflate(u32), // Deflate coding with level.
+	Brotli(u32),  // Brotli coding with level.
 }
 
 // --------------------------------------------------

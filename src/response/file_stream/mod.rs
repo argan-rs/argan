@@ -19,7 +19,10 @@ use argan_core::{
 };
 use brotli::CompressorReader;
 use bytes::{BufMut, Bytes, BytesMut};
-use flate2::{read::GzEncoder, Compression};
+use flate2::{
+	read::{DeflateEncoder, GzEncoder},
+	Compression,
+};
 use http::{
 	header::{
 		ACCEPT_RANGES, CONTENT_DISPOSITION, CONTENT_ENCODING, CONTENT_LENGTH, CONTENT_RANGE,
@@ -130,6 +133,14 @@ impl FileStream {
 		let (file, file_size) = result?;
 
 		let (maybe_encoded_file, content_encoding) = match content_coding {
+			ContentCoding::Gzip(level) => (
+				MaybeEncoded::Gzip(GzEncoder::new(file, Compression::new(level))),
+				HeaderValue::from_static("gzip"),
+			),
+			ContentCoding::Deflate(level) => (
+				MaybeEncoded::Deflate(DeflateEncoder::new(file, Compression::new(level))),
+				HeaderValue::from_static("deflate"),
+			),
 			ContentCoding::Brotli(level) => (
 				MaybeEncoded::Brotli(CompressorReader::new(
 					file,
@@ -138,10 +149,6 @@ impl FileStream {
 					BROTLI_LG_WINDOW_SIZE as u32,
 				)),
 				HeaderValue::from_static("br"),
-			),
-			ContentCoding::Gzip(level) => (
-				MaybeEncoded::Gzip(GzEncoder::new(file, Compression::new(level))),
-				HeaderValue::from_static("gzip"),
 			),
 		};
 
@@ -203,6 +210,14 @@ impl FileStream {
 		let (file, file_size) = result?;
 
 		let (maybe_encoded_file, content_encoding) = match content_coding {
+			ContentCoding::Gzip(level) => (
+				MaybeEncoded::Gzip(GzEncoder::new(file, Compression::new(level))),
+				HeaderValue::from_static("gzip"),
+			),
+			ContentCoding::Deflate(level) => (
+				MaybeEncoded::Deflate(DeflateEncoder::new(file, Compression::new(level))),
+				HeaderValue::from_static("deflate"),
+			),
 			ContentCoding::Brotli(level) => (
 				MaybeEncoded::Brotli(CompressorReader::new(
 					file,
@@ -211,10 +226,6 @@ impl FileStream {
 					BROTLI_LG_WINDOW_SIZE as u32,
 				)),
 				HeaderValue::from_static("br"),
-			),
-			ContentCoding::Gzip(level) => (
-				MaybeEncoded::Gzip(GzEncoder::new(file, Compression::new(level))),
-				HeaderValue::from_static("gzip"),
 			),
 		};
 
@@ -338,18 +349,26 @@ impl FileStream {
 					match self.maybe_encoded_file {
 						MaybeEncoded::Uninitialized => unreachable!(),
 						MaybeEncoded::Identity(_) => {}
-						MaybeEncoded::Brotli(_) => {
-							if encoding != "br" {
-								panic!(
-									"applied dynamic encoding `brotli` and Content-Encoding `{}` are different",
-									encoding
-								);
-							}
-						}
 						MaybeEncoded::Gzip(_) => {
 							if encoding != "gzip" {
 								panic!(
 									"applied dynamic encoding `gzip` and Content-Encoding `{}` are different",
+									encoding
+								);
+							}
+						}
+						MaybeEncoded::Deflate(_) => {
+							if encoding != "deflate" {
+								panic!(
+									"applied dynamic encoding `deflate` and Content-Encoding `{}` are different",
+									encoding
+								);
+							}
+						}
+						MaybeEncoded::Brotli(_) => {
+							if encoding != "br" {
+								panic!(
+									"applied dynamic encoding `brotli` and Content-Encoding `{}` are different",
 									encoding
 								);
 							}
@@ -853,8 +872,9 @@ pub fn generate_boundary(length: u8) -> Result<Box<str>, FileStreamError> {
 enum MaybeEncoded {
 	Uninitialized,
 	Identity(File),
-	Brotli(CompressorReader<File>),
 	Gzip(GzEncoder<File>),
+	Deflate(DeflateEncoder<File>),
+	Brotli(CompressorReader<File>),
 }
 
 impl MaybeEncoded {
@@ -863,6 +883,12 @@ impl MaybeEncoded {
 		match owned_self {
 			Self::Uninitialized => unreachable!(),
 			Self::Identity(file) => match content_coding {
+				ContentCoding::Gzip(level) => {
+					*self = Self::Gzip(GzEncoder::new(file, Compression::new(level)))
+				}
+				ContentCoding::Deflate(level) => {
+					*self = Self::Deflate(DeflateEncoder::new(file, Compression::new(level)))
+				}
 				ContentCoding::Brotli(level) => {
 					*self = Self::Brotli(CompressorReader::new(
 						file,
@@ -870,9 +896,6 @@ impl MaybeEncoded {
 						level,
 						BROTLI_LG_WINDOW_SIZE as u32,
 					))
-				}
-				ContentCoding::Gzip(level) => {
-					*self = Self::Gzip(GzEncoder::new(file, Compression::new(level)))
 				}
 			},
 			_ => panic!("content coding has already been applied"),
@@ -897,7 +920,8 @@ impl Read for MaybeEncoded {
 			Self::Uninitialized => unreachable!(),
 			Self::Identity(file) => file.read(buf),
 			Self::Brotli(br_encoder) => br_encoder.read(buf),
-			Self::Gzip(gz_encoder) => gz_encoder.read(buf),
+			Self::Gzip(gzip_encoder) => gzip_encoder.read(buf),
+			Self::Deflate(deflate_encoder) => deflate_encoder.read(buf),
 		}
 	}
 }
@@ -1783,7 +1807,6 @@ mod test {
 		let _deferred = Deferred::call(|| std::fs::remove_file(FILE).unwrap());
 
 		let gzip_content_encoding_value = HeaderValue::from_static("gzip");
-		let br_content_encoding_value = HeaderValue::from_static("br");
 		let content_type_value = HeaderValue::from_static(mime::TEXT_PLAIN_UTF_8.as_ref());
 		let file_size_string = &FILE_SIZE.to_string();
 
@@ -2037,6 +2060,7 @@ mod test {
 		assert_eq!(range_content, Into::<Vec<u8>>::into(body));
 
 		// -------------------------
+		// Gzip
 
 		let mut file_stream = FileStream::open_with_encoding(FILE, ContentCoding::Gzip(6))
 			.await
@@ -2088,6 +2112,59 @@ mod test {
 		assert_ne!(contents, Into::<Vec<u8>>::into(body));
 
 		// -------------------------
+		// Deflate
+
+		let mut file_stream = FileStream::open_with_encoding(FILE, ContentCoding::Deflate(6))
+			.await
+			.unwrap();
+
+		file_stream.configure([
+			_content_type(content_type_value.clone()),
+			_content_encoding(HeaderValue::from_static("deflate")),
+		]);
+
+		let response = file_stream.into_response();
+
+		assert_eq!(StatusCode::OK, response.status());
+		assert_eq!(
+			mime::TEXT_PLAIN_UTF_8.as_ref(),
+			response
+				.headers()
+				.get(CONTENT_TYPE)
+				.unwrap()
+				.to_str()
+				.unwrap()
+		);
+
+		assert_eq!(
+			"deflate",
+			response
+				.headers()
+				.get(CONTENT_ENCODING)
+				.unwrap()
+				.to_str()
+				.unwrap()
+		);
+
+		assert_eq!(
+			"none",
+			response
+				.headers()
+				.get(ACCEPT_RANGES)
+				.unwrap()
+				.to_str()
+				.unwrap()
+		);
+
+		assert!(response.headers().get(CONTENT_DISPOSITION).is_none());
+		assert!(response.headers().get(CONTENT_LENGTH).is_none());
+
+		let body = response.into_body().collect().await.unwrap().to_bytes();
+		assert!(FILE_SIZE > body.len());
+		assert_ne!(contents, Into::<Vec<u8>>::into(body));
+
+		// -------------------------
+		// Brotli
 
 		let mut file_stream = FileStream::open_with_encoding(FILE, ContentCoding::Brotli(6))
 			.await
@@ -2095,7 +2172,7 @@ mod test {
 
 		file_stream.configure([
 			_content_type(content_type_value.clone()),
-			_content_encoding(br_content_encoding_value),
+			_content_encoding(HeaderValue::from_static("br")),
 		]);
 
 		let response = file_stream.into_response();
