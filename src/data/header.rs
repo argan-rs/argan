@@ -97,6 +97,7 @@ pub(crate) fn split_header_value_with_weights(
 			Ok(values)
 		})
 		.map(|mut values| {
+			// Sort in descending order.
 			values.sort_by(|a, b| b.1.partial_cmp(&a.1).expect(SCOPE_VALIDITY));
 
 			values

@@ -365,133 +365,120 @@ async fn evaluate_optimal_coding<P1: AsRef<Path>, P2: AsRef<str>>(
 	if let Some(header_value) = request_headers.get(ACCEPT_ENCODING) {
 		let elements = split_header_value_with_weights(header_value)?;
 
-		let some_path_buf_and_metadata = if let Some(position) = elements.iter().position(
-			|(value, _)| /* value.eq_ignore_ascii_case("br") || */ value.eq_ignore_ascii_case("gzip"),
-		) {
-			let /* encoding */ preferred_encoding = elements[position];
-			// let other_encoding_name = if encoding.0 == "br" { "gzip" } else { "br" };
-			//
-			// let other_encoding = (other_encoding_name, 0.0);
-			// let other_encoding = elements[position + 1..]
-			// 	.iter()
-			// 	.find(|(value, _)| value.eq_ignore_ascii_case(other_encoding_name))
-			// 	.or(Some(&other_encoding))
-			// 	.expect(SCOPE_VALIDITY);
-			//
-			// let (preferred_encoding, other_encoding) = if encoding.1 > other_encoding.1 {
-			// 	(&encoding, other_encoding)
-			// } else {
-			// 	(other_encoding, &encoding)
-			// };
+		let mut path_buf = PathBuf::new();
 
-			let some_path_buf = if preferred_encoding.1 > 0.0 {
-				let relative_path_to_file = match preferred_encoding.0 {
-					"gzip" => {
-						let mut relative_path_to_file = relative_path_to_file.to_string();
-						relative_path_to_file.push_str(".gz");
+		{
+			let mut owned_relative_path_to_file = relative_path_to_file.to_owned();
 
-						relative_path_to_file
+			for &(encoding, weight) in elements.iter() {
+				if weight > 0.0 {
+					let extended = if encoding.eq_ignore_ascii_case("gzip") {
+						owned_relative_path_to_file.push_str(".gz");
+
+						true
+					} else {
+						false
+					};
+
+					// The following snippet will be active when a tool is provided.
+					// let extended = if encoding.eq_ignore_ascii_case("gzip") {
+					// 	owned_relative_path_to_file.push_str(".gz");
+					//
+					// 	true
+					// } else if encoding.eq_ignore_ascii_case("deflate") {
+					// 	owned_relative_path_to_file.push_str(".df");
+					//
+					// 	true
+					// } else if encoding.eq_ignore_ascii_case("br") {
+					// 	owned_relative_path_to_file.push_str(".br");
+					//
+					// 	true
+					// } else {
+					// 	false
+					// };
+
+					if extended {
+						path_buf = path_buf
+							.join(files_dir)
+							.join(ENCODED)
+							.join(encoding)
+							.join(&owned_relative_path_to_file);
+
+						let (checked_path_buf, some_metadata) = file_metadata(path_buf).await?;
+
+						if let Some(metadata) = some_metadata {
+							return Ok((encoding, checked_path_buf, metadata, false));
+						}
+
+						owned_relative_path_to_file.truncate(relative_path_to_file.len());
+
+						path_buf = checked_path_buf;
+						path_buf.clear();
 					}
-
-					_ => relative_path_to_file.to_string(),
-				};
-
-				let path_buf = files_dir
-					.join(ENCODED)
-					.join(preferred_encoding.0)
-					.join(relative_path_to_file);
-
-				let (path_buf, some_metadata) = file_metadata(path_buf).await?;
-
-				if let Some(metadata) = some_metadata {
-					return Ok((preferred_encoding.0, path_buf, metadata, false));
-				}
-
-				// if other_encoding.1 > 0.0 {
-				// 	path_buf.clear();
-				//
-				// 	path_buf.push(files_dir);
-				// 	path_buf.push(COMPRESSED);
-				// 	path_buf.push(other_encoding.0);
-				// 	path_buf.push(relative_path_to_file);
-				//
-				// 	if path_buf.is_file() {
-				// 		return Ok((other_encoding.0, path_buf, false));
-				// 	}
-				// }
-
-				// We're returning the path_buf just to reuse its allocated memory.
-				Some(path_buf)
-			} else {
-				None
-			};
-
-			// We don't have a pre-encoded file. Now we must see whether there is an unencoded file.
-
-			let path_buf = if let Some(mut path_buf) = some_path_buf {
-				path_buf.clear();
-
-				path_buf.push(files_dir);
-				path_buf.push(UNENCODED);
-				path_buf.push(relative_path_to_file);
-
-				path_buf
-			} else {
-				files_dir.join(UNENCODED).join(relative_path_to_file)
-			};
-
-			let (path_buf, some_metadata) = file_metadata(path_buf).await?;
-
-			let Some(metadata) = some_metadata else {
-				return Err(StaticFileError::FileNotFound);
-			};
-
-			if dynamic_compression {
-				#[cfg(any(target_family = "unix", target_family = "wasm"))]
-				let file_size = metadata.size();
-
-				#[cfg(target_family = "windows")]
-				let file_size = metadata.file_size();
-
-				if file_size >= min_size_to_compress
-					&& file_size <= max_size_to_compress
-					&& preferred_encoding.1 > 0.0
-				{
-					return Ok((preferred_encoding.0, path_buf, metadata, true));
 				}
 			}
+		}
 
-			Some((path_buf, metadata))
-		} else {
-			None
+		// We don't have a pre-encoded file. Now we must see whether there is an unencoded file.
+
+		path_buf.clear();
+		path_buf.push(files_dir);
+		path_buf.push(UNENCODED);
+		path_buf.push(relative_path_to_file);
+
+		let (path_buf, some_metadata) = file_metadata(path_buf).await?;
+
+		let Some(metadata) = some_metadata else {
+			return Err(StaticFileError::FileNotFound);
 		};
 
-		if elements.iter().any(|(value, weight)| {
-			(value.eq_ignore_ascii_case("identity") || value.eq_ignore_ascii_case("*")) && *weight == 0.0
-		}) {
-			if some_path_buf_and_metadata.is_some() {
-				// Identity is forbidden. Elements cointain gzip, but we don't have
-				// the compressed file, and we can't dynamically compress.
-				return Err(StaticFileError::AcceptEncoding("identity"));
+		#[cfg(any(target_family = "unix", target_family = "wasm"))]
+		let file_size = metadata.size();
+
+		#[cfg(target_family = "windows")]
+		let file_size = metadata.file_size();
+
+		let mut identity_is_forbidden = false;
+		let mut forbidden_encodings = Vec::new();
+		if dynamic_compression && file_size >= min_size_to_compress && file_size <= max_size_to_compress
+		{
+			for &(encoding, weight) in elements.iter() {
+				if encoding.eq_ignore_ascii_case("gzip")
+					|| encoding.eq_ignore_ascii_case("deflate")
+					|| encoding.eq_ignore_ascii_case("br")
+				{
+					if weight > 0.0 {
+						return Ok((encoding, path_buf, metadata, true));
+					}
+
+					forbidden_encodings.push(encoding);
+
+					continue;
+				}
+
+				if (encoding.eq_ignore_ascii_case("identity") || encoding.eq_ignore_ascii_case("*"))
+					&& weight == 0.0
+				{
+					identity_is_forbidden = true;
+				}
 			}
-
-			// We don't have a path, which means elements don't have gzip,
-			// and identity is forbidden.
-
-			let path_buf = files_dir.join(UNENCODED).join(relative_path_to_file);
-			let (_, some_metadata) = file_metadata(path_buf).await?;
-
-			if some_metadata.is_none() {
-				return Err(StaticFileError::FileNotFound);
-			}
-
-			/* return Err(StaticFileError::AcceptEncoding("br, gzip, identity")); */
-			return Err(StaticFileError::AcceptEncoding("gzip, identity"));
 		}
 
-		if let Some((path_buf, metadata)) = some_path_buf_and_metadata {
-			return Ok(("", path_buf, metadata, false));
+		if identity_is_forbidden {
+			if forbidden_encodings.is_empty() {
+				// Identity is forbidden, `elements` cointains some other encodings, but we
+				// don't have a compressed file, and we can't dynamically compress because
+				// of the size of the uncompressed file.
+				return Err(StaticFileError::AcceptEncoding("identity".to_owned()));
+			}
+
+			forbidden_encodings.push("identity");
+			return Err(StaticFileError::AcceptEncoding(
+				forbidden_encodings.join(", "),
+			));
 		}
+
+		return Ok(("", path_buf, metadata, false));
 	}
 
 	let path_buf = files_dir.join(UNENCODED).join(relative_path_to_file);
@@ -723,7 +710,7 @@ pub enum StaticFileError {
 	#[error("file not found")]
 	FileNotFound,
 	#[error("Accept-Encoding must be {0}")]
-	AcceptEncoding(&'static str),
+	AcceptEncoding(String),
 	#[error(transparent)]
 	Io(#[from] IoError),
 	#[error(transparent)]
@@ -744,9 +731,11 @@ impl IntoResponse for StaticFileError {
 			Self::AcceptEncoding(codings) => {
 				*response.status_mut() = StatusCode::NOT_ACCEPTABLE;
 
-				response
-					.headers_mut()
-					.insert(ACCEPT_ENCODING, HeaderValue::from_static(codings));
+				response.headers_mut().insert(
+					ACCEPT_ENCODING,
+					HeaderValue::from_maybe_shared(codings)
+						.expect("the request's accepted encodings must be valid"),
+				);
 			}
 			Self::Io(_) | Self::Runtime(_) => *response.status_mut() = StatusCode::INTERNAL_SERVER_ERROR,
 			Self::FileStreamFailure(error) => return error.into_response(),

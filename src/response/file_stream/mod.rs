@@ -142,12 +142,12 @@ impl FileStream {
 				HeaderValue::from_static("deflate"),
 			),
 			ContentCoding::Brotli(level) => (
-				MaybeEncoded::Brotli(CompressorReader::new(
+				MaybeEncoded::Brotli(Box::new(CompressorReader::new(
 					file,
 					BUFFER_SIZE,
 					level,
 					BROTLI_LG_WINDOW_SIZE as u32,
-				)),
+				))),
 				HeaderValue::from_static("br"),
 			),
 		};
@@ -219,12 +219,12 @@ impl FileStream {
 				HeaderValue::from_static("deflate"),
 			),
 			ContentCoding::Brotli(level) => (
-				MaybeEncoded::Brotli(CompressorReader::new(
+				MaybeEncoded::Brotli(Box::new(CompressorReader::new(
 					file,
 					BUFFER_SIZE,
 					level,
 					BROTLI_LG_WINDOW_SIZE as u32,
-				)),
+				))),
 				HeaderValue::from_static("br"),
 			),
 		};
@@ -874,7 +874,7 @@ enum MaybeEncoded {
 	Identity(File),
 	Gzip(GzEncoder<File>),
 	Deflate(DeflateEncoder<File>),
-	Brotli(CompressorReader<File>),
+	Brotli(Box<CompressorReader<File>>),
 }
 
 impl MaybeEncoded {
@@ -890,12 +890,12 @@ impl MaybeEncoded {
 					*self = Self::Deflate(DeflateEncoder::new(file, Compression::new(level)))
 				}
 				ContentCoding::Brotli(level) => {
-					*self = Self::Brotli(CompressorReader::new(
+					*self = Self::Brotli(Box::new(CompressorReader::new(
 						file,
 						BUFFER_SIZE,
 						level,
 						BROTLI_LG_WINDOW_SIZE as u32,
-					))
+					)))
 				}
 			},
 			_ => panic!("content coding has already been applied"),
