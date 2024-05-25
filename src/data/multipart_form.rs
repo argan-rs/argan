@@ -22,9 +22,7 @@ use serde::de::DeserializeOwned;
 #[cfg(feature = "json")]
 use crate::common::SCOPE_VALIDITY;
 
-use crate::StdError;
-
-use super::header::content_type;
+use crate::{common::header_utils::content_type, StdError};
 
 // --------------------------------------------------------------------------------
 // --------------------------------------------------------------------------------

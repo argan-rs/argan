@@ -158,11 +158,11 @@ macro_rules! data_extractor_error {
 			),*
 		}
 
-		impl From<crate::data::header::ContentTypeError> for $error_name {
-			fn from(header_error: crate::data::header::ContentTypeError) -> Self {
+		impl From<crate::common::header_utils::ContentTypeError> for $error_name {
+			fn from(header_error: crate::common::header_utils::ContentTypeError) -> Self {
 				match header_error {
-					crate::data::header::ContentTypeError::Missing => $error_name::MissingContentType,
-					crate::data::header::ContentTypeError::InvalidValue(error) => {
+					crate::common::header_utils::ContentTypeError::Missing => $error_name::MissingContentType,
+					crate::common::header_utils::ContentTypeError::InvalidValue(error) => {
 						$error_name::InvalidContentType(error)
 					}
 				}

@@ -10,6 +10,7 @@ use http::StatusCode;
 use http_body_util::{BodyExt, LengthLimitError, Limited};
 
 use crate::{
+	common::header_utils::content_type,
 	request::FromRequest,
 	response::{IntoResponse, Response},
 };
@@ -19,8 +20,6 @@ use crate::{
 #[cfg(feature = "cookies")]
 pub mod cookies;
 
-pub mod header;
-
 #[cfg(feature = "json")]
 pub mod json;
 
@@ -29,8 +28,6 @@ pub mod form;
 
 #[cfg(feature = "multipart-form")]
 pub mod multipart_form;
-
-use header::content_type;
 
 // --------------------------------------------------------------------------------
 // --------------------------------------------------------------------------------

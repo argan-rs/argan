@@ -28,7 +28,7 @@ use hyper::upgrade::{OnUpgrade, Upgraded};
 use hyper_util::rt::TokioIo;
 use sha1::{Digest, Sha1};
 
-use crate::data::header::split_header_value;
+use crate::common::header_utils::split_header_value;
 
 use super::*;
 

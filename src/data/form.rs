@@ -11,6 +11,8 @@ use argan_core::{
 use http::{header::CONTENT_TYPE, HeaderValue, StatusCode};
 use serde::{de::DeserializeOwned, Serialize};
 
+use crate::common::header_utils::content_type;
+
 // --------------------------------------------------------------------------------
 // --------------------------------------------------------------------------------
 
@@ -94,8 +96,6 @@ where
 	T: DeserializeOwned,
 {
 	use http_body_util::{BodyExt, LengthLimitError, Limited};
-
-	use super::header::content_type;
 
 	let content_type_str = content_type(head_parts)?;
 

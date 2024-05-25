@@ -1,19 +1,14 @@
-//! HTTP header types.
-
-// ----------
-
 use std::num::ParseFloatError;
 
 use argan_core::request::RequestHeadParts;
-
-use crate::{
-	common::{trim, SCOPE_VALIDITY},
-	ImplError,
+use http::{
+	header::{ToStrError, CONTENT_TYPE},
+	HeaderValue,
 };
 
-// ----------
+use crate::ImplError;
 
-pub use http::header::*;
+use super::{trim, SCOPE_VALIDITY};
 
 // --------------------------------------------------------------------------------
 // --------------------------------------------------------------------------------

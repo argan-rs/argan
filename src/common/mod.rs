@@ -23,6 +23,8 @@ pub use config::_with_request_extensions_modifier;
 #[cfg(any(feature = "private-cookies", feature = "signed-cookies"))]
 pub use config::_with_cookie_key;
 
+pub(crate) mod header_utils;
+
 #[cfg(all(test, feature = "full"))]
 pub(crate) mod test_helpers;
 

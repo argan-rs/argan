@@ -27,8 +27,10 @@ use httpdate::HttpDate;
 use tokio::task::JoinError;
 
 use crate::{
-	common::{normalize_path, strip_double_quotes, SCOPE_VALIDITY},
-	data::header::{split_header_value_with_weights, SplitHeaderValueError},
+	common::{
+		header_utils::{split_header_value_with_weights, SplitHeaderValueError},
+		normalize_path, strip_double_quotes, SCOPE_VALIDITY,
+	},
 	handler::_get,
 	request::RequestHead,
 	response::{
