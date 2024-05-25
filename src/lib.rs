@@ -41,3 +41,7 @@ pub mod response;
 pub mod router;
 #[doc(inline)]
 pub use router::Router;
+
+pub mod server;
+#[doc(inline)]
+pub use server::Server;

@@ -49,9 +49,9 @@ query-params = ["dep:serde_urlencoded"]
 json = ["dep:serde_json", "multer/json"]
 form = ["dep:serde_urlencoded"]
 multipart-form = ["dep:multer"]
-sse = ["dep:tokio"]
-file-stream = ["dep:tokio", "dep:rand", "dep:mime_guess", "dep:flate2", "dep:brotli"]
-websockets = ["dep:fastwebsockets", "dep:base64", "dep:sha1", "dep:tokio"]
+sse = []
+file-stream = ["dep:rand", "dep:mime_guess", "dep:flate2", "dep:brotli"]
+websockets = ["dep:fastwebsockets", "dep:base64", "dep:sha1"]
 full = [
 	"regex",
 	"private-cookies",
@@ -77,10 +77,11 @@ mime = { workspace = true }
 httparse = "1"
 httpdate = "1"
 hyper = { version = "1", features = ["full"] }
-hyper-util = { version = "0.1", features = ["tokio"] }
+hyper-util = { version = "0.1", features = ["server-auto", "tokio"] }
 percent-encoding = "2"
 pin-project = "1"
 serde = { version = "1", features = ["derive"] }
+tokio = "1"
 tower-layer = "0.3"
 tower-service = "0.3"
 
@@ -90,7 +91,6 @@ cookie = { version = "0.18", features = ["percent-encode"], optional = true }
 serde_json = { version = "1", optional = true }
 serde_urlencoded = { version = "0.7", optional = true }
 multer = { version = "3", optional = true }
-tokio = { version = "1", optional = true }
 mime_guess = { version = "2", optional = true }
 brotli = { version = "6", optional = true}
 flate2 = { version = "1", optional = true }
