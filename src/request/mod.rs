@@ -2,12 +2,13 @@
 
 // ----------
 
-use std::{fmt::Debug, future::Future};
+use std::{convert::Infallible, fmt::Debug, future::Future};
 
 use argan_core::{
 	body::{Body, HttpBody},
 	BoxedError,
 };
+use futures_util::FutureExt;
 use http::{Extensions, HeaderMap, HeaderValue, Method, StatusCode, Uri, Version};
 use serde::Deserialize;
 
@@ -287,6 +288,40 @@ pub trait ExtractorGuard<B = Body, Ext: Clone = ()>: Sized {
 		request_context: &mut RequestContext<B>,
 		args: &Args<'static, Ext>,
 	) -> impl Future<Output = Result<Self, Self::Error>> + Send;
+}
+
+// ----------
+
+impl<B, Ext, T, E> ExtractorGuard<B, Ext> for Result<T, E>
+where
+	Ext: Clone,
+	T: ExtractorGuard<B, Ext, Error = E>,
+{
+	type Error = Infallible;
+
+	fn from_request_context_and_args(
+		request_context: &mut RequestContext<B>,
+		args: &Args<'static, Ext>,
+	) -> impl Future<Output = Result<Self, Self::Error>> + Send {
+		T::from_request_context_and_args(request_context, args).map(Ok)
+	}
+}
+
+// ----------
+
+impl<B, Ext, T> ExtractorGuard<B, Ext> for Option<T>
+where
+	Ext: Clone,
+	T: ExtractorGuard<B, Ext>,
+{
+	type Error = Infallible;
+
+	fn from_request_context_and_args(
+		request_context: &mut RequestContext<B>,
+		args: &Args<'static, Ext>,
+	) -> impl Future<Output = Result<Self, Self::Error>> + Send {
+		T::from_request_context_and_args(request_context, args).map(|result| Ok(result.ok()))
+	}
 }
 
 // --------------------------------------------------
