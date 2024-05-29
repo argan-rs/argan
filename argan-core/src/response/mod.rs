@@ -24,6 +24,7 @@ pub type Response<B = Body> = http::response::Response<B>;
 pub type ResponseHeadParts = http::response::Parts;
 
 pub type BoxedErrorResponse = Box<dyn ErrorResponse + Send + Sync>;
+pub type ResponseResult = Result<Response, BoxedErrorResponse>;
 
 // --------------------------------------------------------------------------------
 

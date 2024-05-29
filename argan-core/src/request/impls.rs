@@ -10,18 +10,6 @@ use super::*;
 // --------------------------------------------------
 // Result<T, E>
 
-// impl<'r, B, T, E: 'r> FromRequestRef<'r, B> for Result<T, E>
-// where
-// 	T: FromRequestRef<'r, B, Error = E>,
-// {
-// 	type Error = Infallible;
-//
-// 	#[inline(always)]
-// 	fn from_request_ref(request: &'r Request<B>) -> impl Future<Output = Result<Self, Self::Error>> {
-// 		T::from_request_ref(request).map(|result| Ok(result))
-// 	}
-// }
-
 impl<B, T, E> FromRequest<B> for Result<T, E>
 where
 	T: FromRequest<B, Error = E>,
@@ -39,9 +27,9 @@ where
 // --------------------------------------------------
 // Option<T>
 
-impl<B, T, E> FromRequest<B> for Option<T>
+impl<B, T> FromRequest<B> for Option<T>
 where
-	T: FromRequest<B, Error = E>,
+	T: FromRequest<B>,
 {
 	type Error = Infallible;
 
