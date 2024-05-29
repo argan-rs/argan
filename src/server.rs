@@ -1,10 +1,13 @@
-use std::{error::Error, fmt::Display, net::ToSocketAddrs, time::Duration};
+use std::{net::ToSocketAddrs, pin::pin, time::Duration};
+
+#[cfg(not(unix))]
+use std::future::pending;
 
 use argan_core::{body::Body, request::Request, response::Response, BoxedError};
 use hyper::{body::Incoming, service::Service};
 use hyper_util::{
 	rt::{TokioExecutor, TokioIo},
-	server::conn::auto::Builder as HyperServer,
+	server::{conn::auto::Builder as HyperServer, graceful::GracefulShutdown},
 };
 use tokio::net::TcpListener;
 
@@ -13,22 +16,38 @@ use tokio::net::TcpListener;
 
 pub struct Server {
 	hyper_server: HyperServer<TokioExecutor>,
+	graceful_shutdown_watcher: GracefulShutdown,
+	some_shutdown_duration: Option<Duration>,
 }
 
 impl Server {
 	pub fn new() -> Self {
 		Self {
 			hyper_server: HyperServer::new(TokioExecutor::new()),
+			graceful_shutdown_watcher: GracefulShutdown::new(),
+			some_shutdown_duration: None,
 		}
 	}
 
-	pub async fn serve<S, A>(&self, service: S, bind_address: A) -> Result<(), BoxedError>
+	pub fn with_graceful_shutdown_duration(mut self, duration: Duration) -> Self {
+		self.some_shutdown_duration = Some(duration);
+
+		self
+	}
+
+	pub async fn serve<S, A>(self, service: S, bind_address: A) -> Result<(), BoxedError>
 	where
 		S: Service<Request<Incoming>, Response = Response<Body>> + Clone + Send + 'static,
 		S::Future: Send + 'static,
 		S::Error: Into<BoxedError>,
 		A: ToSocketAddrs,
 	{
+		let Server {
+			hyper_server,
+			graceful_shutdown_watcher,
+			some_shutdown_duration,
+		} = self;
+
 		let mut addresses = bind_address.to_socket_addrs()?;
 		let some_listener = loop {
 			let Some(address) = addresses.next() else {
@@ -44,19 +63,65 @@ impl Server {
 			return Err(ServeError.into());
 		};
 
+		let mut accept_error_count = 0;
+		let mut pinned_ctrl_c = pin!(tokio::signal::ctrl_c());
+
+		#[cfg(unix)]
+		let mut signal = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
+			.expect("couldn't get the unix signal listener");
+
+		#[cfg(unix)]
+		let mut pinned_terminate = pin!(signal.recv());
+
+		#[cfg(not(unix))]
+		let mut pinned_terminate = pin!(pending::<()>());
+
 		loop {
-			let (stream, _) = listener.accept().await?;
+			tokio::select! {
+				connection = listener.accept() => {
+					let (stream, _peer_address) = match connection {
+						Ok(connection) => connection,
+						Err(error) => {
+							tokio::time::sleep(Duration::from_secs(1)).await;
 
-			let server_clone = self.hyper_server.clone();
-			let io = TokioIo::new(stream);
-			let service = service.clone();
+							if accept_error_count < 3 {
+								accept_error_count += 1;
 
-			tokio::spawn(async move {
-				server_clone
-					.serve_connection_with_upgrades(io, service)
-					.await
-			});
+								continue;
+							}
+
+							return Err(error.into());
+						}
+					};
+
+					let connection = hyper_server.serve_connection_with_upgrades(
+						TokioIo::new(stream),
+						service.clone(),
+					);
+
+					let connection = graceful_shutdown_watcher.watch(connection.into_owned());
+
+					tokio::spawn(connection); // TODO: Do something with the error.
+				},
+				_ = pinned_ctrl_c.as_mut() => break,
+				_ = pinned_terminate.as_mut() => break,
+			}
 		}
+
+		if let Some(duration) = some_shutdown_duration {
+			tokio::select! {
+				_ = graceful_shutdown_watcher.shutdown() => {},
+				_ = tokio::time::sleep(duration) => {},
+			}
+		}
+
+		Ok(())
+	}
+}
+
+impl Default for Server {
+	fn default() -> Self {
+		Self::new()
 	}
 }
 
