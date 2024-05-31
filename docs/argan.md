@@ -12,7 +12,8 @@ request handler* that returns a `"404 Not Found"` response.
 ```
 use argan::{
     Resource,
-    handler::_get,
+    handler::HandlerSetter,
+    http::Method,
 };
 
 //  "/resource_0_0" --- "/resource_1_0" --- "/resource_2_0"
@@ -25,21 +26,21 @@ use argan::{
 let mut resource_0_0 = Resource::new("/resource_0_0");
 
 let mut resource_1_1 = Resource::new("/resource_1_1");
-resource_1_1.set_handler_for(_get.to(|| async { "resource_1_1" }));
+resource_1_1.set_handler_for(Method::GET.to(|| async { "resource_1_1" }));
 
 // It can also be created with an absolute path pattern.
 let mut resource_2_0 = Resource::new("/resource_0_0/resource_1_0/resource_2_0");
-resource_2_0.set_handler_for(_get.to(|| async { "resource_2_0" }));
+resource_2_0.set_handler_for(Method::GET.to(|| async { "resource_2_0" }));
 
 resource_0_0.add_subresource([resource_1_1, resource_2_0]);
 
 // We can also create a new subresource or get an existing one with a relative
 // path pattern from a parent.
 let mut resource_2_1 = resource_0_0.subresource_mut("/resource_1_0/resource_2_1");
-resource_2_1.set_handler_for(_get.to(|| async { "resource_2_1" }));
+resource_2_1.set_handler_for(Method::GET.to(|| async { "resource_2_1" }));
 resource_2_1
     .subresource_mut("/resource_3_0")
-    .set_handler_for(_get.to(|| async { "resource_3_0" }));
+    .set_handler_for(Method::GET.to(|| async { "resource_3_0" }));
 
 let resource_service = resource_0_0.into_arc_service();
 ```
@@ -71,7 +72,8 @@ a root resource and guards the resource tree against the request's `"Host"`.
 use argan::{
     Host,
     Resource,
-    handler::_get,
+    handler::HandlerSetter,
+    http::Method,
 };
 
 async fn hello_world() -> &'static str {
@@ -79,7 +81,7 @@ async fn hello_world() -> &'static str {
 }
 
 let mut root = Resource::new("/");
-root.set_handler_for(_get.to(hello_world));
+root.set_handler_for(Method::GET.to(hello_world));
 
 let host_service = Host::new("http://example.com", root).into_arc_service();
 ```
@@ -94,16 +96,17 @@ use argan::{
     Router,
     Host,
     Resource,
-    handler::_get,
+    handler::HandlerSetter,
+    http::Method,
 };
 
 let mut router = Router::new();
 
 let mut example_com_root = Resource::new("/");
-example_com_root.set_handler_for(_get.to(|| async { "example.com" }));
+example_com_root.set_handler_for(Method::GET.to(|| async { "example.com" }));
 
 let mut abc_example_com_root = Resource::new("/");
-abc_example_com_root.set_handler_for(_get.to(|| async { "abc.example.com" }));
+abc_example_com_root.set_handler_for(Method::GET.to(|| async { "abc.example.com" }));
 
 router.add_host([
     Host::new("http://example.com", example_com_root),
@@ -114,13 +117,13 @@ router.add_host([
 // host when we add it to a router.
 
 let mut bca_example_com_root = Resource::new("http://bca.example.com/");
-bca_example_com_root.set_handler_for(_get.to(|| async { "bca.example.com" }));
+bca_example_com_root.set_handler_for(Method::GET.to(|| async { "bca.example.com" }));
 
 // We can also add a hostless resource tree for requests with a "Host" that doesn't
 // match any of our hosts.
 
 let mut hostless_resource = Resource::new("/resource");
-hostless_resource.set_handler_for(_get.to(|| async { "resource" }));
+hostless_resource.set_handler_for(Method::GET.to(|| async { "resource" }));
 
 router.add_resource([bca_example_com_root, hostless_resource]);
 
@@ -341,7 +344,8 @@ use argan::{
 		form::{Form, FormError},
 		json::{Json, JsonError},
 	},
-	handler::{IntoHandler, _get, _post},
+	handler::{IntoHandler, HandlerSetter},
+    http::Method,
 	middleware::{ErrorHandlerLayer, _request_receiver},
 	request::{PathParamsError, RequestHead},
 	response::{BoxedErrorResponse, IntoResponse, IntoResponseResult, Response},
@@ -353,7 +357,7 @@ use serde::{Deserialize, Serialize};
 // Error handlers
 
 async fn path_error_handler(error: BoxedErrorResponse) -> Result<Response, BoxedErrorResponse> {
-	let path_error = error.downcast::<PathParamsError>()?;
+	let path_error = error.downcast_to::<PathParamsError>()?;
 
 	// ...
 
@@ -361,11 +365,11 @@ async fn path_error_handler(error: BoxedErrorResponse) -> Result<Response, Boxed
 }
 
 async fn general_errors_handler(error: BoxedErrorResponse) -> Result<Response, BoxedErrorResponse> {
-	if let Some(form_error) = error.downcast_ref::<FormError>() {
+	if let Some(form_error) = error.downcast_to_ref::<FormError>() {
 		// ...
 	}
 
-	if let Some(json_error) = error.downcast_ref::<JsonError>() {
+	if let Some(json_error) = error.downcast_to_ref::<JsonError>() {
 		// ...
 	}
 
@@ -434,12 +438,12 @@ root.add_layer_to(_request_receiver(ErrorHandlerLayer::new(
 
 root
     .subresource_mut("/login")
-    .set_handler_for(_post.to(login));
+    .set_handler_for(Method::POST.to(login));
 
 root
     .subresource_mut("/{category}/items/{item}")
     // The most specific or custom errors can be handled by layering the method handlers.
-    .set_handler_for(_get.to(item_data.wrapped_in(ErrorHandlerLayer::new(path_error_handler))));
+    .set_handler_for(Method::GET.to(item_data.wrapped_in(ErrorHandlerLayer::new(path_error_handler))));
 
 // Unhandled errors will automatically be converted into a `Response` by the service.
 let service = root.into_arc_service();
@@ -455,12 +459,13 @@ compatible with the Tower layers.
 use std::{future::ready, time::Duration};
 
 use argan::{
-	common::BoxedFuture,
-	handler::{Args, BoxableHandler, Handler, IntoHandler, _get},
-	middleware::{IntoLayer, _request_handler},
+	Resource,
+	handler::{Args, BoxableHandler, Handler, IntoHandler, HandlerSetter},
+    http::Method,
 	request::RequestContext,
 	response::{BoxedErrorResponse, IntoResponse, Response},
-	Resource,
+	middleware::{IntoLayer, _request_handler},
+	common::BoxedFuture,
 };
 use tower_http::{
 	compression::CompressionLayer, decompression::DecompressionLayer, timeout::TimeoutLayer,
@@ -527,7 +532,7 @@ resource.add_layer_to([
 //     }
 //   }
 // }
-resource.set_handler_for(_get.to((|| async {}).wrapped_in((
+resource.set_handler_for(Method::GET.to((|| async {}).wrapped_in((
     TimeoutLayer::new(Duration::from_millis(64)),
     CompressionLayer::new(),
     DecompressionLayer::new(),

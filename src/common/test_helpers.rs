@@ -3,7 +3,7 @@ use std::convert::Infallible;
 use bytes::Bytes;
 use http::{
 	header::{CONTENT_TYPE, LOCATION},
-	StatusCode,
+	Method, StatusCode,
 };
 use http_body_util::{BodyExt, Empty};
 use hyper::service::Service;
@@ -11,7 +11,8 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
 	data::json::Json,
-	handler::{_get, _post, _wildcard_method},
+	handler::HandlerSetter,
+	http::WildcardMethod,
 	pattern::DeserializerError,
 	request::{PathParamsError, Request, RequestHead},
 	resource::Resource,
@@ -90,7 +91,7 @@ pub(crate) fn new_root() -> Resource {
 	//																			|	->	/st_2_1
 
 	let mut root = Resource::new("/");
-	root.set_handler_for(_get.to(|head: RequestHead| async move {
+	root.set_handler_for(Method::GET.to(|head: RequestHead| async move {
 		let result = head.path_params_as::<String>();
 
 		dbg!(&result);
@@ -109,11 +110,11 @@ pub(crate) fn new_root() -> Resource {
 
 	root
 		.subresource_mut("/st_0_0")
-		.set_handler_for(_get.to(dummy_handler));
+		.set_handler_for(Method::GET.to(dummy_handler));
 
 	root
 		.subresource_mut("/st_0_0/{wl_1_0}/{rx_2_0:p_0}/")
-		.set_handler_for(_get.to(|head: RequestHead| async move {
+		.set_handler_for(Method::GET.to(|head: RequestHead| async move {
 			let data = head.path_params_as::<Rx_2_0>().unwrap();
 
 			Json(data)
@@ -121,7 +122,7 @@ pub(crate) fn new_root() -> Resource {
 
 	root
 		.subresource_mut("/st_0_0/{wl_1_0}/{rx_2_1:p_1}-abc/{wl_3_0}")
-		.set_handler_for(_post.to(|head: RequestHead| async move {
+		.set_handler_for(Method::POST.to(|head: RequestHead| async move {
 			let data = head.path_params_as::<Wl_3_0>().unwrap();
 
 			Json(data)
@@ -129,7 +130,7 @@ pub(crate) fn new_root() -> Resource {
 
 	root
 		.subresource_mut("/st_0_0/{rx_1_1:p_0}-abc/st_2_0")
-		.set_handler_for(_get.to(|head: RequestHead| async move {
+		.set_handler_for(Method::GET.to(|head: RequestHead| async move {
 			let data = head.path_params_as::<Rx_1_1>().unwrap();
 
 			Json(data)
@@ -137,7 +138,7 @@ pub(crate) fn new_root() -> Resource {
 
 	root
 		.subresource_mut("/st_0_0/{rx_1_1:p_0}-abc/")
-		.set_handler_for(_wildcard_method.to(Some(|head: RequestHead| async move {
+		.set_handler_for(WildcardMethod.to(Some(|head: RequestHead| async move {
 			let data = head.path_params_as::<Rx_1_1>().unwrap();
 
 			Json(data)
@@ -145,7 +146,7 @@ pub(crate) fn new_root() -> Resource {
 
 	root
 		.subresource_mut("/st_0_0/{rx_1_1:p_0}-abc/st_2_1")
-		.set_handler_for(_get.to(|| async { "Hello, World!" }));
+		.set_handler_for(Method::GET.to(|| async { "Hello, World!" }));
 
 	root
 }

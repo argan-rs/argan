@@ -156,7 +156,8 @@ impl CookieJar {
 	/// use argan::{
 	///   resource::Resource,
 	///   request::RequestHead,
-	///   handler::_get,
+	///   handler::HandlerSetter,
+	///   http::Method,
 	///   data::cookies::{Cookie, CookieJar, Key, _plain, _private},
 	/// };
 	///
@@ -175,7 +176,7 @@ impl CookieJar {
 	/// }
 	///
 	/// let mut resource = Resource::new("/");
-	/// resource.set_handler_for(_get.to(handler));
+	/// resource.set_handler_for(Method::GET.to(handler));
 	/// ```
 	pub fn remove<C, const N: usize>(&mut self, cookies: C)
 	where

@@ -245,6 +245,7 @@ where
 
 #[cfg(all(test, feature = "full"))]
 mod test {
+	use http::Method;
 	use http_body_util::{BodyExt, Empty};
 
 	use crate::{
@@ -252,7 +253,7 @@ mod test {
 			config::_with_request_extensions_modifier,
 			test_helpers::{new_root, test_service, Case, DataKind, Rx_1_1, Rx_2_0, Wl_3_0},
 		},
-		handler::_get,
+		handler::HandlerSetter,
 		request::RequestHead,
 		router::Router,
 	};
@@ -630,7 +631,7 @@ mod test {
 
 		router
 			.resource_mut("/st_0_0/st_1_0")
-			.set_handler_for(_get.to(|head: RequestHead| async move {
+			.set_handler_for(Method::GET.to(|head: RequestHead| async move {
 				head.extensions_ref().get::<String>().unwrap().clone()
 			}));
 

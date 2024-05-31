@@ -701,7 +701,7 @@ mod test {
 			config::_with_request_extensions_modifier,
 			test_helpers::{new_root, test_service, Case, DataKind, Rx_1_1, Rx_2_0, Wl_3_0},
 		},
-		handler::{IntoHandler, _get, _post},
+		handler::{HandlerSetter, IntoHandler},
 		middleware::{_request_handler, _request_passer, _request_receiver},
 		request::RequestHead,
 		resource::Resource,
@@ -835,10 +835,10 @@ mod test {
 		// non-root resource
 
 		let mut resource = Resource::new("/st_0_0");
-		resource.set_handler_for(_get.to(|| async {}));
+		resource.set_handler_for(Method::GET.to(|| async {}));
 		resource
 			.subresource_mut("/{wl_1_0}")
-			.set_handler_for(_get.to(|| async {}));
+			.set_handler_for(Method::GET.to(|| async {}));
 
 		let service = resource.into_service();
 
@@ -906,8 +906,8 @@ mod test {
 	async fn resource_handler_layer() {
 		let mut root = Resource::new("/");
 		root.subresource_mut("/st_0_0/st_1_0").set_handler_for([
-			_get.to((|| async { "Hello from Handler!" }).wrapped_in(CompressionLayer::new())),
-			_post.to(
+			Method::GET.to((|| async { "Hello from Handler!" }).wrapped_in(CompressionLayer::new())),
+			Method::POST.to(
 				(|_: RequestHead, _: Args<'_, usize>| async { "Hello from Handler!" })
 					.with_extension(42)
 					.wrapped_in(Middleware),
@@ -944,7 +944,7 @@ mod test {
 	async fn resource_request_handler_layer() {
 		let mut root = Resource::new("/");
 		let st_1_0 = root.subresource_mut("/st_0_0/st_1_0");
-		st_1_0.set_handler_for(_get.to(|| async { "Hello from Handler!" }));
+		st_1_0.set_handler_for(Method::GET.to(|| async { "Hello from Handler!" }));
 		st_1_0.add_layer_to(_request_handler(Middleware));
 
 		// ----------
@@ -968,11 +968,11 @@ mod test {
 		let mut root = Resource::new("/");
 
 		let st_1_0 = root.subresource_mut("/st_0_0/st_1_0");
-		st_1_0.set_handler_for(_get.to(|| async { "Hello from Handler!" }));
+		st_1_0.set_handler_for(Method::GET.to(|| async { "Hello from Handler!" }));
 		st_1_0.add_layer_to(_request_handler((CompressionLayer::new(), Middleware)));
 
 		let st_1_1 = root.subresource_mut("/st_0_0/st_1_1");
-		st_1_1.set_handler_for(_get.to(|| async { "Hello from Handler!" }));
+		st_1_1.set_handler_for(Method::GET.to(|| async { "Hello from Handler!" }));
 		st_1_1.add_layer_to(_request_handler((Middleware, CompressionLayer::new())));
 
 		// ----------
@@ -998,7 +998,7 @@ mod test {
 
 		root
 			.subresource_mut("/st_0_0/st_1_0")
-			.set_handler_for(_get.to(|| async { "Hello from Handler!" }));
+			.set_handler_for(Method::GET.to(|| async { "Hello from Handler!" }));
 
 		root
 			.subresource_mut("/st_0_0/")
@@ -1026,7 +1026,7 @@ mod test {
 
 		root
 			.subresource_mut("/st_0_0/st_1_0")
-			.set_handler_for(_get.to(|| async { "Hello from Handler!" }));
+			.set_handler_for(Method::GET.to(|| async { "Hello from Handler!" }));
 
 		root
 			.subresource_mut("/st_0_0/")
@@ -1060,7 +1060,7 @@ mod test {
 
 		root
 			.subresource_mut("/st_0_0/st_1_0")
-			.set_handler_for(_get.to(|head: RequestHead| async move {
+			.set_handler_for(Method::GET.to(|head: RequestHead| async move {
 				head.extensions_ref().get::<String>().unwrap().clone()
 			}));
 

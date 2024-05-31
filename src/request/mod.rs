@@ -513,6 +513,19 @@ impl ContextProperties {
 }
 
 // --------------------------------------------------
+// MistargetedRequest
+
+/// A type that represents a *mistargeted request*.
+///
+/// ```
+/// use argan::{Resource, request::MistargetedRequest};
+///
+/// let mut resource = Resource::new("/");
+/// resource.set_handler_for(MistargetedRequest.to(|| async { /* ... */ }));
+/// ```
+pub struct MistargetedRequest;
+
+// --------------------------------------------------
 // SizeLimit
 
 #[doc(hidden)]

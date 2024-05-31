@@ -346,17 +346,17 @@ impl Resource {
 	///
 	/// ```should_panic
 	/// use argan::Resource;
-	/// use argan::handler::{_get, _post};
+	/// use argan::{handler::HandlerSetter, http::Method};
 	///
 	/// let mut resource_1 = Resource::new("/resource_1");
 	/// let mut resource_3 = Resource::new("/resource_2/resource_3");
-	/// resource_3.set_handler_for(_get.to(|| async {}));
+	/// resource_3.set_handler_for(Method::GET.to(|| async {}));
 	///
 	/// resource_1.add_subresource(resource_3);
 	///
 	/// let mut resource_2 = Resource::new("/resource_2");
 	/// let mut resource_3 = Resource::new("/resource_3");
-	/// resource_3.set_handler_for(_post.to(|| async {}));
+	/// resource_3.set_handler_for(Method::POST.to(|| async {}));
 	///
 	/// resource_2.add_subresource(resource_3);
 	///
@@ -899,12 +899,12 @@ impl Resource {
 	/// - if the resource has some handler set or middleware applied, and the given
 	///   configuration symbols don't match its configuration
 	/// ```should_panic
-	/// use argan::{Resource, handler::{_get, _post}};
+	/// use argan::{Resource, handler::HandlerSetter, http::Method};
 	///
 	/// let mut root = Resource::new("/");
 	/// root.subresource_mut("/resource_1 !*").set_handler_for([
-	///   _get.to(|| async {}),
-	///   _post.to(|| async {}),
+	///   Method::GET.to(|| async {}),
+	///   Method::POST.to(|| async {}),
 	/// ]);
 	///
 	/// // ...
@@ -1197,16 +1197,16 @@ impl Resource {
 	// 	))
 	// }
 
-	/// Sets the method and mistargeted request handlers of the resource.
+	/// Sets the *method* and *mistargeted request* handlers of the resource.
 	///
 	/// ```
-	/// use argan::{Resource, handler::{_get, _method}};
+	/// use argan::{Resource, handler::HandlerSetter, http::{Method, CustomMethod}};
 	///
 	/// let mut root = Resource::new("/");
-	/// root.set_handler_for(_get.to(|| async {}));
+	/// root.set_handler_for(Method::GET.to(|| async {}));
 	/// root.subresource_mut("/resource_1/resource_2").set_handler_for([
-	///   _get.to(|| async {}),
-	///   _method("LOCK").to(|| async {}),
+	///   Method::GET.to(|| async {}),
+	///   CustomMethod("LOCK").to(|| async {}),
 	/// ]);
 	/// ```
 	pub fn set_handler_for<H, const N: usize>(&mut self, handler_kinds: H)
@@ -1236,9 +1236,9 @@ impl Resource {
 	/// // use declarations
 	/// # use std::future::{Future, ready};
 	/// # use tower_http::compression::CompressionLayer;
-	/// # use http::method::Method;
 	/// # use argan::{
-	/// #   handler::{Handler, Args, _get},
+	/// #   handler::{Handler, HandlerSetter, Args},
+	/// #   http::Method,
 	/// #   middleware::{Layer, _method_handler, _mistargeted_request_handler},
 	/// #   resource::Resource,
 	/// #   request::RequestContext,
@@ -1283,7 +1283,7 @@ impl Resource {
 	///   _method_handler(Method::GET, CompressionLayer::new()),
 	/// ]);
 	///
-	/// resource.set_handler_for(_get.to(|| async {}));
+	/// resource.set_handler_for(Method::GET.to(|| async {}));
 	/// ```
 	pub fn add_layer_to<L, const N: usize>(&mut self, layer_targets: L)
 	where
@@ -1575,9 +1575,11 @@ pub enum Iteration {
 
 #[cfg(all(test, feature = "full"))]
 mod test {
+	use http::Method;
+
 	use crate::{
 		common::{config::_with_request_extensions_modifier, route_to_patterns},
-		handler::{DummyHandler, _get, _post, _put},
+		handler::{DummyHandler, HandlerSetter},
 	};
 
 	use super::*;
@@ -1725,10 +1727,10 @@ mod test {
 			// Existing resources in the tree.
 
 			let (rx_2_0, _) = parent.leaf_resource_mut(RouteSegments::new("/{rx_2_0:p0}"));
-			rx_2_0.set_handler_for(_post.to(DummyHandler));
+			rx_2_0.set_handler_for(Method::POST.to(DummyHandler));
 			rx_2_0
 				.subresource_mut("/{rx_3_1:p0}/{wl_4_0}")
-				.set_handler_for(_get.to(DummyHandler));
+				.set_handler_for(Method::GET.to(DummyHandler));
 
 			let (st_4_2, _) = rx_2_0.leaf_resource_mut(RouteSegments::new("/{rx_3_1:p0}/st_4_2"));
 
@@ -1743,12 +1745,12 @@ mod test {
 
 			let mut new_rx_3_1 = Resource::new("/{rx_3_1:p0}");
 			// Must replace the existing resource.
-			new_rx_3_1.set_handler_for([_get.to(DummyHandler), _post.to(DummyHandler)]);
+			new_rx_3_1.set_handler_for([Method::GET.to(DummyHandler), Method::POST.to(DummyHandler)]);
 
 			new_rx_3_1
 				.subresource_mut("/st_4_1")
 				// Must replace the existing resource.
-				.set_handler_for(_post.to(DummyHandler));
+				.set_handler_for(Method::POST.to(DummyHandler));
 
 			new_rx_3_1.new_subresource_mut(RouteSegments::new("/{rx_4_3:p0}"));
 			new_rx_3_1.new_subresource_mut(RouteSegments::new("/st_4_4"));
@@ -1793,7 +1795,7 @@ mod test {
 
 			let mut new_wl_3_0 = Resource::new(wl_3_0_path);
 			new_wl_3_0.by_patterns_new_subresource_mut(std::iter::once(Pattern::parse("st_4_1")));
-			new_wl_3_0.set_handler_for(_get.to(DummyHandler));
+			new_wl_3_0.set_handler_for(Method::GET.to(DummyHandler));
 
 			parent.add_subresource(new_wl_3_0);
 			let (wl_3_0, _) = parent.leaf_resource_mut(RouteSegments::new(wl_3_0_route));
@@ -2010,7 +2012,7 @@ mod test {
 			);
 
 			if case.resource_has_handler {
-				resource.set_handler_for(_get.to(DummyHandler));
+				resource.set_handler_for(Method::GET.to(DummyHandler));
 			}
 
 			resource
@@ -2025,7 +2027,7 @@ mod test {
 			new_rx_3_1
 				.subresource_mut("/{wl_4_0}")
 				// Existing wl_4_0 doesn't have a handler. It should be replaced with the new one.
-				.set_handler_for(_post.to(DummyHandler));
+				.set_handler_for(Method::POST.to(DummyHandler));
 
 			// Existing st_4_1 has a handler. The new_st_4_1 should not replace it.
 			let new_st_4_1 = Resource::new("/st_4_1");
@@ -2053,17 +2055,17 @@ mod test {
 
 			// Existing st_2_1 doesn't have a handler. It should be replaced with the new one.
 			let mut new_st_2_1 = Resource::new("/st_0_0/{wl_1_0}/st_2_1");
-			new_st_2_1.set_handler_for(_get.to(DummyHandler));
+			new_st_2_1.set_handler_for(Method::GET.to(DummyHandler));
 
 			let mut new_rx_4_1 = Resource::new("/{rx_4_1:p1}");
 			new_rx_4_1
 				// New subresource.
 				.subresource_mut("/{wl_5_1}")
-				.set_handler_for(_get.to(DummyHandler));
+				.set_handler_for(Method::GET.to(DummyHandler));
 			new_st_2_1.add_subresource_under("/{wl_3_0}", new_rx_4_1);
 
 			let mut new_rx_4_1 = Resource::new("/{rx_4_1:p1}/");
-			new_rx_4_1.set_handler_for(_put.to(DummyHandler));
+			new_rx_4_1.set_handler_for(Method::PUT.to(DummyHandler));
 			// Existing rx_4_1 shouldn't have a handler. It should be replaced with the new one.
 			new_st_2_1.add_subresource_under("/{wl_3_0}", new_rx_4_1);
 
@@ -2100,15 +2102,15 @@ mod test {
 		let mut parent = Resource::new("https://example.com/");
 		parent
 			.subresource_mut("/st_0_0")
-			.set_handler_for(_get.to(DummyHandler));
+			.set_handler_for(Method::GET.to(DummyHandler));
 
 		parent
 			.subresource_mut("/st_0_0/{wl_1_0}/{rx_2_0:p0}/st_3_0")
-			.set_handler_for(_get.to(DummyHandler));
+			.set_handler_for(Method::GET.to(DummyHandler));
 
 		parent
 			.subresource_mut("/st_0_0/{wl_1_0}/{rx_2_0:p0}/{rx_3_1:p0}/{wl_4_0}/")
-			.set_handler_for(_get.to(DummyHandler));
+			.set_handler_for(Method::GET.to(DummyHandler));
 
 		let wl_1_0 = parent.subresource_mut("/st_0_0/{wl_1_0}");
 		assert_eq!(wl_1_0.method_handlers.count(), 0);
@@ -2140,11 +2142,11 @@ mod test {
 		let mut parent = Resource::new("https://example.com/");
 		parent
 			.subresource_mut("/st_0_0")
-			.set_handler_for(_get.to(DummyHandler));
+			.set_handler_for(Method::GET.to(DummyHandler));
 
 		parent
 			.subresource_mut("/st_0_0/{wl_1_0}/{rx_2_0:p}/st_3_0")
-			.set_handler_for(_get.to(DummyHandler));
+			.set_handler_for(Method::GET.to(DummyHandler));
 
 		let _st_3_0 = parent.subresource_mut("/st_0_0/{wl_1_0}/{rx_2_0:p}/st_3_0/");
 	}
@@ -2157,11 +2159,11 @@ mod test {
 		let mut parent = Resource::new("https://example.com/");
 		parent
 			.subresource_mut("/st_0_0")
-			.set_handler_for(_get.to(DummyHandler));
+			.set_handler_for(Method::GET.to(DummyHandler));
 
 		parent
 			.subresource_mut("/st_0_0/{wl_1_0}/{rx_2_0:p}/st_3_0/")
-			.set_handler_for(_get.to(DummyHandler));
+			.set_handler_for(Method::GET.to(DummyHandler));
 
 		let _st_3_0 = parent.subresource_mut("/st_0_0/{wl_1_0}/{rx_2_0:p}/st_3_0");
 	}

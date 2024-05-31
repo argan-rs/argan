@@ -31,7 +31,7 @@ use crate::{
 		header_utils::{split_header_value_with_weights, SplitHeaderValueError},
 		normalize_path, strip_double_quotes, SCOPE_VALIDITY,
 	},
-	handler::_get,
+	handler::HandlerSetter,
 	request::RequestHead,
 	response::{
 		file_stream::{
@@ -94,16 +94,16 @@ const ENCODED: &str = "encoded";
 /// is no subresource that matches the request's path.
 ///
 /// ```no_run
-/// use argan::{Resource, StaticFiles, handler::_get};
+/// use argan::{Resource, StaticFiles, handler::HandlerSetter, http::Method};
 ///
 /// let mut static_files = StaticFiles::new("/some_pattern", "some_dir").into_resource();
 /// static_files
 ///     .subresource_mut("/resource_1_0")
-///     .set_handler_for(_get.to(|| async {}));
+///     .set_handler_for(Method::GET.to(|| async {}));
 ///
 /// static_files
 ///     .subresource_mut("/resource_1_1/resource_2_0")
-///     .set_handler_for(_get.to(|| async {}));
+///     .set_handler_for(Method::GET.to(|| async {}));
 ///
 /// let service = static_files.into_arc_service();
 /// ```
@@ -226,7 +226,7 @@ impl StaticFiles {
 		};
 
 		if self.flags.has(Flags::GET) {
-			resource.set_handler_for(_get.to(get_handler));
+			resource.set_handler_for(Method::GET.to(get_handler));
 		}
 
 		resource

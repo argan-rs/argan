@@ -25,6 +25,8 @@ pub mod host;
 #[doc(inline)]
 pub use host::Host;
 
+pub mod http;
+
 pub mod middleware;
 mod pattern;
 pub mod request;
@@ -46,10 +48,4 @@ pub mod server;
 #[doc(inline)]
 pub use server::Server;
 
-// -------------------------
-
-pub mod http {
-	//! Fundamental HTTP types.
-
-	pub use argan_core::http::*;
-}
+// --------------------------------------------------------------------------------

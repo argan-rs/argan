@@ -54,10 +54,14 @@ where
 pub(crate) mod marker {
 	pub trait Sealed {}
 
-	// ----------
+	impl Sealed for http::Method {}
+
+	// -------------------------
 
 	pub struct Private;
 }
+
+// --------------------------------------------------
 
 // Used when expecting a valid value in Options or Results.
 pub(crate) const SCOPE_VALIDITY: &str = "scope validity";

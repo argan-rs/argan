@@ -30,11 +30,10 @@ pub(crate) mod futures;
 mod impls;
 pub(crate) use impls::*;
 
-pub mod kind;
-pub use kind::{
-	_connect, _delete, _get, _head, _method, _mistargeted_request, _options, _patch, _post, _put,
-	_trace, _wildcard_method,
-};
+pub(crate) mod kind;
+
+#[doc(inline)]
+pub use kind::HandlerSetter;
 
 use self::futures::ResponseBodyAdapterFuture;
 
