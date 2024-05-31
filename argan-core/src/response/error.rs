@@ -129,7 +129,7 @@ impl dyn ErrorResponse + Send + Sync {
 	}
 
 	/// Casts the trait object into type `E` if it's an underlying concrete type.
-	pub fn downcast<E: Any + 'static>(self: Box<Self>) -> Result<Box<E>, Box<Self>> {
+	pub fn downcast_to<E: Any + 'static>(self: Box<Self>) -> Result<Box<E>, Box<Self>> {
 		if self.is::<E>() {
 			Ok(
 				self
@@ -143,12 +143,12 @@ impl dyn ErrorResponse + Send + Sync {
 	}
 
 	/// Returns a reference to an underlying concrete type if it's a type `E`.
-	pub fn downcast_ref<E: Any + 'static>(&self) -> Option<&E> {
+	pub fn downcast_to_ref<E: Any + 'static>(&self) -> Option<&E> {
 		self.as_any_ref(marker::Private).downcast_ref()
 	}
 
 	/// Returns a mutable reference to an underlying concrete type if it's a type `E`.
-	pub fn downcast_mut<E: Any + 'static>(&mut self) -> Option<&mut E> {
+	pub fn downcast_to_mut<E: Any + 'static>(&mut self) -> Option<&mut E> {
 		self.as_any_mut(marker::Private).downcast_mut()
 	}
 
@@ -290,9 +290,9 @@ mod test {
 		let mut error = Box::new(E) as BoxedErrorResponse;
 		assert_eq!(TypeId::of::<E>(), error.implementor_type_id());
 		assert!(error.is::<E>());
-		assert_eq!(Some(&mut E), error.downcast_mut::<E>());
-		assert_eq!(Some(&E), error.downcast_ref::<E>());
-		assert_eq!(E, error.downcast::<E>().map(|boxed| *boxed).unwrap());
+		assert_eq!(Some(&mut E), error.downcast_to_mut::<E>());
+		assert_eq!(Some(&E), error.downcast_to_ref::<E>());
+		assert_eq!(E, error.downcast_to::<E>().map(|boxed| *boxed).unwrap());
 
 		// ----------
 
@@ -303,18 +303,18 @@ mod test {
 		);
 		assert!(error.is::<A>());
 		assert!(!error.is::<E>());
-		assert_eq!(Some(&mut A), error.downcast_mut::<A>());
-		assert_eq!(Some(&A), error.downcast_ref::<A>());
-		assert_eq!(None, error.downcast_mut::<E>());
-		assert_eq!(None, error.downcast_ref::<E>());
+		assert_eq!(Some(&mut A), error.downcast_to_mut::<A>());
+		assert_eq!(Some(&A), error.downcast_to_ref::<A>());
+		assert_eq!(None, error.downcast_to_mut::<E>());
+		assert_eq!(None, error.downcast_to_ref::<E>());
 
-		let result = error.downcast::<E>();
+		let result = error.downcast_to::<E>();
 		assert!(result.is_err());
 		assert_eq!(
 			A,
 			result
 				.unwrap_err()
-				.downcast::<A>()
+				.downcast_to::<A>()
 				.map(|boxed| *boxed)
 				.unwrap()
 		);
@@ -325,9 +325,9 @@ mod test {
 		assert_eq!(
 			A,
 			error
-				.downcast::<E>()
+				.downcast_to::<E>()
 				.unwrap_err()
-				.downcast::<A>()
+				.downcast_to::<A>()
 				.map(|boxed| *boxed)
 				.unwrap()
 		);
