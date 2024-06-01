@@ -20,11 +20,8 @@ pub(crate) mod layer_stack;
 mod internal;
 pub(crate) use internal::*;
 
-pub mod targets;
-pub use targets::{
-	_method_handler, _mistargeted_request_handler, _request_handler, _request_passer,
-	_request_receiver, _wildcard_method_handler,
-};
+pub(crate) mod targets;
+pub use targets::{HandlerWrapper, RequestHandler, RequestPasser, RequestReceiver};
 
 // --------------------------------------------------------------------------------
 // --------------------------------------------------------------------------------

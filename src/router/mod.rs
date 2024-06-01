@@ -10,7 +10,7 @@ use http::Extensions;
 use crate::{
 	common::{config::ConfigOption, IntoArray, SCOPE_VALIDITY},
 	host::Host,
-	middleware::{_request_passer, targets::LayerTarget},
+	middleware::{targets::LayerTarget, RequestPasser},
 	pattern::{split_uri_host_and_path, Pattern, Similarity},
 	request::ContextProperties,
 	resource::{Iteration, Resource},
@@ -22,7 +22,7 @@ mod service;
 
 pub use service::{ArcRouterService, LeakedRouterService, RouterService};
 
-use self::service::RequestPasser;
+use self::service::RouterRequestPasser;
 
 // --------------------------------------------------------------------------------
 // --------------------------------------------------------------------------------
@@ -543,7 +543,7 @@ impl Router {
 	/// # use tower_http::compression::CompressionLayer;
 	/// # use argan::{
 	/// #   handler::{Handler, Args},
-	/// #   middleware::{Layer, _request_passer},
+	/// #   middleware::{Layer, RequestPasser},
 	/// #   request::RequestContext,
 	/// #   response::{Response, IntoResponse, BoxedErrorResponse},
 	/// #   common::BoxedFuture,
@@ -585,9 +585,9 @@ impl Router {
 	///
 	/// let mut router = Router::new();
 	///
-	/// router.add_layer_to(_request_passer((CompressionLayer::new(), MiddlewareLayer)));
+	/// router.wrap(RequestPasser.with((CompressionLayer::new(), MiddlewareLayer)));
 	/// ```
-	pub fn add_layer_to<L, const N: usize>(&mut self, layer_targets: L)
+	pub fn wrap<L, const N: usize>(&mut self, layer_targets: L)
 	where
 		L: IntoArray<LayerTarget<Self>, N>,
 	{
@@ -619,7 +619,7 @@ impl Router {
 				#[cfg(any(feature = "private-cookies", feature = "signed-cookies"))]
 				CookieKey(cookie_key) => self.context_properties.set_cookie_key(cookie_key),
 				RequestExtensionsModifier(request_extensions_modifier_layer) => {
-					let request_passer_layer_target = _request_passer(request_extensions_modifier_layer);
+					let request_passer_layer_target = RequestPasser.with(request_extensions_modifier_layer);
 
 					self.middleware.insert(0, request_passer_layer_target);
 				}
@@ -704,7 +704,7 @@ impl Router {
 		let some_root_resource =
 			some_root_resource.map(|root_resource| Arc::new(root_resource.into_service()));
 
-		let request_passer = RequestPasser::new(
+		let request_passer = RouterRequestPasser::new(
 			some_static_hosts,
 			some_regex_hosts,
 			some_root_resource,

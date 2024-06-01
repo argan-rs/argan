@@ -13,7 +13,6 @@ use http::{Extensions, HeaderMap, HeaderValue, Method, StatusCode, Uri, Version}
 use serde::Deserialize;
 
 use crate::{
-	common::IntoArray,
 	handler::Args,
 	pattern::{self, ParamsList},
 	response::{BoxedErrorResponse, IntoResponse, Response},
@@ -574,14 +573,6 @@ pub enum QueryParamsError {
 impl IntoResponse for QueryParamsError {
 	fn into_response(self) -> Response {
 		StatusCode::BAD_REQUEST.into_response()
-	}
-}
-
-// --------------------------------------------------
-
-impl IntoArray<Method, 1> for Method {
-	fn into_array(self) -> [Method; 1] {
-		[self]
 	}
 }
 

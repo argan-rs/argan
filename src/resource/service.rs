@@ -38,7 +38,7 @@ pub struct ResourceService {
 	context_properties: ContextProperties,
 	extensions: Extensions,
 
-	request_receiver: MaybeBoxed<RequestReceiver>,
+	request_receiver: MaybeBoxed<ResourceRequestReceiver>,
 	some_mistargeted_request_handler: Option<ArcHandler>,
 }
 
@@ -48,7 +48,7 @@ impl ResourceService {
 		pattern: Pattern,
 		context_properties: ContextProperties,
 		extensions: Extensions,
-		request_receiver: MaybeBoxed<RequestReceiver>,
+		request_receiver: MaybeBoxed<ResourceRequestReceiver>,
 		some_mistargeted_request_handler: Option<ArcHandler>,
 	) -> Self {
 		Self {
@@ -253,18 +253,18 @@ where
 // --------------------------------------------------
 
 #[derive(Clone)]
-pub(crate) struct RequestReceiver {
-	some_request_passer: Option<MaybeBoxed<RequestPasser>>,
-	some_request_handler: Option<Arc<MaybeBoxed<RequestHandler>>>,
+pub(crate) struct ResourceRequestReceiver {
+	some_request_passer: Option<MaybeBoxed<ResourceRequestPasser>>,
+	some_request_handler: Option<Arc<MaybeBoxed<ResourceRequestHandler>>>,
 	some_mistargeted_request_handler: Option<ArcHandler>,
 
 	config_flags: ConfigFlags,
 }
 
-impl RequestReceiver {
+impl ResourceRequestReceiver {
 	pub(crate) fn new(
-		some_request_passer: Option<MaybeBoxed<RequestPasser>>,
-		some_request_handler: Option<Arc<MaybeBoxed<RequestHandler>>>,
+		some_request_passer: Option<MaybeBoxed<ResourceRequestPasser>>,
+		some_request_handler: Option<Arc<MaybeBoxed<ResourceRequestHandler>>>,
 		some_mistargeted_request_handler: Option<ArcHandler>,
 		config_flags: ConfigFlags,
 		middleware: Vec<LayerTarget<Resource>>,
@@ -304,7 +304,7 @@ impl RequestReceiver {
 	}
 }
 
-impl Handler for RequestReceiver {
+impl Handler for ResourceRequestReceiver {
 	type Response = Response;
 	type Error = BoxedErrorResponse;
 	type Future = BoxedFuture<Result<Self::Response, Self::Error>>;
@@ -438,7 +438,7 @@ impl Handler for RequestReceiver {
 // ----------
 
 #[derive(Clone)]
-pub(crate) struct RequestPasser {
+pub(crate) struct ResourceRequestPasser {
 	some_static_resources: Option<Arc<[ResourceService]>>,
 	some_regex_resources: Option<Arc<[ResourceService]>>,
 	some_wildcard_resource: Option<Arc<ResourceService>>,
@@ -446,7 +446,7 @@ pub(crate) struct RequestPasser {
 	some_mistargeted_request_handler: Option<ArcHandler>,
 }
 
-impl RequestPasser {
+impl ResourceRequestPasser {
 	pub(crate) fn new(
 		some_static_resources: Option<Arc<[ResourceService]>>,
 		some_regex_resources: Option<Arc<[ResourceService]>>,
@@ -488,7 +488,7 @@ impl RequestPasser {
 	}
 }
 
-impl Handler for RequestPasser {
+impl Handler for ResourceRequestPasser {
 	type Response = Response;
 	type Error = BoxedErrorResponse;
 	type Future = BoxedFuture<Result<Self::Response, Self::Error>>;
@@ -571,12 +571,12 @@ impl Handler for RequestPasser {
 // ----------
 
 #[derive(Clone)]
-pub(crate) struct RequestHandler {
+pub(crate) struct ResourceRequestHandler {
 	method_handlers: Vec<(Method, BoxedHandler)>,
 	wildcard_method_handler: WildcardMethodHandler,
 }
 
-impl RequestHandler {
+impl ResourceRequestHandler {
 	pub(crate) fn new(
 		method_handlers: Vec<(Method, BoxedHandler)>,
 		wildcard_method_handler: WildcardMethodHandler,
@@ -597,13 +597,11 @@ impl RequestHandler {
 		for layer in middleware.iter_mut().rev() {
 			match layer {
 				LayerTarget::MethodHandler(..) => {
-					let LayerTarget::MethodHandler(methods, boxed_layer) = layer.take() else {
+					let LayerTarget::MethodHandler(method, boxed_layer) = layer.take() else {
 						unreachable!()
 					};
 
-					for method in methods.into_iter().rev() {
-						request_handler.wrap_method_handler(method, boxed_layer.clone())?
-					}
+					request_handler.wrap_method_handler(method, boxed_layer.clone())?
 				}
 				LayerTarget::WildcardMethodHandler(_) => {
 					let LayerTarget::WildcardMethodHandler(boxed_layer) = layer.take() else {
@@ -654,7 +652,7 @@ impl RequestHandler {
 	}
 }
 
-impl Handler for RequestHandler {
+impl Handler for ResourceRequestHandler {
 	type Response = Response;
 	type Error = BoxedErrorResponse;
 	type Future = BoxedFuture<Result<Self::Response, Self::Error>>;
@@ -702,7 +700,7 @@ mod test {
 			test_helpers::{new_root, test_service, Case, DataKind, Rx_1_1, Rx_2_0, Wl_3_0},
 		},
 		handler::{HandlerSetter, IntoHandler},
-		middleware::{_request_handler, _request_passer, _request_receiver},
+		middleware::{RequestHandler, RequestPasser, RequestReceiver},
 		request::RequestHead,
 		resource::Resource,
 	};
@@ -945,7 +943,7 @@ mod test {
 		let mut root = Resource::new("/");
 		let st_1_0 = root.subresource_mut("/st_0_0/st_1_0");
 		st_1_0.set_handler_for(Method::GET.to(|| async { "Hello from Handler!" }));
-		st_1_0.add_layer_to(_request_handler(Middleware));
+		st_1_0.wrap(RequestHandler.with(Middleware));
 
 		// ----------
 
@@ -969,11 +967,11 @@ mod test {
 
 		let st_1_0 = root.subresource_mut("/st_0_0/st_1_0");
 		st_1_0.set_handler_for(Method::GET.to(|| async { "Hello from Handler!" }));
-		st_1_0.add_layer_to(_request_handler((CompressionLayer::new(), Middleware)));
+		st_1_0.wrap(RequestHandler.with((CompressionLayer::new(), Middleware)));
 
 		let st_1_1 = root.subresource_mut("/st_0_0/st_1_1");
 		st_1_1.set_handler_for(Method::GET.to(|| async { "Hello from Handler!" }));
-		st_1_1.add_layer_to(_request_handler((Middleware, CompressionLayer::new())));
+		st_1_1.wrap(RequestHandler.with((Middleware, CompressionLayer::new())));
 
 		// ----------
 
@@ -1002,7 +1000,7 @@ mod test {
 
 		root
 			.subresource_mut("/st_0_0/")
-			.add_layer_to(_request_passer(Middleware));
+			.wrap(RequestPasser.with(Middleware));
 
 		// ----------
 
@@ -1030,7 +1028,7 @@ mod test {
 
 		root
 			.subresource_mut("/st_0_0/")
-			.add_layer_to(_request_receiver(Middleware));
+			.wrap(RequestReceiver.with(Middleware));
 
 		// ----------
 

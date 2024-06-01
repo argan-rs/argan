@@ -17,7 +17,7 @@ use super::*;
 /// use argan::{
 ///   Resource,
 ///   response::{Response, BoxedErrorResponse},
-///   middleware::{_request_handler, ErrorHandlerLayer},
+///   middleware::{RequestHandler, ErrorHandlerLayer},
 /// };
 ///
 /// async fn error_handler(error: BoxedErrorResponse) -> Result<Response, BoxedErrorResponse> {
@@ -27,7 +27,7 @@ use super::*;
 /// }
 ///
 /// let mut resource = Resource::new("/resource");
-/// resource.add_layer_to(_request_handler(ErrorHandlerLayer::new(error_handler)));
+/// resource.wrap(RequestHandler.with(ErrorHandlerLayer::new(error_handler)));
 /// ```
 #[derive(Clone)]
 pub struct ErrorHandlerLayer<ErrH>(ErrH);

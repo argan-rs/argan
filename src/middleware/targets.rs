@@ -2,15 +2,17 @@
 
 // ----------
 
-use argan_core::BoxedFuture;
+use std::str::FromStr;
+
 use http::Method;
 
 use crate::{
-	common::IntoArray,
-	handler::{AdaptiveHandler, Handler},
+	common::{marker::Sealed, IntoArray},
+	handler::{AdaptiveHandler, BoxableHandler},
+	http::{CustomMethod, WildcardMethod},
 	middleware::{BoxedLayer, IntoLayer, Layer},
+	request::MistargetedRequest,
 	resource::Resource,
-	response::{BoxedErrorResponse, Response},
 };
 
 // --------------------------------------------------------------------------------
@@ -27,7 +29,7 @@ mod private {
 		RequestReceiver(BoxedLayer),
 		RequestPasser(BoxedLayer),
 		RequestHandler(BoxedLayer),
-		MethodHandler(Vec<Method>, BoxedLayer),
+		MethodHandler(Method, BoxedLayer),
 		WildcardMethodHandler(BoxedLayer),
 		MistargetedRequestHandler(BoxedLayer),
 	}
@@ -54,89 +56,132 @@ mod private {
 
 pub(crate) use private::LayerTarget;
 
-// ----------
+// --------------------------------------------------
+
+/// A trait that's implemented by the [`Method`] type to pass
+/// the given `layer` to wrap the *method* handler.
+pub trait HandlerWrapper: Sealed {
+	fn handler_with<L, Mark>(self, layer: L) -> LayerTarget<Resource>
+	where
+		L: IntoLayer<Mark, AdaptiveHandler>,
+		L::Layer: Layer<AdaptiveHandler> + Clone + 'static,
+		<L::Layer as Layer<AdaptiveHandler>>::Handler: BoxableHandler + Clone + Send + Sync + 'static;
+}
+
+impl HandlerWrapper for Method {
+	fn handler_with<L, Mark>(self, layer: L) -> LayerTarget<Resource>
+	where
+		L: IntoLayer<Mark, AdaptiveHandler>,
+		L::Layer: Layer<AdaptiveHandler> + Clone + 'static,
+		<L::Layer as Layer<AdaptiveHandler>>::Handler: BoxableHandler + Clone + Send + Sync + 'static,
+	{
+		LayerTarget::MethodHandler(self, BoxedLayer::new(layer.into_layer()))
+	}
+}
+
+// --------------------------------------------------
+// CustomMethod
+
+impl<M: AsRef<str>> CustomMethod<M> {
+	/// Passes the `layer` to wrap the *custom HTTP method* handler.
+	pub fn handler_with<L, Mark>(self, layer: L) -> LayerTarget<Resource>
+	where
+		L: IntoLayer<Mark, AdaptiveHandler>,
+		L::Layer: Layer<AdaptiveHandler> + Clone + 'static,
+		<L::Layer as Layer<AdaptiveHandler>>::Handler: BoxableHandler + Clone + Send + Sync + 'static,
+	{
+		let method = Method::from_str(self.0.as_ref())
+			.expect("HTTP method should be a valid token [RFC 9110, 5.6.2 Tokens]");
+
+		LayerTarget::MethodHandler(method, BoxedLayer::new(layer.into_layer()))
+	}
+}
+
+// --------------------------------------------------
+// WildcardMethod
+
+impl WildcardMethod {
+	/// Passes the `layer` to wrap the *wildcard method* handler.
+	pub fn handler_with<L, Mark>(self, layer: L) -> LayerTarget<Resource>
+	where
+		L: IntoLayer<Mark, AdaptiveHandler>,
+		L::Layer: Layer<AdaptiveHandler> + Clone + 'static,
+		<L::Layer as Layer<AdaptiveHandler>>::Handler: BoxableHandler + Clone + Send + Sync + 'static,
+	{
+		LayerTarget::WildcardMethodHandler(BoxedLayer::new(layer.into_layer()))
+	}
+}
+
+// --------------------------------------------------
+// MistargetedRequest
+
+impl MistargetedRequest {
+	/// Passes the `layer` to wrap the *mistargeted request* handler.
+	pub fn handler_with<L, Mark>(self, layer: L) -> LayerTarget<Resource>
+	where
+		L: IntoLayer<Mark, AdaptiveHandler>,
+		L::Layer: Layer<AdaptiveHandler> + Clone + 'static,
+		<L::Layer as Layer<AdaptiveHandler>>::Handler: BoxableHandler + Clone + Send + Sync + 'static,
+	{
+		LayerTarget::MistargetedRequestHandler(BoxedLayer::new(layer.into_layer()))
+	}
+}
+
+// --------------------------------------------------
 
 macro_rules! layer_target_wrapper {
-	($func:ident, $kind:ident, #[$comment:meta]) => {
-		#[$comment]
-		pub fn $func<L, Mark>(layer: L) -> LayerTarget<Resource>
-		where
-			L: IntoLayer<Mark, AdaptiveHandler>,
-			L::Layer: Layer<AdaptiveHandler> + Clone + 'static,
-			<L::Layer as Layer<AdaptiveHandler>>::Handler: Handler<
-					Response = Response,
-					Error = BoxedErrorResponse,
-					Future = BoxedFuture<Result<Response, BoxedErrorResponse>>,
-				> + Clone
-				+ Send
-				+ Sync
-				+ 'static,
-		{
-			LayerTarget::$kind(BoxedLayer::new(layer.into_layer()))
+	($target:ident, #[$struct_comment:meta], #[$method_comment:meta]$(,)?) => {
+		#[$struct_comment]
+		pub struct $target;
+
+		impl $target {
+			pub fn with<L, Mark>(self, layer: L) -> LayerTarget<Resource>
+			where
+				L: IntoLayer<Mark, AdaptiveHandler>,
+				L::Layer: Layer<AdaptiveHandler> + Clone + 'static,
+				<L::Layer as Layer<AdaptiveHandler>>::Handler:
+					BoxableHandler + Clone + Send + Sync + 'static,
+			{
+				LayerTarget::$target(BoxedLayer::new(layer.into_layer()))
+			}
 		}
 	};
 }
 
+// --------------------------------------------------
+// RequestReceiver
+
 layer_target_wrapper!(
-	_request_receiver,
 	RequestReceiver,
-	#[doc = "Passes the layer to be applied to a *request receiver*."]
+	#[doc = "A type that represents the *request receiver*."],
+	#[doc = "Passes the `layer` to wrap the *request receiver*."],
 );
 
-/// Passes the layer to be applied to a *request passer*.
-pub fn _request_passer<TargetMark, L, Mark>(layer: L) -> LayerTarget<TargetMark>
-where
-	L: IntoLayer<Mark, AdaptiveHandler>,
-	L::Layer: Layer<AdaptiveHandler> + Clone + 'static,
-	<L::Layer as Layer<AdaptiveHandler>>::Handler: Handler<
-			Response = Response,
-			Error = BoxedErrorResponse,
-			Future = BoxedFuture<Result<Response, BoxedErrorResponse>>,
-		> + Clone
-		+ Send
-		+ Sync
-		+ 'static,
-{
-	LayerTarget::RequestPasser(BoxedLayer::new(layer.into_layer()))
+// --------------------------------------------------
+// RequestPasser
+
+/// A type that represents the *request passer*.
+pub struct RequestPasser;
+
+impl RequestPasser {
+	/// Passes the `layer` to wrap the *request passer*.
+	pub fn with<TargetMark, L, Mark>(self, layer: L) -> LayerTarget<TargetMark>
+	where
+		L: IntoLayer<Mark, AdaptiveHandler>,
+		L::Layer: Layer<AdaptiveHandler> + Clone + 'static,
+		<L::Layer as Layer<AdaptiveHandler>>::Handler: BoxableHandler + Clone + Send + Sync + 'static,
+	{
+		LayerTarget::RequestPasser(BoxedLayer::new(layer.into_layer()))
+	}
 }
 
+// --------------------------------------------------
+// RequestHandler
+
 layer_target_wrapper!(
-	_request_handler,
 	RequestHandler,
-	#[doc = "Passes the layer to be applied to a *request handler*."]
-);
-
-/// Passes the layer to be applied to specified *method handlers*.
-pub fn _method_handler<M, const N: usize, L, Mark>(methods: M, layer: L) -> LayerTarget<Resource>
-where
-	M: IntoArray<Method, N>,
-	L: IntoLayer<Mark, AdaptiveHandler>,
-	L::Layer: Layer<AdaptiveHandler> + Clone + 'static,
-	<L::Layer as Layer<AdaptiveHandler>>::Handler: Handler<
-			Response = Response,
-			Error = BoxedErrorResponse,
-			Future = BoxedFuture<Result<Response, BoxedErrorResponse>>,
-		> + Clone
-		+ Send
-		+ Sync
-		+ 'static,
-{
-	LayerTarget::MethodHandler(
-		methods.into_array().into(),
-		BoxedLayer::new(layer.into_layer()),
-	)
-}
-
-layer_target_wrapper!(
-	_wildcard_method_handler,
-	WildcardMethodHandler,
-	#[doc = "Passes the layer to be applied to a *wildcard method handler*."]
-);
-
-layer_target_wrapper!(
-	_mistargeted_request_handler,
-	MistargetedRequestHandler,
-	#[doc = "Passes the layer to be applied to a *mistargeted request handler*."]
+	#[doc = "A type that represents the *request handler*."],
+	#[doc = "Passes the `layer` to wrap the *request handler*."],
 );
 
 // --------------------------------------------------------------------------------

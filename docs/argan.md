@@ -346,7 +346,7 @@ use argan::{
 	},
 	handler::{IntoHandler, HandlerSetter},
     http::Method,
-	middleware::{ErrorHandlerLayer, _request_receiver},
+	middleware::{ErrorHandlerLayer, RequestReceiver},
 	request::{PathParamsError, RequestHead},
 	response::{BoxedErrorResponse, IntoResponse, IntoResponseResult, Response},
 	Resource,
@@ -432,7 +432,7 @@ struct ItemData {
 
 let mut root = Resource::new("/");
 // It's best for general errors to be handled up in the hierarchy.
-root.add_layer_to(_request_receiver(ErrorHandlerLayer::new(
+root.wrap(RequestReceiver.with(ErrorHandlerLayer::new(
     general_errors_handler,
 )));
 
@@ -464,7 +464,7 @@ use argan::{
     http::Method,
 	request::RequestContext,
 	response::{BoxedErrorResponse, IntoResponse, Response},
-	middleware::{IntoLayer, _request_handler},
+	middleware::{IntoLayer, RequestHandler},
 	common::BoxedFuture,
 };
 use tower_http::{
@@ -518,9 +518,9 @@ let mut resource = Resource::new("/resource");
 
 // Layers are applied from right to left and from bottom to top.
 // When the resource's request handler is called, middlewares print `ABC`.
-resource.add_layer_to([
-    _request_handler(layer_a),
-    _request_handler((layer_b.into_layer(), layer_c.into_layer())),
+resource.wrap([
+    RequestHandler.with(layer_a),
+    RequestHandler.with((layer_b.into_layer(), layer_c.into_layer())),
 ]);
 
 // The GET method handler will be layered in the following order:
@@ -539,7 +539,7 @@ resource.set_handler_for(Method::GET.to((|| async {}).wrapped_in((
 ))))
 ```
 
-See also [`Router::add_layer_to()`], [`Resource::add_layer_to()`], and
+See also [`Router::wrap()`], [`Resource::wrap()`], and
 [`IntoHandler::wrapped_in()`](crate::handler::IntoHandler::wrapped_in()) for more information.
 
 ## Feature flags

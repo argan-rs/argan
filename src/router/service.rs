@@ -32,7 +32,7 @@ use super::Router;
 pub struct RouterService {
 	context_properties: ContextProperties,
 	extensions: Extensions,
-	request_passer: MaybeBoxed<RequestPasser>,
+	request_passer: MaybeBoxed<RouterRequestPasser>,
 }
 
 impl RouterService {
@@ -40,7 +40,7 @@ impl RouterService {
 	pub(super) fn new(
 		context_properties: ContextProperties,
 		extensions: Extensions,
-		request_passer: MaybeBoxed<RequestPasser>,
+		request_passer: MaybeBoxed<RouterRequestPasser>,
 	) -> Self {
 		Self {
 			context_properties,
@@ -152,13 +152,13 @@ where
 // RequestPasser
 
 #[derive(Clone)]
-pub(super) struct RequestPasser {
+pub(super) struct RouterRequestPasser {
 	some_static_hosts: Option<Arc<[HostService]>>,
 	some_regex_hosts: Option<Arc<[HostService]>>,
 	some_root_resource: Option<Arc<ResourceService>>,
 }
 
-impl RequestPasser {
+impl RouterRequestPasser {
 	pub(super) fn new(
 		some_static_hosts: Option<Arc<[HostService]>>,
 		some_regex_hosts: Option<Arc<[HostService]>>,
@@ -198,7 +198,7 @@ impl RequestPasser {
 	}
 }
 
-impl<B> Handler<B> for RequestPasser
+impl<B> Handler<B> for RouterRequestPasser
 where
 	B: HttpBody<Data = Bytes> + Send + Sync + 'static,
 	B::Error: Into<BoxedError>,

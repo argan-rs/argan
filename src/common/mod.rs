@@ -54,8 +54,6 @@ where
 pub(crate) mod marker {
 	pub trait Sealed {}
 
-	impl Sealed for http::Method {}
-
 	// -------------------------
 
 	pub struct Private;

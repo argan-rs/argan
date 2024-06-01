@@ -17,7 +17,7 @@ use crate::{
 		request_handlers::{wrap_mistargeted_request_handler, ImplementedMethods, MethodHandlers},
 		BoxedHandler,
 	},
-	middleware::{_request_receiver, targets::LayerTarget},
+	middleware::{targets::LayerTarget, RequestReceiver},
 	pattern::{split_uri_host_and_path, Pattern, Similarity},
 	request::{routing::RouteSegments, ContextProperties},
 };
@@ -28,7 +28,7 @@ mod config;
 
 use self::{
 	config::{resource_config_from, ConfigFlags},
-	service::{RequestHandler, RequestPasser, RequestReceiver},
+	service::{ResourceRequestHandler, ResourceRequestPasser, ResourceRequestReceiver},
 };
 
 mod service;
@@ -1239,9 +1239,9 @@ impl Resource {
 	/// # use argan::{
 	/// #   handler::{Handler, HandlerSetter, Args},
 	/// #   http::Method,
-	/// #   middleware::{Layer, _method_handler, _mistargeted_request_handler},
+	/// #   middleware::{Layer, HandlerWrapper},
 	/// #   resource::Resource,
-	/// #   request::RequestContext,
+	/// #   request::{RequestContext, MistargetedRequest},
 	/// #   response::{Response, IntoResponse, BoxedErrorResponse},
 	/// #   common::BoxedFuture,
 	/// # };
@@ -1278,14 +1278,14 @@ impl Resource {
 	///
 	/// let mut resource = Resource::new("/resource");
 	///
-	/// resource.add_layer_to([
-	///   _mistargeted_request_handler(MiddlewareLayer),
-	///   _method_handler(Method::GET, CompressionLayer::new()),
+	/// resource.wrap([
+	///   MistargetedRequest.handler_with(MiddlewareLayer),
+	///   Method::GET.handler_with(CompressionLayer::new()),
 	/// ]);
 	///
 	/// resource.set_handler_for(Method::GET.to(|| async {}));
 	/// ```
-	pub fn add_layer_to<L, const N: usize>(&mut self, layer_targets: L)
+	pub fn wrap<L, const N: usize>(&mut self, layer_targets: L)
 	where
 		L: IntoArray<LayerTarget<Self>, N>,
 	{
@@ -1313,7 +1313,8 @@ impl Resource {
 				#[cfg(any(feature = "private-cookies", feature = "signed-cookies"))]
 				CookieKey(cookie_key) => self.context_properties.set_cookie_key(cookie_key),
 				RequestExtensionsModifier(request_extensions_modifier_layer) => {
-					let request_receiver_layer_target = _request_receiver(request_extensions_modifier_layer);
+					let request_receiver_layer_target =
+						RequestReceiver.with(request_extensions_modifier_layer);
 
 					self.middleware.insert(0, request_receiver_layer_target);
 				}
@@ -1433,7 +1434,7 @@ impl Resource {
 			if method_handlers_list.is_empty() && !wildcard_method_handler.is_custom() {
 				None
 			} else {
-				match RequestHandler::new(
+				match ResourceRequestHandler::new(
 					method_handlers_list,
 					wildcard_method_handler,
 					&mut middleware,
@@ -1454,7 +1455,7 @@ impl Resource {
 			|| some_regex_resources.is_some()
 			|| some_wildcard_resource.is_some()
 		{
-			Some(RequestPasser::new(
+			Some(ResourceRequestPasser::new(
 				some_static_resources,
 				some_regex_resources,
 				some_wildcard_resource,
@@ -1468,7 +1469,7 @@ impl Resource {
 		// -------------------------
 		// RequestReceiver
 
-		let request_receiver = RequestReceiver::new(
+		let request_receiver = ResourceRequestReceiver::new(
 			some_request_passer,
 			some_request_handler,
 			some_mistargeted_request_handler.clone(),
