@@ -69,16 +69,16 @@ impl CookieJar {
 	/// Adds the cookies into the jar.
 	///
 	/// ```
-	/// use argan::data::cookies::{Cookie, CookieJar, Key, _plain, _private};
+	/// use argan::data::cookies::{Cookie, CookieJar, Key, Plain, Private};
 	///
 	/// let mut jar = CookieJar::new().with_key(Key::generate());
 	///
 	/// let cookie = Cookie::new("some_cokie_1", "value");
 	///
 	/// jar.add([
-	///   _plain(cookie),
-	///   _plain(("some_cookie_2", "value")),
-	///   _private(("some_private_cookie", "value")),
+	///   Plain.cookie(cookie),
+	///   Plain.cookie(("some_cookie_2", "value")),
+	///   Private.cookie(("some_private_cookie", "value")),
 	/// ]);
 	/// ```
 	///
@@ -158,7 +158,7 @@ impl CookieJar {
 	///   request::RequestHead,
 	///   handler::HandlerSetter,
 	///   http::Method,
-	///   data::cookies::{Cookie, CookieJar, Key, _plain, _private},
+	///   data::cookies::{Cookie, CookieJar, Key, Plain, Private},
 	/// };
 	///
 	/// async fn handler(mut request_head: RequestHead) -> CookieJar {
@@ -166,10 +166,12 @@ impl CookieJar {
 	///
 	///   let cookie = Cookie::build("some_cookie").path("/resource").domain("example.com");
 	///
+	///   // To remove a cookie, we only need a name. So `Private` and `Signed` are optional,
+	///   // but they can be used to document the cookie's type for the reader.
 	///   jar.remove([
-	///     _plain(cookie),
-	///     _plain("some_cookie_2"),
-	///     _private("some_private_cookie"),
+	///     Plain.cookie(cookie),
+	///     Plain.cookie("some_cookie_2"),
+	///     Private.cookie("some_private_cookie"),
 	///   ]);
 	///
 	///   jar
@@ -468,24 +470,41 @@ mod private {
 
 use private::CookieKind;
 
-/// Passes the cookie to the jar as a *plain* `Cookie`.
-#[inline(always)]
-pub fn _plain<C: Into<Cookie<'static>>>(cookie: C) -> CookieKind {
-	CookieKind::Plain(cookie.into())
+/// A type that represents a *plain* cookie.
+pub struct Plain;
+
+impl Plain {
+	/// Passes the cookie to the jar as a *plain* `Cookie`.
+	#[inline(always)]
+	pub fn cookie<C: Into<Cookie<'static>>>(self, cookie: C) -> CookieKind {
+		CookieKind::Plain(cookie.into())
+	}
 }
 
-/// Passes the cookie to the jar as a *private* `Cookie`.
+/// A type that represents a *private* cookie.
 #[cfg(feature = "private-cookies")]
-#[inline(always)]
-pub fn _private<C: Into<Cookie<'static>>>(cookie: C) -> CookieKind {
-	CookieKind::Private(cookie.into())
+pub struct Private;
+
+#[cfg(feature = "private-cookies")]
+impl Private {
+	/// Passes the cookie to the jar as a *private* `Cookie`.
+	#[inline(always)]
+	pub fn cookie<C: Into<Cookie<'static>>>(self, cookie: C) -> CookieKind {
+		CookieKind::Private(cookie.into())
+	}
 }
 
-/// Passes the cookie to the jar as a *signed* `Cookie`.
+/// A type that represents a *signed* cookie.
 #[cfg(feature = "signed-cookies")]
-#[inline(always)]
-pub fn _signed<C: Into<Cookie<'static>>>(cookie: C) -> CookieKind {
-	CookieKind::Signed(cookie.into())
+pub struct Signed;
+
+#[cfg(feature = "signed-cookies")]
+impl Signed {
+	/// Passes the cookie to the jar as a *signed* `Cookie`.
+	#[inline(always)]
+	pub fn cookie<C: Into<Cookie<'static>>>(self, cookie: C) -> CookieKind {
+		CookieKind::Signed(cookie.into())
+	}
 }
 
 // --------------------------------------------------------------------------------
@@ -521,10 +540,10 @@ mod test {
 
 		let mut cookies = CookieJar::new().with_key(key);
 		cookies.add([
-			_private(("key1", "value1")),
-			_signed(("key2", "value2")),
-			_private(("key3", "value3")),
-			_signed(("key4", "value4")),
+			Private.cookie(("key1", "value1")),
+			Signed.cookie(("key2", "value2")),
+			Private.cookie(("key3", "value3")),
+			Signed.cookie(("key4", "value4")),
 		]);
 
 		let mut cookies_string = String::new();
