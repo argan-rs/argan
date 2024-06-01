@@ -8,7 +8,7 @@ use std::{any, sync::Arc};
 use http::Extensions;
 
 use crate::{
-	common::{config::ConfigOption, IntoArray, SCOPE_VALIDITY},
+	common::{node_properties::NodeProperty, IntoArray, SCOPE_VALIDITY},
 	host::Host,
 	middleware::{targets::LayerTarget, RequestPasser},
 	pattern::{split_uri_host_and_path, Pattern, Similarity},
@@ -594,28 +594,28 @@ impl Router {
 		self.middleware.extend(layer_targets.into_array());
 	}
 
-	/// Configures the router with the given options.
+	/// Sets the router's optional properties.
 	///
 	/// ```
-	/// use argan::{Router, common::config::_with_request_extensions_modifier};
+	/// use argan::{Router, common::node_properties::NodeCookieKey, data::cookies::Key};
 	///
 	/// let mut router = Router::new();
 	///
 	/// // Given `cookie::Key` will be available to all resoruces unless some resource
 	/// // or handler replaces it with its own `cookie::Key` while the request is being
 	/// // routed or handled.
-	/// router.configure(_with_request_extensions_modifier(|extensions| { /* ... */ }));
+	/// router.set_property(NodeCookieKey.to(Key::generate()));
 	/// ```
-	pub fn configure<C, const N: usize>(&mut self, config_options: C)
+	pub fn set_property<C, const N: usize>(&mut self, properties: C)
 	where
-		C: IntoArray<ConfigOption<Self>, N>,
+		C: IntoArray<NodeProperty<Self>, N>,
 	{
-		let config_options = config_options.into_array();
+		let properties = properties.into_array();
 
-		for config_option in config_options {
-			use ConfigOption::*;
+		for property in properties {
+			use NodeProperty::*;
 
-			match config_option {
+			match property {
 				#[cfg(any(feature = "private-cookies", feature = "signed-cookies"))]
 				CookieKey(cookie_key) => self.context_properties.set_cookie_key(cookie_key),
 				RequestExtensionsModifier(request_extensions_modifier_layer) => {
@@ -734,7 +734,7 @@ impl Router {
 mod test {
 	use http::Method;
 
-	use crate::{common::config::_with_request_extensions_modifier, handler::HandlerSetter};
+	use crate::{common::node_properties::RequestExtensionsModifier, handler::HandlerSetter};
 
 	use super::*;
 
@@ -1276,10 +1276,10 @@ mod test {
 				return Iteration::Continue;
 			}
 
-			root.configure(_with_request_extensions_modifier(|_| {}));
+			root.set_property(RequestExtensionsModifier.to(|_| {}));
 			root.for_each_subresource((), |_, resource| {
 				dbg!(resource.pattern_string());
-				resource.configure(_with_request_extensions_modifier(|_| {}));
+				resource.set_property(RequestExtensionsModifier.to(|_| {}));
 
 				if resource.is("{rx_0_1:p0}") {
 					Iteration::Skip

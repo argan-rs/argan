@@ -17,11 +17,11 @@ pub use argan_core::{BoxedError, BoxedFuture};
 #[macro_use]
 pub(crate) mod macros;
 
-pub mod config;
-pub use config::_with_request_extensions_modifier;
+pub mod node_properties;
+pub use node_properties::RequestExtensionsModifier;
 
 #[cfg(any(feature = "private-cookies", feature = "signed-cookies"))]
-pub use config::_with_cookie_key;
+pub use node_properties::NodeCookieKey;
 
 pub(crate) mod header_utils;
 

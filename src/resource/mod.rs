@@ -11,7 +11,7 @@ use std::{
 use http::Extensions;
 
 use crate::{
-	common::{config::ConfigOption, patterns_to_route, IntoArray, SCOPE_VALIDITY},
+	common::{node_properties::NodeProperty, patterns_to_route, IntoArray, SCOPE_VALIDITY},
 	handler::{
 		kind::HandlerKind,
 		request_handlers::{wrap_mistargeted_request_handler, ImplementedMethods, MethodHandlers},
@@ -1292,24 +1292,24 @@ impl Resource {
 		self.middleware.extend(layer_targets.into_array());
 	}
 
-	/// Configures the resource with the given options.
+	/// Sets the resource's optional properties.
 	///
 	/// ```
-	/// use argan::{Resource, common::config::_with_request_extensions_modifier};
+	/// use argan::{Resource, common::node_properties::RequestExtensionsModifier};
 	///
 	/// let mut resource = Resource::new("/resource");
-	/// resource.configure(_with_request_extensions_modifier(|extensions| { /* ... */ }));
+	/// resource.set_property(RequestExtensionsModifier.to(|extensions| { /* ... */ }));
 	/// ```
-	pub fn configure<C, const N: usize>(&mut self, config_options: C)
+	pub fn set_property<C, const N: usize>(&mut self, properties: C)
 	where
-		C: IntoArray<ConfigOption<Self>, N>,
+		C: IntoArray<NodeProperty<Self>, N>,
 	{
-		let config_options = config_options.into_array();
+		let properties = properties.into_array();
 
-		for config_option in config_options {
-			use ConfigOption::*;
+		for property in properties {
+			use NodeProperty::*;
 
-			match config_option {
+			match property {
 				#[cfg(any(feature = "private-cookies", feature = "signed-cookies"))]
 				CookieKey(cookie_key) => self.context_properties.set_cookie_key(cookie_key),
 				RequestExtensionsModifier(request_extensions_modifier_layer) => {
@@ -1579,7 +1579,7 @@ mod test {
 	use http::Method;
 
 	use crate::{
-		common::{config::_with_request_extensions_modifier, route_to_patterns},
+		common::{node_properties::RequestExtensionsModifier, route_to_patterns},
 		handler::{DummyHandler, HandlerSetter},
 	};
 
@@ -2177,7 +2177,7 @@ mod test {
 		parent.subresource_mut("/{wl_0_0}/st_1_0");
 
 		parent.for_each_subresource((), |_, resource| {
-			resource.configure(_with_request_extensions_modifier(|_: &mut Extensions| {}));
+			resource.set_property(RequestExtensionsModifier.to(|_: &mut Extensions| {}));
 			if resource.is("{rx_0_0:p}") {
 				Iteration::Skip
 			} else {

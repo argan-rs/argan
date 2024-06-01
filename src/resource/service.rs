@@ -696,7 +696,7 @@ mod test {
 
 	use crate::{
 		common::{
-			config::_with_request_extensions_modifier,
+			node_properties::RequestExtensionsModifier,
 			test_helpers::{new_root, test_service, Case, DataKind, Rx_1_1, Rx_2_0, Wl_3_0},
 		},
 		handler::{HandlerSetter, IntoHandler},
@@ -1052,7 +1052,7 @@ mod test {
 	#[tokio::test]
 	async fn resource_request_extensions() {
 		let mut root = Resource::new("/");
-		root.configure(_with_request_extensions_modifier(|extensions| {
+		root.set_property(RequestExtensionsModifier.to(|extensions| {
 			extensions.insert("Hello from Handler!".to_string());
 		}));
 

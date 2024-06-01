@@ -28,6 +28,7 @@ where
 }
 
 // --------------------------------------------------------------------------------
+// RequestExtensionsModifierLayer
 
 #[derive(Clone)]
 pub(crate) struct RequestExtensionsModifierLayer(BoxedExtensionsModifier);
@@ -51,36 +52,42 @@ impl Layer<AdaptiveHandler> for RequestExtensionsModifierLayer {
 
 // ----------
 
-#[derive(Clone)]
-pub(crate) struct RequestExtensionsModifier<H> {
-	inner_handler: H,
-	boxed_modifier: BoxedExtensionsModifier,
-}
+mod private {
+	use super::*;
 
-impl<H> RequestExtensionsModifier<H> {
-	fn new(handler: H, boxed_modifier: BoxedExtensionsModifier) -> Self {
-		Self {
-			inner_handler: handler,
-			boxed_modifier,
+	#[derive(Clone)]
+	pub struct RequestExtensionsModifier<H> {
+		inner_handler: H,
+		boxed_modifier: BoxedExtensionsModifier,
+	}
+
+	impl<H> RequestExtensionsModifier<H> {
+		pub(super) fn new(handler: H, boxed_modifier: BoxedExtensionsModifier) -> Self {
+			Self {
+				inner_handler: handler,
+				boxed_modifier,
+			}
+		}
+	}
+
+	impl<H, B> Handler<B> for RequestExtensionsModifier<H>
+	where
+		H: Handler<B>,
+	{
+		type Response = H::Response;
+		type Error = H::Error;
+		type Future = H::Future;
+
+		#[inline(always)]
+		fn handle(&self, mut request_context: RequestContext<B>, args: Args<'_, ()>) -> Self::Future {
+			self.boxed_modifier.0(request_context.request_mut().extensions_mut());
+
+			self.inner_handler.handle(request_context, args)
 		}
 	}
 }
 
-impl<H, B> Handler<B> for RequestExtensionsModifier<H>
-where
-	H: Handler<B>,
-{
-	type Response = H::Response;
-	type Error = H::Error;
-	type Future = H::Future;
-
-	#[inline(always)]
-	fn handle(&self, mut request_context: RequestContext<B>, args: Args<'_, ()>) -> Self::Future {
-		self.boxed_modifier.0(request_context.request_mut().extensions_mut());
-
-		self.inner_handler.handle(request_context, args)
-	}
-}
+pub use private::RequestExtensionsModifier;
 
 // -------------------------
 
