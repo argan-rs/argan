@@ -8,7 +8,7 @@ use tokio::runtime::Builder;
 
 // ----------
 
-use argan::{handler::_get, request::Request, resource::Resource};
+use argan::{http::Method, request::Request, resource::Resource, handler::HandlerSetter};
 
 // --------------------------------------------------------------------------------
 // --------------------------------------------------------------------------------
@@ -47,7 +47,7 @@ pub fn request_routing(c: &mut Criterion) {
 
 		if params.0 < 10 {
 			let last_static_resource = resource.subresource_mut(params.1.static_patterns.last().unwrap());
-			last_static_resource.set_handler_for(_get.to(handler));
+			last_static_resource.set_handler_for(Method::GET.to(handler));
 			add_static_resources(last_static_resource, (next_segment_index, params.1));
 		}
 
@@ -97,7 +97,7 @@ pub fn request_routing(c: &mut Criterion) {
 				"{}{}{}",
 				capture_name, next_segment_index, subpattern
 			));
-			last_regex_resource.set_handler_for(_get.to(handler));
+			last_regex_resource.set_handler_for(Method::GET.to(handler));
 			add_regex_resources(last_regex_resource, (next_segment_index, params.1));
 		}
 
@@ -134,7 +134,7 @@ pub fn request_routing(c: &mut Criterion) {
 		let pattern = format!("/{{{}{}}}", params.1.wildcard_pattern, next_segment_index);
 		// println!("wildcard pattern: {}", pattern);
 		let wildcard_resource = resource.subresource_mut(&pattern);
-		wildcard_resource.set_handler_for(_get.to(handler));
+		wildcard_resource.set_handler_for(Method::GET.to(handler));
 
 		if params.0 < 10 {
 			// println!("calling for subresources of {}", resource.pattern());
