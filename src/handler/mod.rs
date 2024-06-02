@@ -60,16 +60,15 @@ pub trait IntoHandler<Mark, B = Body, Ext: Clone = ()>: Sized {
 
 	fn into_handler(self) -> Self::Handler;
 
+	/// Provides the handler with a user defined extension.
 	fn with_extension(self, handler_extension: Ext) -> ExtensionProviderHandler<Self::Handler, Ext> {
 		ExtensionProviderHandler::new(self.into_handler(), handler_extension)
 	}
 
-	fn with_context_property<P, const N: usize>(
-		self,
-		properties: P,
-	) -> ContextProviderHandler<Self::Handler>
+	/// Provides the handler with pre-defined properties.
+	fn with_property<P, const N: usize>(self, properties: P) -> PropertyProviderHandler<Self::Handler>
 	where
-		P: IntoArray<ContextProperty, N>,
+		P: IntoArray<HandlerProperty, N>,
 	{
 		#![allow(unused)]
 
@@ -79,7 +78,7 @@ pub trait IntoHandler<Mark, B = Body, Ext: Clone = ()>: Sized {
 
 		#[cfg(any(feature = "private-cookies", feature = "signed-cookies"))]
 		for context_elem in properties {
-			use ContextProperty::*;
+			use HandlerProperty::*;
 
 			match context_elem {
 				CookieKey(cookie_key) => {
@@ -88,7 +87,7 @@ pub trait IntoHandler<Mark, B = Body, Ext: Clone = ()>: Sized {
 			}
 		}
 
-		ContextProviderHandler::new(self.into_handler(), context_properties)
+		PropertyProviderHandler::new(self.into_handler(), context_properties)
 	}
 
 	fn wrapped_in<L: Layer<Self::Handler>>(self, layer: L) -> L::Handler {
@@ -150,12 +149,13 @@ where
 // ContextProviderHandler
 
 /// A context provider handler.
-pub struct ContextProviderHandler<H> {
+#[derive(Clone)]
+pub struct PropertyProviderHandler<H> {
 	inner: H,
 	context_properties: ContextProperties,
 }
 
-impl<H> ContextProviderHandler<H> {
+impl<H> PropertyProviderHandler<H> {
 	fn new(handler: H, context_properties: ContextProperties) -> Self {
 		Self {
 			inner: handler,
@@ -164,7 +164,7 @@ impl<H> ContextProviderHandler<H> {
 	}
 }
 
-impl<H, B, Ext> Handler<B, Ext> for ContextProviderHandler<H>
+impl<H, B, Ext> Handler<B, Ext> for PropertyProviderHandler<H>
 where
 	H: Handler<B, Ext>,
 	Ext: Clone,
@@ -184,24 +184,47 @@ where
 // -------------------------
 // HandlerContext
 
-/// `Handler` context elements.
-pub mod context {
+/// `Handler` properties.
+///
+/// ```
+/// use argan::{
+///   data::cookies::Key,
+///   handler::{HandlerCookieKey, HandlerSetter, IntoHandler},
+///   http::Method,
+///   Resource,
+/// };
+///
+/// let mut resource = Resource::new("/resource");
+/// resource.set_handler_for(
+///   Method::GET.to(
+///     (|| async { /* ... */ }).with_property(HandlerCookieKey.set_to(Key::generate()))
+///   ),
+/// );
+/// ```
+pub mod properties {
 	option! {
-		pub(super) ContextProperty {
+		pub(super) HandlerProperty {
 			#[cfg(any(feature = "private-cookies", feature = "signed-cookies"))]
 			CookieKey(cookie::Key),
 		}
 	}
 
-	/// Passes the cryptographic `Key` used for *private* and *signed* cookies
-	/// as a `Handler` context.
+	/// A type that represents the *cookie key* as a property.
 	#[cfg(any(feature = "private-cookies", feature = "signed-cookies"))]
-	pub fn _cookie_key<K>(cookie_key: cookie::Key) -> ContextProperty {
-		ContextProperty::CookieKey(cookie_key)
+	pub struct HandlerCookieKey;
+
+	/// Passes the cryptographic `Key` used for *private* and *signed* cookies
+	/// as a handler property.
+	#[cfg(any(feature = "private-cookies", feature = "signed-cookies"))]
+	impl HandlerCookieKey {
+		pub fn set_to<K: Into<cookie::Key>>(self, key: K) -> HandlerProperty {
+			HandlerProperty::CookieKey(key.into())
+		}
 	}
 }
 
-use context::ContextProperty;
+pub use properties::HandlerCookieKey;
+use properties::HandlerProperty;
 
 // --------------------------------------------------------------------------------
 // Boxable handler

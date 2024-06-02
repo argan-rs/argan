@@ -29,7 +29,8 @@ pub struct NodeCookieKey;
 
 #[cfg(any(feature = "private-cookies", feature = "signed-cookies"))]
 impl NodeCookieKey {
-	/// Passes the given key as a property value to a node.
+	/// Passes the cryptographic `Key` used for *private* and *signed* cookies
+	/// as a node property.
 	pub fn to<K, Mark>(self, key: K) -> NodeProperty<Mark>
 	where
 		K: Into<cookie::Key>,
@@ -45,7 +46,7 @@ impl NodeCookieKey {
 pub struct RequestExtensionsModifier;
 
 impl RequestExtensionsModifier {
-	/// Passes the given function as a property value to a node.
+	/// Passes the given function as a property to a node.
 	pub fn to<Func, Mark>(self, modifier: Func) -> NodeProperty<Mark>
 	where
 		Func: Fn(&mut Extensions) + Clone + Send + Sync + 'static,
