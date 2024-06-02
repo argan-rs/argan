@@ -149,8 +149,8 @@ impl CookieJar {
 	/// If the cookies in the jar were extracted from a request, removing a cookie creates
 	/// a *removal* cookie (a cookie that has the same name as the original but has an empty
 	/// value, a max-age of 0, and an expiration date in the past). If the original cookie
-	/// was set with a `path` and/or `domain`, the cookie passed to `remove()` must have the
-	/// same `path` and/or `domain` to properly create a *removal* cookie.
+	/// was created with a `path` and/or `domain`, the cookie passed to `remove()` must have
+	/// the same `path` and/or `domain` to properly create a *removal* cookie.
 	///
 	/// ```
 	/// use argan::{
@@ -166,8 +166,9 @@ impl CookieJar {
 	///
 	///   let cookie = Cookie::build("some_cookie").path("/resource").domain("example.com");
 	///
-	///   // To remove a cookie, we only need a name. So `Private` and `Signed` are optional,
-	///   // but they can be used to document the cookie's type for the reader.
+	///   // To remove a cookie, we only need to pass it as a plain cookie. So using
+	///   // `Private` and `Signed` is optional, but they can be used to document the
+	///   // cookie's type for the reader.
 	///   jar.remove([
 	///     Plain.cookie(cookie),
 	///     Plain.cookie("some_cookie_2"),
