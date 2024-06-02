@@ -35,8 +35,8 @@ use crate::{
 	request::RequestHead,
 	response::{
 		file_stream::{
-			ContentCoding, FileStream, FileStreamError, _as_attachment, _content_encoding, _content_type,
-			_to_support_partial_content,
+			Attachment, ContentCoding, ContentEncoding, ContentType, FileStream, FileStreamError,
+			PartialContentSupport,
 		},
 		IntoResponse, Response,
 	},
@@ -332,21 +332,21 @@ async fn get_handler(
 				PreconditionsResult::IoError(error) => return Err(StaticFileError::Io(error)),
 			};
 
-			file_stream.configure(_to_support_partial_content());
+			file_stream.set_property(PartialContentSupport.to(true));
 
 			file_stream
 		}
 	};
 
 	if attachments {
-		file_stream.configure(_as_attachment());
+		file_stream.set_property(Attachment.to(true));
 	}
 
 	if coding == "gzip" {
-		file_stream.configure(_content_encoding(HeaderValue::from_static("gzip")));
+		file_stream.set_property(ContentEncoding.to(HeaderValue::from_static("gzip")));
 	}
 
-	file_stream.configure(_content_type(content_type_value));
+	file_stream.set_property(ContentType.to(content_type_value));
 
 	Ok(file_stream.into_response())
 }

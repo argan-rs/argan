@@ -41,16 +41,15 @@ use crate::{
 
 // --------------------------------------------------
 
-pub mod config;
+pub mod properties;
 
-use config::{ConfigFlags, FileStreamConfigOption};
-pub use config::{
-	_as_attachment, _boundary, _content_encoding, _content_type, _file_name,
-	_to_support_partial_content,
+pub use properties::{
+	Attachment, Boundary, ContentEncoding, ContentType, FileName, PartialContentSupport,
 };
+use properties::{ConfigFlags, FileStreamProperty};
 
 #[doc(inline)]
-pub use config::ContentCoding;
+pub use properties::ContentCoding;
 
 // --------------------------------------------------------------------------------
 // --------------------------------------------------------------------------------
@@ -323,26 +322,61 @@ impl FileStream {
 		})
 	}
 
-	/// Configures the FileStream with the given options.
-	pub fn configure<C, const N: usize>(&mut self, config_options: C)
+	/// Sets FileStream's optional properties.
+	///
+	/// ```no_run
+	/// use argan::response::file_stream::{
+	///   FileStream,
+	///   FileStreamError,
+	///   Attachment,
+	///   PartialContentSupport,
+	/// };
+	///
+	/// # async fn handler() -> Result<(), FileStreamError> {
+	/// let mut file_stream = FileStream::open("/some_file").await?;
+	/// file_stream.set_property([
+	///   Attachment.to(true),
+	///   PartialContentSupport.to(true),
+	/// ]);
+	///
+	/// # Ok(())
+	/// # }
+	/// ```
+	pub fn set_property<P, const N: usize>(&mut self, properties: P)
 	where
-		C: IntoArray<FileStreamConfigOption, N>,
+		P: IntoArray<FileStreamProperty, N>,
 	{
-		let config_options = config_options.into_array();
+		let properties = properties.into_array();
 
-		for config_option in config_options {
-			use FileStreamConfigOption::*;
-
-			match config_option {
-				Attachment => self.config_flags.add(ConfigFlags::ATTACHMENT),
-				PartialContentSupport => {
-					if self.maybe_encoded_file.is_encoded() {
-						panic!("cannot support partial content with dynamic encoding");
+		for property in properties {
+			match property {
+				FileStreamProperty::Attachment(enabled) => {
+					if enabled {
+						self.config_flags.add(ConfigFlags::ATTACHMENT);
+					} else {
+						self.config_flags.remove(ConfigFlags::ATTACHMENT);
 					}
-
-					self.config_flags.add(ConfigFlags::PARTIAL_CONTENT_SUPPORT);
 				}
-				ContentEncoding(header_value) => {
+				FileStreamProperty::PartialContentSupport(enabled) => {
+					if enabled {
+						if self.maybe_encoded_file.is_encoded() {
+							panic!("cannot support partial content with dynamic encoding");
+						}
+
+						self.config_flags.add(ConfigFlags::PARTIAL_CONTENT_SUPPORT);
+					} else {
+						if !self.ranges.is_empty() {
+							panic!(
+								"cannot disable partial content support when `FileStream` was created with ranges",
+							);
+						}
+
+						self
+							.config_flags
+							.remove(ConfigFlags::PARTIAL_CONTENT_SUPPORT);
+					}
+				}
+				FileStreamProperty::ContentEncoding(header_value) => {
 					let encoding = header_value
 						.to_str()
 						.expect("Content-Encoding must be a valid header value");
@@ -377,8 +411,10 @@ impl FileStream {
 
 					self.some_content_encoding = Some(header_value);
 				}
-				ContentType(header_value) => self.some_content_type = Some(header_value),
-				Boundary(boundary) => {
+				FileStreamProperty::ContentType(header_value) => {
+					self.some_content_type = Some(header_value)
+				}
+				FileStreamProperty::Boundary(boundary) => {
 					if self.maybe_encoded_file.is_encoded() {
 						panic!("boundary cannot be set with dynamic encoding");
 					}
@@ -394,7 +430,7 @@ impl FileStream {
 					self.some_boundary = Some(boundary);
 					self.config_flags.add(ConfigFlags::PARTIAL_CONTENT_SUPPORT);
 				}
-				FileName(file_name) => {
+				FileStreamProperty::FileName(file_name) => {
 					let mut file_name_string = String::new();
 					file_name_string.push_str("; filename");
 
@@ -1830,7 +1866,10 @@ mod test {
 		// -------------------------
 
 		let mut file_stream = FileStream::open(FILE).await.unwrap();
-		file_stream.configure([_as_attachment(), _content_type(content_type_value.clone())]);
+		file_stream.set_property([
+			Attachment.to(true),
+			ContentType.to(content_type_value.clone()),
+		]);
 
 		let response = file_stream.into_response();
 
@@ -1869,11 +1908,11 @@ mod test {
 		// -------------------------
 
 		let mut file_stream = FileStream::open(FILE).await.unwrap();
-		file_stream.configure([
-			_as_attachment(),
-			_content_encoding(gzip_content_encoding_value.clone()),
-			_content_type(content_type_value.clone()),
-			_file_name("test".into()),
+		file_stream.set_property([
+			Attachment.to(true),
+			ContentEncoding.to(gzip_content_encoding_value.clone()),
+			ContentType.to(content_type_value.clone()),
+			FileName.to("test".into()),
 		]);
 
 		let response = file_stream.into_response();
@@ -1922,7 +1961,7 @@ mod test {
 		// -------------------------
 
 		let mut file_stream = FileStream::open(FILE).await.unwrap();
-		file_stream.configure(_file_name("test-Ω".into()));
+		file_stream.set_property(FileName.to("test-Ω".into()));
 
 		let response = file_stream.into_response();
 
@@ -1952,10 +1991,10 @@ mod test {
 		// -------------------------
 
 		let mut file_stream = FileStream::open(FILE).await.unwrap();
-		file_stream.configure([
-			_content_type(content_type_value.clone()),
-			_to_support_partial_content(),
-			_content_encoding(gzip_content_encoding_value.clone()),
+		file_stream.set_property([
+			ContentType.to(content_type_value.clone()),
+			PartialContentSupport.to(true),
+			ContentEncoding.to(gzip_content_encoding_value.clone()),
 		]);
 
 		let response = file_stream.into_response();
@@ -2006,9 +2045,9 @@ mod test {
 		let mut file_stream = FileStream::open_ranges(FILE, "bytes=1024-16383", false)
 			.await
 			.unwrap();
-		file_stream.configure([
-			_content_type(content_type_value.clone()),
-			_content_encoding(gzip_content_encoding_value.clone()),
+		file_stream.set_property([
+			ContentType.to(content_type_value.clone()),
+			ContentEncoding.to(gzip_content_encoding_value.clone()),
 		]);
 
 		let response = file_stream.into_response();
@@ -2066,9 +2105,9 @@ mod test {
 			.await
 			.unwrap();
 
-		file_stream.configure([
-			_content_type(content_type_value.clone()),
-			_content_encoding(gzip_content_encoding_value.clone()),
+		file_stream.set_property([
+			ContentType.to(content_type_value.clone()),
+			ContentEncoding.to(gzip_content_encoding_value.clone()),
 		]);
 
 		let response = file_stream.into_response();
@@ -2118,9 +2157,9 @@ mod test {
 			.await
 			.unwrap();
 
-		file_stream.configure([
-			_content_type(content_type_value.clone()),
-			_content_encoding(HeaderValue::from_static("deflate")),
+		file_stream.set_property([
+			ContentType.to(content_type_value.clone()),
+			ContentEncoding.to(HeaderValue::from_static("deflate")),
 		]);
 
 		let response = file_stream.into_response();
@@ -2170,9 +2209,9 @@ mod test {
 			.await
 			.unwrap();
 
-		file_stream.configure([
-			_content_type(content_type_value.clone()),
-			_content_encoding(HeaderValue::from_static("br")),
+		file_stream.set_property([
+			ContentType.to(content_type_value.clone()),
+			ContentEncoding.to(HeaderValue::from_static("br")),
 		]);
 
 		let response = file_stream.into_response();
@@ -2316,9 +2355,9 @@ mod test {
 		// -------------------------
 
 		let mut file_stream = FileStream::open(FILE).await.unwrap();
-		file_stream.configure([
-			_boundary("boundary".into()),
-			_content_encoding(content_encoding_value.clone()),
+		file_stream.set_property([
+			Boundary.to("boundary".into()),
+			ContentEncoding.to(content_encoding_value.clone()),
 		]);
 
 		let response = file_stream.into_response();
@@ -2363,9 +2402,9 @@ mod test {
 		// -------------------------
 
 		let mut file_stream = FileStream::open(FILE).await.unwrap();
-		file_stream.configure([
-			_content_type(content_type_value.clone()),
-			_boundary(boundary_value.into()),
+		file_stream.set_property([
+			ContentType.to(content_type_value.clone()),
+			Boundary.to(boundary_value.into()),
 		]);
 
 		let response = file_stream.into_response();
@@ -2407,10 +2446,10 @@ mod test {
 		let mut file_stream = FileStream::open_ranges(FILE, "bytes=12-24", false)
 			.await
 			.unwrap();
-		file_stream.configure([
-			_content_type(content_type_value.clone()),
-			_content_encoding(content_encoding_value.clone()),
-			_boundary(boundary_value.into()),
+		file_stream.set_property([
+			ContentType.to(content_type_value.clone()),
+			ContentEncoding.to(content_encoding_value.clone()),
+			Boundary.to(boundary_value.into()),
 		]);
 
 		let response = file_stream.into_response();
@@ -2465,10 +2504,10 @@ mod test {
 			.await
 			.unwrap();
 
-		file_stream.configure([
-			_content_type(content_type_value.clone()),
-			_content_encoding(content_encoding_value.clone()),
-			_boundary(boundary_value.into()),
+		file_stream.set_property([
+			ContentType.to(content_type_value.clone()),
+			ContentEncoding.to(content_encoding_value.clone()),
+			Boundary.to(boundary_value.into()),
 		]);
 
 		let response = file_stream.into_response();
@@ -2543,10 +2582,10 @@ mod test {
 		let mut file_stream = FileStream::open_ranges(FILE, "bytes=1024-4095, 12-24", true)
 			.await
 			.unwrap();
-		file_stream.configure([
-			_content_type(content_type_value.clone()),
-			_content_encoding(content_encoding_value.clone()),
-			_boundary(boundary_value.into()),
+		file_stream.set_property([
+			ContentType.to(content_type_value.clone()),
+			ContentEncoding.to(content_encoding_value.clone()),
+			Boundary.to(boundary_value.into()),
 		]);
 
 		let response = file_stream.into_response();
@@ -2622,9 +2661,9 @@ mod test {
 			.await
 			.unwrap();
 
-		file_stream.configure([
-			_content_type(content_type_value.clone()),
-			_boundary(boundary_value.into()),
+		file_stream.set_property([
+			ContentType.to(content_type_value.clone()),
+			Boundary.to(boundary_value.into()),
 		]);
 
 		let response = file_stream.into_response();
@@ -2693,9 +2732,9 @@ mod test {
 			.await
 			.unwrap();
 
-		file_stream.configure([
-			_content_type(content_type_value.clone()),
-			_boundary(boundary_value.into()),
+		file_stream.set_property([
+			ContentType.to(content_type_value.clone()),
+			Boundary.to(boundary_value.into()),
 		]);
 
 		let response = file_stream.into_response();
@@ -2768,9 +2807,9 @@ mod test {
 		.await
 		.unwrap();
 
-		file_stream.configure([
-			_content_type(content_type_value.clone()),
-			_boundary(boundary_value.into()),
+		file_stream.set_property([
+			ContentType.to(content_type_value.clone()),
+			Boundary.to(boundary_value.into()),
 		]);
 
 		let response = file_stream.into_response();
@@ -2872,9 +2911,9 @@ mod test {
 		.await
 		.unwrap();
 
-		file_stream.configure([
-			_content_type(content_type_value.clone()),
-			_boundary(boundary_value.into()),
+		file_stream.set_property([
+			ContentType.to(content_type_value.clone()),
+			Boundary.to(boundary_value.into()),
 		]);
 
 		let response = file_stream.into_response();
@@ -2976,7 +3015,7 @@ mod test {
 		.await
 		.unwrap();
 
-		file_stream.configure(_boundary(boundary_value.into()));
+		file_stream.set_property(Boundary.to(boundary_value.into()));
 
 		let response = file_stream.into_response();
 		assert_eq!(StatusCode::PARTIAL_CONTENT, response.status());
@@ -3023,7 +3062,7 @@ mod test {
 				.await
 				.unwrap();
 
-		file_stream.configure(_boundary(boundary_value.into()));
+		file_stream.set_property(Boundary.to(boundary_value.into()));
 
 		let response = file_stream.into_response();
 		assert_eq!(StatusCode::PARTIAL_CONTENT, response.status());
@@ -3077,7 +3116,7 @@ mod test {
 		let mut file_stream = FileStream::open_with_encoding(FILE, ContentCoding::Gzip(6))
 			.await
 			.unwrap();
-		file_stream.configure(_content_encoding(HeaderValue::from_static("br")));
+		file_stream.set_property(ContentEncoding.to(HeaderValue::from_static("br")));
 	}
 
 	#[tokio::test]
@@ -3091,7 +3130,7 @@ mod test {
 		let mut file_stream = FileStream::open_with_encoding(FILE, ContentCoding::Gzip(6))
 			.await
 			.unwrap();
-		file_stream.configure(_to_support_partial_content());
+		file_stream.set_property(PartialContentSupport.to(true));
 	}
 
 	#[tokio::test]
@@ -3105,7 +3144,7 @@ mod test {
 		let mut file_stream = FileStream::open_with_encoding(FILE, ContentCoding::Gzip(6))
 			.await
 			.unwrap();
-		file_stream.configure(_boundary("boundary".into()));
+		file_stream.set_property(Boundary.to("boundary".into()));
 	}
 
 	#[tokio::test]
@@ -3117,9 +3156,9 @@ mod test {
 		let _deferred = Deferred::call(|| std::fs::remove_file(FILE).unwrap());
 
 		let mut file_stream = FileStream::open(FILE).await.unwrap();
-		file_stream.configure(_boundary(
-			"boundary-boundary-boundary-boundary-boundary-boundary-boundary-boundary".into(),
-		));
+		file_stream.set_property(
+			Boundary.to("boundary-boundary-boundary-boundary-boundary-boundary-boundary-boundary".into()),
+		);
 	}
 
 	#[tokio::test]
@@ -3131,6 +3170,6 @@ mod test {
 		let _deferred = Deferred::call(|| std::fs::remove_file(FILE).unwrap());
 
 		let mut file_stream = FileStream::open(FILE).await.unwrap();
-		file_stream.configure(_boundary("boundary\r".into()));
+		file_stream.set_property(Boundary.to("boundary\r".into()));
 	}
 }

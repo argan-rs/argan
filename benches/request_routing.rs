@@ -8,7 +8,7 @@ use tokio::runtime::Builder;
 
 // ----------
 
-use argan::{http::Method, request::Request, resource::Resource, handler::HandlerSetter};
+use argan::{handler::HandlerSetter, http::Method, request::Request, resource::Resource};
 
 // --------------------------------------------------------------------------------
 // --------------------------------------------------------------------------------
