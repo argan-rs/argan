@@ -6,15 +6,6 @@ use std::{
 	sync::Arc,
 };
 
-#[cfg(target_family = "unix")]
-use std::os::unix::fs::MetadataExt;
-
-#[cfg(target_family = "windows")]
-use std::os::windows::fs::MetadataExt;
-
-#[cfg(target_family = "wasm")]
-use std::os::windows::fs::MetadataExt;
-
 use argan_core::BoxedError;
 use http::{
 	header::{
@@ -434,11 +425,7 @@ async fn evaluate_optimal_coding<P1: AsRef<Path>, P2: AsRef<str>>(
 			return Err(StaticFileError::FileNotFound);
 		};
 
-		#[cfg(any(target_family = "unix", target_family = "wasm"))]
-		let file_size = metadata.size();
-
-		#[cfg(target_family = "windows")]
-		let file_size = metadata.file_size();
+		let file_size = metadata.len();
 
 		let mut identity_is_forbidden = false;
 		let mut forbidden_encodings = Vec::new();
