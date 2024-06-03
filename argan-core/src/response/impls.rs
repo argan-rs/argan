@@ -193,6 +193,16 @@ impl IntoResponse for Cow<'static, [u8]> {
 }
 
 // --------------------------------------------------
+// Body
+
+impl IntoResponse for Body {
+	#[inline]
+	fn into_response(self) -> Response {
+		Response::new(self)
+	}
+}
+
+// --------------------------------------------------
 // Tuples
 
 macro_rules! impl_into_response_for_tuples {
