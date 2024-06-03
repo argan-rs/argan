@@ -12,8 +12,12 @@ use std::{
 	task::{Context, Poll},
 };
 
+use argan_core::body::Body;
 use futures_util::FutureExt;
-use http::{header::LOCATION, HeaderValue, StatusCode};
+use http::{
+	header::{CONTENT_TYPE, LOCATION},
+	HeaderValue, StatusCode,
+};
 
 // ----------
 
@@ -99,9 +103,27 @@ impl Redirect {
 impl IntoResponse for Redirect {
 	#[inline]
 	fn into_response(self) -> Response {
-		let mut response = Response::default();
-		*response.status_mut() = self.status_code;
+		let mut response = self.status_code.into_response();
 		response.headers_mut().insert(LOCATION, self.uri);
+
+		response
+	}
+}
+
+// --------------------------------------------------
+// Html
+
+/// An HTML response that has a `Content-Type: text/html; charset=utf-8`.
+#[derive(Debug, Clone)]
+pub struct Html<B>(pub B);
+
+impl<B: Into<Body>> IntoResponse for Html<B> {
+	fn into_response(self) -> Response {
+		let mut response = Response::new(self.0.into());
+		response.headers_mut().insert(
+			CONTENT_TYPE,
+			HeaderValue::from_static(mime::TEXT_HTML_UTF_8.as_ref()),
+		);
 
 		response
 	}
