@@ -557,6 +557,7 @@ See also [`Router::wrap()`], [`Resource::wrap()`], and
 | "sse"             | server-sent events                           |
 | "file-stream"     | static file streaming                        |
 | "websockets"      | the WebSockets                               |
+| "peer-addr"       | peer address retriaval                       |
 | "full"            | all the features                             |
 
 [`Handler`]: crate::handler::Handler

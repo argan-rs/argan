@@ -11,7 +11,7 @@ use crate::{
 // --------------------------------------------------
 
 mod service;
-
+pub(crate) use self::service::FinalHost;
 pub use service::{ArcHostService, HostService, LeakedHostService};
 
 // --------------------------------------------------------------------------------
@@ -142,15 +142,19 @@ impl Host {
 		(pattern, root_resource)
 	}
 
-	/// Converts the `Host` into a service.
-	#[inline(always)]
-	pub fn into_service(self) -> HostService {
+	pub(crate) fn finalize(self) -> FinalHost {
 		let Host {
 			pattern,
 			root_resource,
 		} = self;
 
-		HostService::new(pattern, root_resource.into_service())
+		FinalHost::new(pattern, root_resource.finalize())
+	}
+
+	/// Converts the `Host` into a service.
+	#[inline(always)]
+	pub fn into_service(self) -> HostService {
+		HostService::new(self.finalize())
 	}
 
 	/// Converts the `Host` into a service that uses `Arc` internally.

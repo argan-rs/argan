@@ -1,4 +1,4 @@
-use std::{borrow::Cow, convert::Infallible, future::ready, sync::Arc};
+use std::{borrow::Cow, convert::Infallible, future::ready, net::SocketAddr, sync::Arc};
 
 use argan_core::{
 	body::{Body, HttpBody},
@@ -10,7 +10,9 @@ use hyper::service::Service;
 use percent_encoding::percent_decode_str;
 
 use crate::{
-	common::{MaybeBoxed, NodeExtensions, Uncloneable, SCOPE_VALIDITY},
+	common::{
+		marker::Sealed, CloneWithPeerAddr, MaybeBoxed, NodeExtensions, Uncloneable, SCOPE_VALIDITY,
+	},
 	handler::{
 		request_handlers::{handle_mistargeted_request, WildcardMethodHandler},
 		ArcHandler, Args, BoxedHandler, Handler,
@@ -19,7 +21,7 @@ use crate::{
 	pattern::{ParamsList, Pattern},
 	request::{
 		routing::{RouteTraversal, RoutingState},
-		ContextProperties, Request, RequestContext,
+		Request, RequestContext, RequestContextProperties,
 	},
 	response::{BoxedErrorResponse, InfallibleResponseFuture, IntoResponse, Redirect, Response},
 };
@@ -29,48 +31,35 @@ use super::{config::ConfigFlags, Resource};
 // --------------------------------------------------------------------------------
 // --------------------------------------------------------------------------------
 
-/// A resource service that can be used to handle requests.
-///
-/// Created by calling [`Resource::into_service()`] on a `Resource`.
+// --------------------------------------------------
+// ServiceContext
+
 #[derive(Clone)]
-pub struct ResourceService {
+pub(crate) struct FinalResource {
 	pattern: Pattern,
-	context_properties: ContextProperties,
+	request_context_properties: RequestContextProperties,
 	extensions: Extensions,
 
 	request_receiver: MaybeBoxed<ResourceRequestReceiver>,
 	some_mistargeted_request_handler: Option<ArcHandler>,
 }
 
-impl ResourceService {
+impl FinalResource {
 	#[inline(always)]
 	pub(super) fn new(
 		pattern: Pattern,
-		context_properties: ContextProperties,
+		request_context_properties: RequestContextProperties,
 		extensions: Extensions,
 		request_receiver: MaybeBoxed<ResourceRequestReceiver>,
 		some_mistargeted_request_handler: Option<ArcHandler>,
 	) -> Self {
 		Self {
 			pattern,
-			context_properties,
+			request_context_properties,
 			extensions,
 			request_receiver,
 			some_mistargeted_request_handler,
 		}
-	}
-
-	#[inline(always)]
-	fn is_root(&self) -> bool {
-		match self.pattern {
-			Pattern::Static(ref pattern) => pattern.as_ref() == "/",
-			_ => false,
-		}
-	}
-
-	#[inline(always)]
-	pub(crate) fn extensions_ref(&self) -> &Extensions {
-		&self.extensions
 	}
 
 	#[inline]
@@ -84,7 +73,7 @@ impl ResourceService {
 		B::Error: Into<BoxedError>,
 	{
 		let mut request_context = request_context.map(Body::new);
-		request_context.clone_valid_properties_from(&self.context_properties);
+		request_context.clone_valid_properties_from(&self.request_context_properties);
 
 		let args = args.extensions_replaced(NodeExtensions::new_borrowed(&self.extensions), &());
 
@@ -97,12 +86,93 @@ impl ResourceService {
 	}
 }
 
-// --------------------------------------------------
+impl AsRef<FinalResource> for FinalResource {
+	#[inline(always)]
+	fn as_ref(&self) -> &FinalResource {
+		self
+	}
+}
 
-impl<B> Service<Request<B>> for ResourceService
+// --------------------------------------------------
+// InnerResourceService
+
+struct InnerResourceService<R = FinalResource> {
+	resource: R,
+
+	#[cfg(feature = "peer-addr")]
+	peer_addr: SocketAddr,
+}
+
+impl<R: AsRef<FinalResource>> InnerResourceService<R> {
+	#[inline(always)]
+	fn new(final_resource: R) -> Self {
+		Self {
+			resource: final_resource,
+
+			#[cfg(feature = "peer-addr")]
+			peer_addr: "0.0.0.0:0".parse().expect(SCOPE_VALIDITY),
+		}
+	}
+
+	#[inline(always)]
+	fn resource_ref(&self) -> &FinalResource {
+		self.resource.as_ref()
+	}
+
+	#[inline(always)]
+	fn is_root(&self) -> bool {
+		match &self.resource_ref().pattern {
+			Pattern::Static(pattern) => pattern.as_ref() == "/",
+			_ => false,
+		}
+	}
+}
+
+// ----------
+
+impl Clone for InnerResourceService<FinalResource> {
+	#[inline(always)]
+	fn clone(&self) -> Self {
+		Self {
+			resource: self.resource.clone(),
+
+			#[cfg(feature = "peer-addr")]
+			peer_addr: self.peer_addr,
+		}
+	}
+}
+
+impl Clone for InnerResourceService<Arc<FinalResource>> {
+	#[inline(always)]
+	fn clone(&self) -> Self {
+		Self {
+			resource: Arc::clone(&self.resource),
+
+			#[cfg(feature = "peer-addr")]
+			peer_addr: self.peer_addr,
+		}
+	}
+}
+
+impl Clone for InnerResourceService<&'static FinalResource> {
+	#[inline(always)]
+	fn clone(&self) -> Self {
+		Self {
+			resource: self.resource,
+
+			#[cfg(feature = "peer-addr")]
+			peer_addr: self.peer_addr,
+		}
+	}
+}
+
+// ----------
+
+impl<B, R> Service<Request<B>> for InnerResourceService<R>
 where
 	B: HttpBody<Data = Bytes> + Send + Sync + 'static,
 	B::Error: Into<BoxedError>,
+	R: AsRef<FinalResource>,
 {
 	type Response = Response;
 	type Error = Infallible;
@@ -125,7 +195,7 @@ where
 
 			// If pattern is static, we may match it without decoding the segment.
 			// Static patterns keep percent-encoded string.
-			if let Some(result) = self.pattern.is_static_match(next_segment) {
+			if let Some(result) = self.resource_ref().pattern.is_static_match(next_segment) {
 				result
 			} else {
 				let Ok(decoded_segment) = percent_decode_str(next_segment).decode_utf8() else {
@@ -139,6 +209,7 @@ where
 
 				#[cfg(feature = "regex")]
 				let some_match_result = self
+					.resource_ref()
 					.pattern
 					.is_regex_match(decoded_segment.as_ref(), &mut path_params);
 
@@ -146,6 +217,7 @@ where
 					result
 				} else {
 					self
+						.resource_ref()
 						.pattern
 						.is_wildcard_match(decoded_segment, &mut path_params)
 						.expect("wildcard_resource must keep only a resource with a wilcard pattern")
@@ -157,15 +229,20 @@ where
 		routing_state.uri_params = path_params;
 
 		let args = Args {
-			node_extensions: NodeExtensions::new_borrowed(&self.extensions),
+			node_extensions: NodeExtensions::new_borrowed(&self.resource_ref().extensions),
 			handler_extension: Cow::Borrowed(&()),
 		};
 
-		let request_context =
-			RequestContext::new(request, routing_state, self.context_properties.clone());
+		let request_context = RequestContext::new(
+			#[cfg(feature = "peer-addr")]
+			self.peer_addr,
+			request,
+			routing_state,
+			self.resource_ref().request_context_properties.clone(),
+		);
 
 		if matched {
-			match &self.request_receiver {
+			match &self.resource_ref().request_receiver {
 				MaybeBoxed::Boxed(boxed_request_receiver) => {
 					InfallibleResponseFuture::from(boxed_request_receiver.handle(request_context, args))
 				}
@@ -177,29 +254,84 @@ where
 			InfallibleResponseFuture::from(handle_mistargeted_request(
 				request_context,
 				args,
-				self.some_mistargeted_request_handler.as_ref(),
+				self
+					.resource_ref()
+					.some_mistargeted_request_handler
+					.as_ref(),
 			))
 		}
 	}
 }
 
-// -------------------------
+// --------------------------------------------------
+// ResourceService
+
+/// A resource service that can be used to handle requests.
+///
+/// Created by calling [`Resource::into_service()`] on a `Resource`.
+#[derive(Clone)]
+pub struct ResourceService(InnerResourceService<FinalResource>);
+
+impl ResourceService {
+	#[inline(always)]
+	pub(super) fn new(final_resource: FinalResource) -> Self {
+		Self(InnerResourceService::new(final_resource))
+	}
+}
+
+impl<B> Service<Request<B>> for ResourceService
+where
+	B: HttpBody<Data = Bytes> + Send + Sync + 'static,
+	B::Error: Into<BoxedError>,
+{
+	type Response = Response;
+	type Error = Infallible;
+	type Future = InfallibleResponseFuture;
+
+	#[inline(always)]
+	fn call(&self, request: Request<B>) -> Self::Future {
+		self.0.call(request)
+	}
+}
+
+impl CloneWithPeerAddr for ResourceService {
+	#[inline(always)]
+	fn clone_with_peer_addr(&self, _addr: SocketAddr) -> Self {
+		Self(InnerResourceService {
+			resource: self.0.resource.clone(),
+			#[cfg(feature = "peer-addr")]
+			peer_addr: _addr,
+		})
+	}
+}
+
+impl Sealed for ResourceService {}
+
+// --------------------------------------------------
+// ArcResourceService
 
 /// A resource service that uses `Arc`.
 ///
 /// Created by calling [Resource::into_arc_service()] on a `Resource`.
-pub struct ArcResourceService(Arc<ResourceService>);
+#[derive(Clone)]
+pub struct ArcResourceService(InnerResourceService<Arc<FinalResource>>);
 
 impl From<ResourceService> for ArcResourceService {
 	#[inline(always)]
 	fn from(resource_service: ResourceService) -> Self {
-		ArcResourceService(Arc::new(resource_service))
-	}
-}
+		let ResourceService(InnerResourceService {
+			resource,
 
-impl Clone for ArcResourceService {
-	fn clone(&self) -> Self {
-		ArcResourceService(Arc::clone(&self.0))
+			#[cfg(feature = "peer-addr")]
+			peer_addr,
+		}) = resource_service;
+
+		Self(InnerResourceService {
+			resource: Arc::new(resource),
+
+			#[cfg(feature = "peer-addr")]
+			peer_addr,
+		})
 	}
 }
 
@@ -214,24 +346,49 @@ where
 
 	#[inline(always)]
 	fn call(&self, request: Request<B>) -> Self::Future {
-		self.0.as_ref().call(request)
+		self.0.call(request)
 	}
 }
 
-// -------------------------
+impl CloneWithPeerAddr for ArcResourceService {
+	fn clone_with_peer_addr(&self, _addr: SocketAddr) -> Self {
+		Self(InnerResourceService {
+			resource: Arc::clone(&self.0.resource),
+			#[cfg(feature = "peer-addr")]
+			peer_addr: _addr,
+		})
+	}
+}
+
+impl Sealed for ArcResourceService {}
+
+// --------------------------------------------------
+// LeakedResoruceService
 
 /// A resource service that uses leaked `&'static`.
 ///
 /// Created by calling [Resource::into_leaked_service()] on a `Resource`.
 #[derive(Clone)]
-pub struct LeakedResourceService(&'static ResourceService);
+pub struct LeakedResourceService(InnerResourceService<&'static FinalResource>);
 
 impl From<ResourceService> for LeakedResourceService {
 	#[inline(always)]
 	fn from(resource_service: ResourceService) -> Self {
-		let resource_service_static_ref = Box::leak(Box::new(resource_service));
+		let ResourceService(InnerResourceService {
+			resource,
 
-		LeakedResourceService(resource_service_static_ref)
+			#[cfg(feature = "peer-addr")]
+			peer_addr,
+		}) = resource_service;
+
+		let final_resource_ref = Box::leak(Box::new(resource));
+
+		Self(InnerResourceService {
+			resource: final_resource_ref,
+
+			#[cfg(feature = "peer-addr")]
+			peer_addr,
+		})
 	}
 }
 
@@ -250,7 +407,20 @@ where
 	}
 }
 
+impl CloneWithPeerAddr for LeakedResourceService {
+	fn clone_with_peer_addr(&self, _addr: SocketAddr) -> Self {
+		Self(InnerResourceService {
+			resource: self.0.resource,
+			#[cfg(feature = "peer-addr")]
+			peer_addr: _addr,
+		})
+	}
+}
+
+impl Sealed for LeakedResourceService {}
+
 // --------------------------------------------------
+// ResourceRequestReceiver
 
 #[derive(Clone)]
 pub(crate) struct ResourceRequestReceiver {
@@ -435,22 +605,23 @@ impl Handler for ResourceRequestReceiver {
 	}
 }
 
-// ----------
+// --------------------------------------------------
+// ResourceRequestPasser
 
 #[derive(Clone)]
 pub(crate) struct ResourceRequestPasser {
-	some_static_resources: Option<Arc<[ResourceService]>>,
-	some_regex_resources: Option<Arc<[ResourceService]>>,
-	some_wildcard_resource: Option<Arc<ResourceService>>,
+	some_static_resources: Option<Arc<[FinalResource]>>,
+	some_regex_resources: Option<Arc<[FinalResource]>>,
+	some_wildcard_resource: Option<Arc<FinalResource>>,
 
 	some_mistargeted_request_handler: Option<ArcHandler>,
 }
 
 impl ResourceRequestPasser {
 	pub(crate) fn new(
-		some_static_resources: Option<Arc<[ResourceService]>>,
-		some_regex_resources: Option<Arc<[ResourceService]>>,
-		some_wildcard_resource: Option<Arc<ResourceService>>,
+		some_static_resources: Option<Arc<[FinalResource]>>,
+		some_regex_resources: Option<Arc<[FinalResource]>>,
+		some_wildcard_resource: Option<Arc<FinalResource>>,
 		some_mistargeted_request_handler: Option<ArcHandler>,
 		middleware: &mut [LayerTarget<Resource>],
 	) -> MaybeBoxed<Self> {
@@ -545,7 +716,7 @@ impl Handler for ResourceRequestPasser {
 		};
 
 		if let Some(next_resource) = some_next_resource {
-			request_context.clone_valid_properties_from(&next_resource.context_properties);
+			request_context.clone_valid_properties_from(&next_resource.request_context_properties);
 
 			let args =
 				args.extensions_replaced(NodeExtensions::new_borrowed(&next_resource.extensions), &());
@@ -568,7 +739,8 @@ impl Handler for ResourceRequestPasser {
 	}
 }
 
-// ----------
+// --------------------------------------------------
+// ResourceRequestHandler
 
 #[derive(Clone)]
 pub(crate) struct ResourceRequestHandler {

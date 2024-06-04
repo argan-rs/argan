@@ -2,7 +2,7 @@
 
 // ----------
 
-use std::borrow::Cow;
+use std::{borrow::Cow, net::SocketAddr};
 
 use http::Extensions;
 
@@ -233,6 +233,13 @@ impl<'n> NodeExtensions<'n> {
 	pub(crate) fn into_owned(self) -> NodeExtensions<'static> {
 		NodeExtensions(Cow::Owned(self.0.into_owned()))
 	}
+}
+
+// --------------------------------------------------
+// WithSocketAddr
+
+pub trait CloneWithPeerAddr: marker::Sealed {
+	fn clone_with_peer_addr(&self, addr: SocketAddr) -> Self;
 }
 
 // --------------------------------------------------------------------------------

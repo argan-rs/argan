@@ -1,8 +1,5 @@
 use std::{net::ToSocketAddrs, pin::pin, time::Duration};
 
-#[cfg(not(unix))]
-use std::future::pending;
-
 use argan_core::{body::Body, request::Request, response::Response, BoxedError};
 use hyper::{body::Incoming, service::Service};
 use hyper_util::{
@@ -10,6 +7,8 @@ use hyper_util::{
 	server::{conn::auto::Builder as HyperServer, graceful::GracefulShutdown},
 };
 use tokio::net::TcpListener;
+
+use crate::common::CloneWithPeerAddr;
 
 // --------------------------------------------------------------------------------
 // --------------------------------------------------------------------------------
@@ -37,7 +36,11 @@ impl Server {
 
 	pub async fn serve<S, A>(self, service: S, bind_address: A) -> Result<(), BoxedError>
 	where
-		S: Service<Request<Incoming>, Response = Response<Body>> + Clone + Send + 'static,
+		S: Service<Request<Incoming>, Response = Response<Body>>
+			+ CloneWithPeerAddr
+			+ Clone
+			+ Send
+			+ 'static,
 		S::Future: Send + 'static,
 		S::Error: Into<BoxedError>,
 		A: ToSocketAddrs,
@@ -74,7 +77,7 @@ impl Server {
 		let mut pinned_terminate = pin!(signal.recv());
 
 		#[cfg(not(unix))]
-		let mut pinned_terminate = pin!(pending::<()>());
+		let mut pinned_terminate = pin!(std::future::pending::<()>());
 
 		loop {
 			tokio::select! {
@@ -96,7 +99,10 @@ impl Server {
 
 					let connection = hyper_server.serve_connection_with_upgrades(
 						TokioIo::new(stream),
+						#[cfg(not(feature = "peer-addr"))]
 						service.clone(),
+						#[cfg(feature = "peer-addr")]
+						service.clone_with_peer_addr(_peer_address),
 					);
 
 					let connection = graceful_shutdown_watcher.watch(connection.into_owned());

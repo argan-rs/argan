@@ -9,6 +9,9 @@ use std::{
 	task::{Context, Poll},
 };
 
+#[cfg(feature = "peer-addr")]
+use std::net::SocketAddr;
+
 use argan_core::{
 	body::{Body, Bytes, HttpBody},
 	BoxedError, BoxedFuture,
@@ -19,7 +22,7 @@ use tower_service::Service as TowerService;
 use crate::{
 	common::{IntoArray, NodeExtensions, Uncloneable},
 	middleware::Layer,
-	request::{routing::RoutingState, ContextProperties, RequestContext},
+	request::{routing::RoutingState, RequestContext, RequestContextProperties},
 	response::{BoxedErrorResponse, Response},
 };
 
@@ -74,7 +77,7 @@ pub trait IntoHandler<Mark, B = Body, Ext: Clone = ()>: Sized {
 
 		let properties = properties.into_array();
 
-		let mut context_properties = ContextProperties::default();
+		let mut context_properties = RequestContextProperties::default();
 
 		#[cfg(any(feature = "private-cookies", feature = "signed-cookies"))]
 		for context_elem in properties {
@@ -152,11 +155,11 @@ where
 #[derive(Clone)]
 pub struct PropertyProviderHandler<H> {
 	inner: H,
-	context_properties: ContextProperties,
+	context_properties: RequestContextProperties,
 }
 
 impl<H> PropertyProviderHandler<H> {
-	fn new(handler: H, context_properties: ContextProperties) -> Self {
+	fn new(handler: H, context_properties: RequestContextProperties) -> Self {
 		Self {
 			inner: handler,
 			context_properties,
@@ -223,6 +226,7 @@ pub mod properties {
 	}
 }
 
+#[cfg(any(feature = "private-cookies", feature = "signed-cookies"))]
 pub use properties::HandlerCookieKey;
 use properties::HandlerProperty;
 
@@ -392,13 +396,26 @@ where
 	type Future = BoxedFuture<Result<Response, BoxedErrorResponse>>;
 
 	fn handle(&self, request_context: RequestContext, args: Args) -> Self::Future {
+		#[cfg(not(feature = "peer-addr"))]
 		let (mut request, routing_state, context_properties) = request_context.into_parts();
+
+		#[cfg(feature = "peer-addr")]
+		let (peer_addr, mut request, routing_state, context_properties) = request_context.into_parts();
 
 		let args = args.into_owned();
 
+		#[cfg(not(feature = "peer-addr"))]
 		request
 			.extensions_mut()
 			.insert(Uncloneable::from((routing_state, context_properties, args)));
+
+		#[cfg(feature = "peer-addr")]
+		request.extensions_mut().insert(Uncloneable::from((
+			peer_addr,
+			routing_state,
+			context_properties,
+			args,
+		)));
 
 		let future_response_result = self.clone().call(request);
 
@@ -436,16 +453,33 @@ where
 
 	#[inline]
 	fn call(&mut self, mut request: Request<B>) -> Self::Future {
-		let (routing_state, context_properties, args) = request
+		#[cfg(not(feature = "peer-addr"))]
+		let (routing_state, properties, args) = request
 			.extensions_mut()
-			.remove::<Uncloneable<(RoutingState, ContextProperties, Args)>>()
+			.remove::<Uncloneable<(RoutingState, RequestContextProperties, Args)>>()
 			.expect(
 				"request context data should be inserted in the Handler implementation for the Service",
 			)
 			.into_inner()
 			.expect("Uncloneable must always have a valid value");
 
-		let request_context = RequestContext::new(request, routing_state, context_properties);
+		#[cfg(feature = "peer-addr")]
+		let (peer_addr, routing_state, properties, args) = request
+			.extensions_mut()
+			.remove::<Uncloneable<(SocketAddr, RoutingState, RequestContextProperties, Args)>>()
+			.expect(
+				"request context data should be inserted in the Handler implementation for the Service",
+			)
+			.into_inner()
+			.expect("Uncloneable must always have a valid value");
+
+		let request_context = RequestContext::new(
+			#[cfg(feature = "peer-addr")]
+			peer_addr,
+			request,
+			routing_state,
+			properties,
+		);
 
 		self.handler.handle(request_context, args)
 	}

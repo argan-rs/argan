@@ -12,7 +12,7 @@ use crate::{
 	host::Host,
 	middleware::{targets::LayerTarget, RequestPasser},
 	pattern::{split_uri_host_and_path, Pattern, Similarity},
-	request::ContextProperties,
+	request::RequestContextProperties,
 	resource::{Iteration, Resource},
 };
 
@@ -22,7 +22,7 @@ mod service;
 
 pub use service::{ArcRouterService, LeakedRouterService, RouterService};
 
-use self::service::RouterRequestPasser;
+use self::service::{FinalRouter, RouterRequestPasser};
 
 // --------------------------------------------------------------------------------
 // --------------------------------------------------------------------------------
@@ -39,7 +39,7 @@ pub struct Router {
 	regex_hosts: Vec<Host>,
 	some_root_resource: Option<Box<Resource>>,
 
-	context_properties: ContextProperties,
+	request_context_properties: RequestContextProperties,
 	extensions: Extensions,
 	middleware: Vec<LayerTarget<Self>>,
 }
@@ -58,7 +58,7 @@ impl Router {
 			regex_hosts: Vec::new(),
 			some_root_resource: None,
 
-			context_properties: ContextProperties::default(),
+			request_context_properties: RequestContextProperties::default(),
 			extensions: Extensions::new(),
 			middleware: Vec::new(),
 		}
@@ -617,7 +617,7 @@ impl Router {
 
 			match property {
 				#[cfg(any(feature = "private-cookies", feature = "signed-cookies"))]
-				CookieKey(cookie_key) => self.context_properties.set_cookie_key(cookie_key),
+				CookieKey(cookie_key) => self.request_context_properties.set_cookie_key(cookie_key),
 				RequestExtensionsModifier(request_extensions_modifier_layer) => {
 					let request_passer_layer_target = RequestPasser.with(request_extensions_modifier_layer);
 
@@ -668,13 +668,12 @@ impl Router {
 		}
 	}
 
-	/// Converts the `Router` into a service.
-	pub fn into_service(self) -> RouterService {
+	fn finalize(self) -> FinalRouter {
 		let Router {
 			static_hosts,
 			regex_hosts,
 			some_root_resource,
-			context_properties: context,
+			request_context_properties,
 			extensions,
 			middleware,
 		} = self;
@@ -682,27 +681,17 @@ impl Router {
 		let some_static_hosts = if static_hosts.is_empty() {
 			None
 		} else {
-			Some(
-				static_hosts
-					.into_iter()
-					.map(|static_host| static_host.into_service())
-					.collect(),
-			)
+			Some(static_hosts.into_iter().map(Host::finalize).collect())
 		};
 
 		let some_regex_hosts = if regex_hosts.is_empty() {
 			None
 		} else {
-			Some(
-				regex_hosts
-					.into_iter()
-					.map(|regex_host| regex_host.into_service())
-					.collect(),
-			)
+			Some(regex_hosts.into_iter().map(Host::finalize).collect())
 		};
 
 		let some_root_resource =
-			some_root_resource.map(|root_resource| Arc::new(root_resource.into_service()));
+			some_root_resource.map(|root_resource| Arc::new(root_resource.finalize()));
 
 		let request_passer = RouterRequestPasser::new(
 			some_static_hosts,
@@ -711,7 +700,15 @@ impl Router {
 			middleware,
 		);
 
-		RouterService::new(context, extensions, request_passer)
+		FinalRouter::new(request_context_properties, extensions, request_passer)
+	}
+
+	// -------------------------
+
+	/// Converts the `Router` into a service.
+	#[inline(always)]
+	pub fn into_service(self) -> RouterService {
+		RouterService::new(self.finalize())
 	}
 
 	/// Converts the `Router` into a service that uses `Arc` internally.

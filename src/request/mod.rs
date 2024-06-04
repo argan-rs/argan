@@ -4,6 +4,9 @@
 
 use std::{convert::Infallible, fmt::Debug, future::Future};
 
+#[cfg(feature = "peer-addr")]
+use std::net::SocketAddr;
+
 use argan_core::{
 	body::{Body, HttpBody},
 	BoxedError,
@@ -41,19 +44,26 @@ pub mod websocket;
 
 /// A [`Handler`](crate::handler::Handler) parameter that carries the request data.
 pub struct RequestContext<B = Body> {
+	#[cfg(feature = "peer-addr")]
+	peer_addr: SocketAddr,
+
 	request: Request<B>,
 	routing_state: RoutingState,
-	properties: ContextProperties,
+	properties: RequestContextProperties,
 }
 
 impl<B> RequestContext<B> {
 	#[inline(always)]
 	pub(crate) fn new(
+		#[cfg(feature = "peer-addr")] peer_addr: SocketAddr,
 		request: Request<B>,
 		routing_state: RoutingState,
-		properties: ContextProperties,
+		properties: RequestContextProperties,
 	) -> Self {
 		Self {
+			#[cfg(feature = "peer-addr")]
+			peer_addr,
+
 			request,
 			routing_state,
 			properties,
@@ -61,7 +71,10 @@ impl<B> RequestContext<B> {
 	}
 
 	#[inline(always)]
-	pub(crate) fn clone_valid_properties_from(&mut self, context_properties: &ContextProperties) {
+	pub(crate) fn clone_valid_properties_from(
+		&mut self,
+		context_properties: &RequestContextProperties,
+	) {
 		self
 			.properties
 			.clone_valid_properties_from(context_properties);
@@ -106,6 +119,12 @@ impl<B> RequestContext<B> {
 	}
 
 	// ----------
+
+	/// Returns the peer address.
+	#[cfg(feature = "peer-addr")]
+	pub fn peer_addr(&self) -> &SocketAddr {
+		&self.peer_addr
+	}
 
 	/// Returns the request cookies.
 	#[cfg(feature = "cookies")]
@@ -166,7 +185,17 @@ impl<B> RequestContext<B> {
 		B::Error: Into<BoxedError>,
 	{
 		let (head_parts, body) = self.request.into_parts();
+
+		#[cfg(not(feature = "peer-addr"))]
 		let request_head = RequestHead::new(head_parts, self.routing_state, self.properties);
+
+		#[cfg(feature = "peer-addr")]
+		let request_head = RequestHead::new(
+			self.peer_addr,
+			head_parts,
+			self.routing_state,
+			self.properties,
+		);
 
 		(request_head, body)
 	}
@@ -180,7 +209,17 @@ impl<B> RequestContext<B> {
 	{
 		let (mut head_parts, body) = self.request.into_parts();
 		let result = T::from_request(&mut head_parts, body).await;
+
+		#[cfg(not(feature = "peer-addr"))]
 		let request_head = RequestHead::new(head_parts, self.routing_state, self.properties);
+
+		#[cfg(feature = "peer-addr")]
+		let request_head = RequestHead::new(
+			self.peer_addr,
+			head_parts,
+			self.routing_state,
+			self.properties,
+		);
 
 		(request_head, result)
 	}
@@ -192,6 +231,9 @@ impl<B> RequestContext<B> {
 		Func: FnOnce(B) -> NewB,
 	{
 		let RequestContext {
+			#[cfg(feature = "peer-addr")]
+			peer_addr,
+
 			request,
 			routing_state,
 			properties,
@@ -203,6 +245,9 @@ impl<B> RequestContext<B> {
 		let request = Request::from_parts(head, new_body);
 
 		RequestContext {
+			#[cfg(feature = "peer-addr")]
+			peer_addr,
+
 			request,
 			routing_state,
 			properties,
@@ -270,9 +315,28 @@ impl<B> RequestContext<B> {
 		self.routing_state.subtree_handler_exists
 	}
 
+	#[cfg(not(feature = "peer-addr"))]
 	#[inline(always)]
-	pub(crate) fn into_parts(self) -> (Request<B>, RoutingState, ContextProperties) {
+	pub(crate) fn into_parts(self) -> (Request<B>, RoutingState, RequestContextProperties) {
 		(self.request, self.routing_state, self.properties)
+	}
+
+	#[cfg(feature = "peer-addr")]
+	#[inline(always)]
+	pub(crate) fn into_parts(
+		self,
+	) -> (
+		SocketAddr,
+		Request<B>,
+		RoutingState,
+		RequestContextProperties,
+	) {
+		(
+			self.peer_addr,
+			self.request,
+			self.routing_state,
+			self.properties,
+		)
 	}
 }
 
@@ -328,6 +392,9 @@ where
 
 /// A type of request's head part.
 pub struct RequestHead {
+	#[cfg(feature = "peer-addr")]
+	peer_addr: SocketAddr,
+
 	method: Method,
 	uri: Uri,
 	version: Version,
@@ -335,24 +402,29 @@ pub struct RequestHead {
 	extensions: Extensions,
 
 	routing_state: RoutingState,
-	context_properties: ContextProperties,
+	request_context_properties: RequestContextProperties,
 }
 
 impl RequestHead {
 	#[inline(always)]
 	pub(crate) fn new(
+		#[cfg(feature = "peer-addr")] peer_addr: SocketAddr,
+
 		head_parts: RequestHeadParts,
 		routing_state: RoutingState,
-		context_properties: ContextProperties,
+		context_properties: RequestContextProperties,
 	) -> Self {
 		Self {
+			#[cfg(feature = "peer-addr")]
+			peer_addr,
+
 			method: head_parts.method,
 			uri: head_parts.uri,
 			version: head_parts.version,
 			headers: head_parts.headers,
 			extensions: head_parts.extensions,
 			routing_state,
-			context_properties,
+			request_context_properties: context_properties,
 		}
 	}
 
@@ -426,6 +498,12 @@ impl RequestHead {
 
 	// ----------
 
+	/// Returns the peer address.
+	#[cfg(feature = "peer-addr")]
+	pub fn peer_addr(&self) -> &SocketAddr {
+		&self.peer_addr
+	}
+
 	/// Returns the request cookies.
 	#[cfg(feature = "cookies")]
 	#[inline(always)]
@@ -433,7 +511,7 @@ impl RequestHead {
 		cookies_from_request(
 			&self.headers,
 			#[cfg(any(feature = "private-cookies", feature = "signed-cookies"))]
-			self.context_properties.clone_cookie_key(),
+			self.request_context_properties.clone_cookie_key(),
 		)
 	}
 
@@ -482,12 +560,12 @@ impl RequestHead {
 // ContextProperties
 
 #[derive(Default, Clone)]
-pub(crate) struct ContextProperties {
+pub(crate) struct RequestContextProperties {
 	#[cfg(any(feature = "private-cookies", feature = "signed-cookies"))]
 	some_cookie_key: Option<cookie::Key>,
 }
 
-impl ContextProperties {
+impl RequestContextProperties {
 	#[cfg(any(feature = "private-cookies", feature = "signed-cookies"))]
 	#[inline]
 	pub(crate) fn set_cookie_key(&mut self, cookie_key: cookie::Key) {

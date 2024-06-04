@@ -151,7 +151,17 @@ macro_rules! request_handler_fn {
 				let func_clone = self.func.clone();
 
 				Box::pin(async move {
+					#[cfg(not(feature = "peer-addr"))]
 					let (request, routing_state, context_properties) = request_context.into_parts();
+
+					#[cfg(feature = "peer-addr")]
+					let (
+						peer_addr,
+						request,
+						routing_state,
+						context_properties,
+					) = request_context.into_parts();
+
 					let (mut head_parts, body) = request.into_parts();
 
 					$(
@@ -162,7 +172,16 @@ macro_rules! request_handler_fn {
 					)?
 
 					$(
+						#[cfg(not(feature = "peer-addr"))]
 						let head = <$RequestHead>::new(head_parts, routing_state, context_properties);
+
+						#[cfg(feature = "peer-addr")]
+						let head = <$RequestHead>::new(
+							peer_addr,
+							head_parts,
+							routing_state,
+							context_properties,
+						);
 					)?
 
 					func_clone($(head as $RequestHead,)? $($T)?).await.into_response_result()
@@ -245,7 +264,17 @@ macro_rules! request_args_handler_fn {
 						};
 					)*
 
+					#[cfg(not(feature = "peer-addr"))]
 					let (mut request, routing_state, context_properties) = request_context.into_parts();
+
+					#[cfg(feature = "peer-addr")]
+					let (
+						peer_addr,
+						mut request,
+						routing_state,
+						context_properties,
+					) = request_context.into_parts();
+
 					let (mut head_parts, body) = request.into_parts();
 
 					$(
@@ -256,7 +285,16 @@ macro_rules! request_args_handler_fn {
 					)?
 
 					$(
+						#[cfg(not(feature = "peer-addr"))]
 						let head = <$RequestHead>::new(head_parts, routing_state, context_properties);
+
+						#[cfg(feature = "peer-addr")]
+						let head = <$RequestHead>::new(
+							peer_addr,
+							head_parts,
+							routing_state,
+							context_properties,
+						);
 					)?
 
 					func_clone($($G,)* $(head as $RequestHead,)? $($T,)? $(args as $Args,)?)

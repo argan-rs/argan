@@ -1,4 +1,4 @@
-use std::{borrow::Cow, convert::Infallible, future::ready, sync::Arc};
+use std::{borrow::Cow, convert::Infallible, future::ready, net::SocketAddr, sync::Arc};
 
 use argan_core::{
 	body::{Body, HttpBody},
@@ -9,44 +9,172 @@ use http::{Extensions, StatusCode};
 use hyper::service::Service;
 
 use crate::{
-	common::{MaybeBoxed, NodeExtensions},
+	common::{marker::Sealed, CloneWithPeerAddr, MaybeBoxed, NodeExtensions},
 	handler::{Args, BoxedHandler, Handler},
-	host::HostService,
+	host::FinalHost,
 	middleware::{targets::LayerTarget, Layer},
 	request::{
 		routing::{RouteTraversal, RoutingState},
-		ContextProperties, Request, RequestContext,
+		Request, RequestContext, RequestContextProperties,
 	},
-	resource::ResourceService,
+	resource::FinalResource,
 	response::{BoxedErrorResponse, InfallibleResponseFuture, IntoResponse, Response},
 };
+
+#[cfg(feature = "peer-addr")]
+use crate::common::SCOPE_VALIDITY;
 
 use super::Router;
 
 // --------------------------------------------------------------------------------
 // --------------------------------------------------------------------------------
 
-/// A router service that can be used to handle requests.
-///
-/// Created by calling [`Router::into_service()`] on a `Router`.
-pub struct RouterService {
-	context_properties: ContextProperties,
+#[derive(Clone)]
+pub(super) struct FinalRouter {
+	request_context_properties: RequestContextProperties,
 	extensions: Extensions,
 	request_passer: MaybeBoxed<RouterRequestPasser>,
 }
 
-impl RouterService {
+impl FinalRouter {
 	#[inline(always)]
 	pub(super) fn new(
-		context_properties: ContextProperties,
+		request_context_properties: RequestContextProperties,
 		extensions: Extensions,
 		request_passer: MaybeBoxed<RouterRequestPasser>,
 	) -> Self {
 		Self {
-			context_properties,
+			request_context_properties,
 			extensions,
 			request_passer,
 		}
+	}
+}
+
+impl AsRef<FinalRouter> for FinalRouter {
+	#[inline(always)]
+	fn as_ref(&self) -> &FinalRouter {
+		self
+	}
+}
+
+// --------------------------------------------------
+// InnerRouterService
+
+struct InnerRouterService<R = FinalRouter> {
+	router: R,
+
+	#[cfg(feature = "peer-addr")]
+	peer_addr: SocketAddr,
+}
+
+impl<R: AsRef<FinalRouter>> InnerRouterService<R> {
+	#[inline(always)]
+	fn new(final_router: R) -> Self {
+		Self {
+			router: final_router,
+
+			#[cfg(feature = "peer-addr")]
+			peer_addr: "0.0.0.0:0".parse().expect(SCOPE_VALIDITY),
+		}
+	}
+
+	#[inline(always)]
+	fn router_ref(&self) -> &FinalRouter {
+		self.router.as_ref()
+	}
+}
+
+// ----------
+
+impl Clone for InnerRouterService<FinalRouter> {
+	#[inline(always)]
+	fn clone(&self) -> Self {
+		Self {
+			router: self.router.clone(),
+
+			#[cfg(feature = "peer-addr")]
+			peer_addr: self.peer_addr,
+		}
+	}
+}
+
+impl Clone for InnerRouterService<Arc<FinalRouter>> {
+	#[inline(always)]
+	fn clone(&self) -> Self {
+		Self {
+			router: Arc::clone(&self.router),
+
+			#[cfg(feature = "peer-addr")]
+			peer_addr: self.peer_addr,
+		}
+	}
+}
+
+impl Clone for InnerRouterService<&'static FinalRouter> {
+	#[inline(always)]
+	fn clone(&self) -> Self {
+		Self {
+			router: self.router,
+
+			#[cfg(feature = "peer-addr")]
+			peer_addr: self.peer_addr,
+		}
+	}
+}
+
+// ----------
+
+impl<B, R> Service<Request<B>> for InnerRouterService<R>
+where
+	B: HttpBody<Data = Bytes> + Send + Sync + 'static,
+	B::Error: Into<BoxedError>,
+	R: AsRef<FinalRouter>,
+{
+	type Response = Response;
+	type Error = Infallible;
+	type Future = InfallibleResponseFuture;
+
+	fn call(&self, request: Request<B>) -> Self::Future {
+		let routing_state = RoutingState::new(RouteTraversal::for_route(request.uri().path()));
+
+		let args = Args {
+			node_extensions: NodeExtensions::new_borrowed(&self.router_ref().extensions),
+			handler_extension: Cow::Borrowed(&()),
+		};
+
+		let request_context = RequestContext::new(
+			#[cfg(feature = "peer-addr")]
+			self.peer_addr,
+			request,
+			routing_state,
+			self.router_ref().request_context_properties.clone(),
+		);
+
+		match &self.router_ref().request_passer {
+			MaybeBoxed::Boxed(boxed_request_passer) => InfallibleResponseFuture::from(
+				boxed_request_passer.handle(request_context.map(Body::new), args),
+			),
+			MaybeBoxed::Unboxed(request_passer) => {
+				InfallibleResponseFuture::from(request_passer.handle(request_context, args))
+			}
+		}
+	}
+}
+
+// --------------------------------------------------
+// RouterService
+
+/// A router service that can be used to handle requests.
+///
+/// Created by calling [`Router::into_service()`] on a `Router`.
+#[derive(Clone)]
+pub struct RouterService(InnerRouterService<FinalRouter>);
+
+impl RouterService {
+	#[inline(always)]
+	pub(super) fn new(final_router: FinalRouter) -> Self {
+		Self(InnerRouterService::new(final_router))
 	}
 }
 
@@ -59,45 +187,50 @@ where
 	type Error = Infallible;
 	type Future = InfallibleResponseFuture;
 
+	#[inline(always)]
 	fn call(&self, request: Request<B>) -> Self::Future {
-		let routing_state = RoutingState::new(RouteTraversal::for_route(request.uri().path()));
-
-		let args = Args {
-			node_extensions: NodeExtensions::new_borrowed(&self.extensions),
-			handler_extension: Cow::Borrowed(&()),
-		};
-
-		let request_context =
-			RequestContext::new(request, routing_state, self.context_properties.clone());
-
-		match &self.request_passer {
-			MaybeBoxed::Boxed(boxed_request_passer) => InfallibleResponseFuture::from(
-				boxed_request_passer.handle(request_context.map(Body::new), args),
-			),
-			MaybeBoxed::Unboxed(request_passer) => {
-				InfallibleResponseFuture::from(request_passer.handle(request_context, args))
-			}
-		}
+		self.0.call(request)
 	}
 }
 
-// -------------------------
+impl CloneWithPeerAddr for RouterService {
+	#[inline(always)]
+	fn clone_with_peer_addr(&self, _addr: SocketAddr) -> Self {
+		Self(InnerRouterService {
+			router: self.0.router.clone(),
+			#[cfg(feature = "peer-addr")]
+			peer_addr: _addr,
+		})
+	}
+}
+
+impl Sealed for RouterService {}
+
+// --------------------------------------------------
+// ArcRouterService
 
 /// A router service that uses `Arc`.
 ///
 /// Created by calling [`Router::into_arc_service()`] on a `Router`.
-pub struct ArcRouterService(Arc<RouterService>);
+#[derive(Clone)]
+pub struct ArcRouterService(InnerRouterService<Arc<FinalRouter>>);
 
 impl From<RouterService> for ArcRouterService {
 	#[inline(always)]
 	fn from(router_service: RouterService) -> Self {
-		ArcRouterService(Arc::new(router_service))
-	}
-}
+		let RouterService(InnerRouterService {
+			router,
 
-impl Clone for ArcRouterService {
-	fn clone(&self) -> Self {
-		ArcRouterService(Arc::clone(&self.0))
+			#[cfg(feature = "peer-addr")]
+			peer_addr,
+		}) = router_service;
+
+		Self(InnerRouterService {
+			router: Arc::new(router),
+
+			#[cfg(feature = "peer-addr")]
+			peer_addr,
+		})
 	}
 }
 
@@ -112,24 +245,49 @@ where
 
 	#[inline(always)]
 	fn call(&self, request: Request<B>) -> Self::Future {
-		self.0.as_ref().call(request)
+		self.0.call(request)
 	}
 }
 
-// -------------------------
+impl CloneWithPeerAddr for ArcRouterService {
+	fn clone_with_peer_addr(&self, _addr: SocketAddr) -> Self {
+		Self(InnerRouterService {
+			router: Arc::clone(&self.0.router),
+			#[cfg(feature = "peer-addr")]
+			peer_addr: _addr,
+		})
+	}
+}
+
+impl Sealed for ArcRouterService {}
+
+// --------------------------------------------------
+// LeakedRouterService
 
 /// A router service that uses leaked `&'static`.
 ///
 /// Created by calling [`Router::into_leaked_service()`] on a `Router`.
 #[derive(Clone)]
-pub struct LeakedRouterService(&'static RouterService);
+pub struct LeakedRouterService(InnerRouterService<&'static FinalRouter>);
 
 impl From<RouterService> for LeakedRouterService {
 	#[inline(always)]
 	fn from(router_service: RouterService) -> Self {
-		let router_service_static_ref = Box::leak(Box::new(router_service));
+		let RouterService(InnerRouterService {
+			router,
 
-		LeakedRouterService(router_service_static_ref)
+			#[cfg(feature = "peer-addr")]
+			peer_addr,
+		}) = router_service;
+
+		let final_router_ref = Box::leak(Box::new(router));
+
+		Self(InnerRouterService {
+			router: final_router_ref,
+
+			#[cfg(feature = "peer-addr")]
+			peer_addr,
+		})
 	}
 }
 
@@ -148,21 +306,33 @@ where
 	}
 }
 
+impl CloneWithPeerAddr for LeakedRouterService {
+	fn clone_with_peer_addr(&self, _addr: SocketAddr) -> Self {
+		Self(InnerRouterService {
+			router: self.0.router,
+			#[cfg(feature = "peer-addr")]
+			peer_addr: _addr,
+		})
+	}
+}
+
+impl Sealed for LeakedRouterService {}
+
 // --------------------------------------------------
 // RequestPasser
 
 #[derive(Clone)]
 pub(super) struct RouterRequestPasser {
-	some_static_hosts: Option<Arc<[HostService]>>,
-	some_regex_hosts: Option<Arc<[HostService]>>,
-	some_root_resource: Option<Arc<ResourceService>>,
+	some_static_hosts: Option<Arc<[FinalHost]>>,
+	some_regex_hosts: Option<Arc<[FinalHost]>>,
+	some_root_resource: Option<Arc<FinalResource>>,
 }
 
 impl RouterRequestPasser {
 	pub(super) fn new(
-		some_static_hosts: Option<Arc<[HostService]>>,
-		some_regex_hosts: Option<Arc<[HostService]>>,
-		some_root_resource: Option<Arc<ResourceService>>,
+		some_static_hosts: Option<Arc<[FinalHost]>>,
+		some_regex_hosts: Option<Arc<[FinalHost]>>,
+		some_root_resource: Option<Arc<FinalResource>>,
 		middleware: Vec<LayerTarget<Router>>,
 	) -> MaybeBoxed<Self> {
 		let request_passer = Self {

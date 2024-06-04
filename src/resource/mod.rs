@@ -19,7 +19,7 @@ use crate::{
 	},
 	middleware::{targets::LayerTarget, RequestReceiver},
 	pattern::{split_uri_host_and_path, Pattern, Similarity},
-	request::{routing::RouteSegments, ContextProperties},
+	request::{routing::RouteSegments, RequestContextProperties},
 };
 
 // --------------------------------------------------
@@ -32,6 +32,7 @@ use self::{
 };
 
 mod service;
+pub(crate) use service::FinalResource;
 pub use service::{ArcResourceService, LeakedResourceService, ResourceService};
 
 #[cfg(feature = "file-stream")]
@@ -57,7 +58,7 @@ pub struct Resource {
 	method_handlers: MethodHandlers,
 	some_mistargeted_request_handler: Option<BoxedHandler>,
 
-	context_properties: ContextProperties,
+	request_context_properties: RequestContextProperties,
 	extensions: Extensions,
 	middleware: Vec<LayerTarget<Self>>,
 
@@ -164,7 +165,7 @@ impl Resource {
 			some_wildcard_resource: None,
 			method_handlers: MethodHandlers::new(),
 			some_mistargeted_request_handler: None,
-			context_properties: ContextProperties::default(),
+			request_context_properties: RequestContextProperties::default(),
 			extensions: Extensions::new(),
 			middleware: Vec::new(),
 			config_flags,
@@ -1311,7 +1312,7 @@ impl Resource {
 
 			match property {
 				#[cfg(any(feature = "private-cookies", feature = "signed-cookies"))]
-				CookieKey(cookie_key) => self.context_properties.set_cookie_key(cookie_key),
+				CookieKey(cookie_key) => self.request_context_properties.set_cookie_key(cookie_key),
 				RequestExtensionsModifier(request_extensions_modifier_layer) => {
 					let request_receiver_layer_target =
 						RequestReceiver.with(request_extensions_modifier_layer);
@@ -1361,11 +1362,7 @@ impl Resource {
 		}
 	}
 
-	/// Converts the `Resource` into a service.
-	///
-	/// This method ignores the parent resources. Thus, it should be called on the first
-	/// resource in the resource tree.
-	pub fn into_service(self) -> ResourceService {
+	pub(crate) fn finalize(self) -> FinalResource {
 		let Resource {
 			pattern,
 			prefix_segment_patterns: __prefix_segment_patterns,
@@ -1375,7 +1372,7 @@ impl Resource {
 			some_wildcard_resource,
 			method_handlers,
 			some_mistargeted_request_handler,
-			context_properties: context,
+			request_context_properties: context,
 			mut extensions,
 			mut middleware,
 			config_flags,
@@ -1389,7 +1386,7 @@ impl Resource {
 			Some(
 				static_resources
 					.into_iter()
-					.map(Resource::into_service)
+					.map(Resource::finalize)
 					.collect(),
 			)
 		};
@@ -1400,13 +1397,13 @@ impl Resource {
 			Some(
 				regex_resources
 					.into_iter()
-					.map(Resource::into_service)
+					.map(Resource::finalize)
 					.collect(),
 			)
 		};
 
 		let some_wildcard_resource =
-			some_wildcard_resource.map(|resource| Arc::new(resource.into_service()));
+			some_wildcard_resource.map(|resource| Arc::new(resource.finalize()));
 
 		// ----------
 
@@ -1478,15 +1475,26 @@ impl Resource {
 		);
 
 		// -------------------------
-		// ResourceService
+		// InnerResourceService
 
-		ResourceService::new(
+		FinalResource::new(
 			pattern,
 			context,
 			extensions,
 			request_receiver,
 			some_mistargeted_request_handler,
 		)
+	}
+
+	// -------------------------
+
+	/// Converts the `Resource` into a service.
+	///
+	/// This method ignores the parent resources. Thus, it should be called on the first
+	/// resource in the resource tree.
+	#[inline(always)]
+	pub fn into_service(self) -> ResourceService {
+		ResourceService::new(self.finalize())
 	}
 
 	/// Converts the `Resource` into a service that uses `Arc` internally.
@@ -1507,6 +1515,8 @@ impl Resource {
 		LeakedResourceService::from(self.into_service())
 	}
 }
+
+// -------------------------
 
 impl Display for Resource {
 	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
