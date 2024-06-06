@@ -126,6 +126,17 @@ impl<B> RequestContext<B> {
 		&self.peer_addr
 	}
 
+	/// Returns the available cookie `Key`.
+	///
+	/// The key may come from a handler, if the handler was provided with a key.
+	/// Otherwise, it comes from the last resource in the path that was provided
+	/// with a key or from a `Router`. If no key is available, `None` is returned.
+	#[cfg(any(feature = "private-cookies", feature = "signed-cookies"))]
+	#[inline(always)]
+	pub fn cookie_key(&self) -> Option<cookie::Key> {
+		self.properties.clone_cookie_key()
+	}
+
 	/// Returns the request cookies.
 	#[cfg(feature = "cookies")]
 	pub fn cookies(&mut self) -> CookieJar {
@@ -427,12 +438,6 @@ impl RequestHead {
 			request_context_properties: context_properties,
 		}
 	}
-
-	// #[cfg(any(feature = "private-cookies", feature = "signed-cookies"))]
-	// #[inline(always)]
-	// pub(crate) fn clone_cookie_key(&self) -> Option<cookie::Key> {
-	// 	self.context_properties.some_cookie_key.clone()
-	// }
 }
 
 impl RequestHead {
@@ -502,6 +507,17 @@ impl RequestHead {
 	#[cfg(feature = "peer-addr")]
 	pub fn peer_addr(&self) -> &SocketAddr {
 		&self.peer_addr
+	}
+
+	/// Returns the available cookie `Key`.
+	///
+	/// The key may come from a handler, if the handler was provided with a key.
+	/// Otherwise, it comes from the last resource in the path that was provided
+	/// with a key or from a `Router`. If no key is available, `None` is returned.
+	#[cfg(any(feature = "private-cookies", feature = "signed-cookies"))]
+	#[inline(always)]
+	pub fn cookie_key(&self) -> Option<cookie::Key> {
+		self.request_context_properties.clone_cookie_key()
 	}
 
 	/// Returns the request cookies.
