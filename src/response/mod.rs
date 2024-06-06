@@ -115,7 +115,7 @@ impl IntoResponse for Redirect {
 
 /// An HTML response that has a `Content-Type: text/html; charset=utf-8`.
 #[derive(Debug, Clone)]
-pub struct Html<B>(pub B);
+pub struct Html<B = String>(pub B);
 
 impl<B: Into<Body>> IntoResponse for Html<B> {
 	fn into_response(self) -> Response {
