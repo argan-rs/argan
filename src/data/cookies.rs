@@ -310,6 +310,14 @@ pub struct PrivateCookieJar {
 
 #[cfg(feature = "private-cookies")]
 impl PrivateCookieJar {
+	/// Creates a new, empty cookie jar that treats added and retrieved cookies as private.
+	pub fn new(key: Key) -> Self {
+		Self {
+			inner: InnerCookieJar::new(),
+			key,
+		}
+	}
+
 	/// If exists, retrieves the *private* `Cookie` with the given `name`, authenticates and
 	/// decrypts it with the jar's `Key`, and returns it as a *plain* `Cookie`. If the cookie
 	/// doesn't exist or the authentication and decryption fail, `None` is returned.
@@ -386,6 +394,14 @@ pub struct SignedCookieJar {
 
 #[cfg(feature = "signed-cookies")]
 impl SignedCookieJar {
+	/// Creates a new, empty cookie jar that treats added and retrieved cookies as signed.
+	pub fn new(key: Key) -> Self {
+		Self {
+			inner: InnerCookieJar::new(),
+			key,
+		}
+	}
+
 	/// If exists, retrieves the *signed* `Cookie` with the given `name`, verifies its
 	/// authenticity and integrity with the jar's `Key`, and returns it as a *plain* `Cookie`.
 	/// If the cookie doesn't exist or the verification fails, `None` is returned.
