@@ -1,10 +1,10 @@
-use std::{net::ToSocketAddrs, pin::pin, time::Duration};
+use std::{io::Error as IoError, net::ToSocketAddrs, pin::pin, time::Duration};
 
 use argan_core::{body::Body, request::Request, response::Response, BoxedError};
 use hyper::{body::Incoming, service::Service};
 use hyper_util::{
 	rt::{TokioExecutor, TokioIo},
-	server::{conn::auto::Builder as HyperServer, graceful::GracefulShutdown},
+	server::{conn::auto::Builder, graceful::GracefulShutdown},
 };
 use tokio::net::TcpListener;
 
@@ -14,16 +14,14 @@ use crate::common::CloneWithPeerAddr;
 // --------------------------------------------------------------------------------
 
 pub struct Server {
-	hyper_server: HyperServer<TokioExecutor>,
-	graceful_shutdown_watcher: GracefulShutdown,
+	connection_builder: Builder<TokioExecutor>,
 	some_shutdown_duration: Option<Duration>,
 }
 
 impl Server {
-	pub fn new() -> Self {
+	pub fn new(connection_builder: Builder<TokioExecutor>) -> Self {
 		Self {
-			hyper_server: HyperServer::new(TokioExecutor::new()),
-			graceful_shutdown_watcher: GracefulShutdown::new(),
+			connection_builder,
 			some_shutdown_duration: None,
 		}
 	}
@@ -34,7 +32,7 @@ impl Server {
 		self
 	}
 
-	pub async fn serve<S, A>(self, service: S, bind_address: A) -> Result<(), BoxedError>
+	pub async fn serve<S, A>(&self, service: S, listener_address: A) -> Result<(), ServerError>
 	where
 		S: Service<Request<Incoming>, Response = Response<Body>>
 			+ CloneWithPeerAddr
@@ -46,15 +44,14 @@ impl Server {
 		A: ToSocketAddrs,
 	{
 		let Server {
-			hyper_server,
-			graceful_shutdown_watcher,
+			connection_builder,
 			some_shutdown_duration,
 		} = self;
 
-		let mut addresses = bind_address.to_socket_addrs()?;
+		let mut addresses = listener_address.to_socket_addrs()?;
 		let some_listener = loop {
 			let Some(address) = addresses.next() else {
-				return Err(ServeError.into());
+				return Err(ServerError::NoValidAddress);
 			};
 
 			if let Ok(listener) = TcpListener::bind(address).await {
@@ -63,7 +60,7 @@ impl Server {
 		};
 
 		let Some(listener) = some_listener else {
-			return Err(ServeError.into());
+			return Err(ServerError::NoValidAddress);
 		};
 
 		let mut accept_error_count = 0;
@@ -79,6 +76,8 @@ impl Server {
 		#[cfg(not(unix))]
 		let mut pinned_terminate = pin!(std::future::pending::<()>());
 
+		let graceful_shutdown_watcher = GracefulShutdown::new();
+
 		loop {
 			tokio::select! {
 				connection = listener.accept() => {
@@ -93,11 +92,11 @@ impl Server {
 								continue;
 							}
 
-							return Err(error.into());
+							return Err(ServerError::from(error));
 						}
 					};
 
-					let connection = hyper_server.serve_connection_with_upgrades(
+					let connection = connection_builder.serve_connection_with_upgrades(
 						TokioIo::new(stream),
 						#[cfg(not(feature = "peer-addr"))]
 						service.clone(),
@@ -107,7 +106,7 @@ impl Server {
 
 					let connection = graceful_shutdown_watcher.watch(connection.into_owned());
 
-					tokio::spawn(connection); // TODO: Do something with the error.
+					tokio::spawn(connection);
 				},
 				_ = pinned_ctrl_c.as_mut() => break,
 				_ = pinned_terminate.as_mut() => break,
@@ -117,7 +116,7 @@ impl Server {
 		if let Some(duration) = some_shutdown_duration {
 			tokio::select! {
 				_ = graceful_shutdown_watcher.shutdown() => {},
-				_ = tokio::time::sleep(duration) => {},
+				_ = tokio::time::sleep(*duration) => {},
 			}
 		}
 
@@ -125,14 +124,14 @@ impl Server {
 	}
 }
 
-impl Default for Server {
-	fn default() -> Self {
-		Self::new()
-	}
-}
+// --------------------------------------------------
 
 #[derive(Debug, crate::ImplError)]
-#[error("no valid address to bind")]
-struct ServeError;
+pub enum ServerError {
+	#[error("no valid address to bind listener")]
+	NoValidAddress,
+	#[error(transparent)]
+	Io(#[from] IoError),
+}
 
 // --------------------------------------------------
