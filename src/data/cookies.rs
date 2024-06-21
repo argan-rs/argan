@@ -17,7 +17,7 @@ use crate::{
 // --------------------------------------------------------------------------------
 // --------------------------------------------------------------------------------
 
-pub use cookie::{Cookie, CookieBuilder, Expiration, Iter, ParseError, SameSite};
+pub use cookie::{time::Duration, Cookie, CookieBuilder, Expiration, Iter, ParseError, SameSite};
 
 #[cfg(any(feature = "private-cookies", feature = "signed-cookies"))]
 pub use cookie::{Key, KeyError};
