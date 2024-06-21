@@ -10,7 +10,6 @@ use std::{
 	str::FromStr,
 	task::{Context, Poll},
 	time::{SystemTime, UNIX_EPOCH},
-	usize,
 };
 
 use argan_core::{

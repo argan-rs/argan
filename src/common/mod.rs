@@ -238,6 +238,7 @@ impl<'n> NodeExtensions<'n> {
 // --------------------------------------------------
 // WithSocketAddr
 
+#[doc(hidden)]
 pub trait CloneWithPeerAddr: marker::Sealed {
 	fn clone_with_peer_addr(&self, addr: SocketAddr) -> Self;
 }
