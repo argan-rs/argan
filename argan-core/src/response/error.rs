@@ -94,7 +94,7 @@ impl IntoResponse for ResponseError {
 // --------------------------------------------------
 // ErrorResponse
 
-/// Implemented by error types that can be converted into the [`Response`] type.
+/// Blankedly implemented by error types that can be converted into the `Response` type.
 pub trait ErrorResponse: StdError + IntoResponse + 'static {
 	#[doc(hidden)]
 	fn concrete_type_id(&self, _: marker::Private) -> TypeId {
@@ -112,6 +112,11 @@ pub trait ErrorResponse: StdError + IntoResponse + 'static {
 
 	#[doc(hidden)]
 	fn concrete_into_response(self: Box<Self>, _: marker::Private) -> Response;
+
+	/// Converts the `ErrorResponse` into `ResponseResult::Err(BoxedErrorResponse)`.
+	fn into_error_result(self) -> Result<Response, BoxedErrorResponse>
+	where
+		Self: Sized;
 }
 
 impl dyn ErrorResponse + Send + Sync {
@@ -185,6 +190,13 @@ where
 
 		(*e).into_response()
 	}
+
+	fn into_error_result(self) -> Result<Response, BoxedErrorResponse>
+	where
+		Self: Sized,
+	{
+		Err(self.into())
+	}
 }
 
 impl<E: ErrorResponse + Send + Sync> From<E> for BoxedErrorResponse {
@@ -198,6 +210,8 @@ impl<E: ErrorResponse + Send + Sync> From<E> for BoxedErrorResponse {
 #[cfg(test)]
 mod test {
 	use std::fmt::Display;
+
+	use crate::response::IntoResponseResult;
 
 	use super::*;
 
@@ -243,6 +257,12 @@ mod test {
 		assert!(boxed_error_response
 			.source()
 			.is_some_and(|error| error.is::<Failure>()));
+
+		// ----------
+
+		let response_error = ResponseError::from(StatusCode::INTERNAL_SERVER_ERROR);
+		let result = response_error.into_error_result();
+		assert!(result.is_err());
 	}
 
 	// --------------------------------------------------------------------------------
@@ -331,6 +351,14 @@ mod test {
 				.map(|boxed| *boxed)
 				.unwrap()
 		);
+
+		// ----------
+
+		let response_result = E.into_error_result();
+		assert!(response_result.is_err());
+
+		let response_result = E.into_response_result();
+		assert!(response_result.is_ok());
 	}
 }
 
