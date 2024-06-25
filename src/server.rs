@@ -1,3 +1,7 @@
+#![doc = include_str!("../docs/server.md")]
+
+// ----------
+
 use std::{io::Error as IoError, net::ToSocketAddrs, pin::pin, time::Duration};
 
 #[cfg(feature = "tls")]
