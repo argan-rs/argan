@@ -41,6 +41,10 @@ use super::{config::ConfigFlags, Resource};
 const UNENCODED: &str = "unencoded";
 const ENCODED: &str = "encoded";
 
+const DEFAULT_MIN_SIZE_TO_ENCODE: u64 = 1024;
+const DEFAULT_MAX_SIZE_TO_ENCODE: u64 = 8 * 1024 * 1024;
+const DEFAULT_LEVEL_TO_ENCODE: u32 = 6;
+
 // --------------------------------------------------
 
 /// A resource that serves static files from a directory.
@@ -53,7 +57,7 @@ const ENCODED: &str = "encoded";
 /// if the file size is within the allowed bounds, it dynamically encodes these files when
 /// the supported coding is requested, and there is no pre-encoded version in the *"enoced"*
 /// directory. *"encoded"* directory should contain pre-encoded files in the directories
-/// named after their coding (for now only *gzip* is supported).
+/// named after their coding.
 ///
 /// ```no_run
 /// use argan::StaticFiles;
@@ -73,9 +77,11 @@ const ENCODED: &str = "encoded";
 /// StaticFiles first looks for a file *"README.md.gz"* in *"some_dir/encoded/gzip/docs/"*.
 /// If there is no such file, then it tries to serve the file as previously stated, but
 /// dynamically compresses it with `gzip` if the file size is within the allowed bounds.
-/// If the `identity` is forbidden in the `Accept-Encoding` when `gzip` is requested and
-/// there is neither a pre-encoded file nor an unencoded file with the suitable size to
-/// dynamically encode, then `406 Not Acceptable` is returned.
+/// For `deflate` and `br`, it looks for a file with the extensions ".df" and ".br",
+/// respectively, under their corresponding directories. If the `identity` is forbidden
+/// in the `Accept-Encoding` when some encoding is requested and there is neither a
+/// pre-encoded file nor an unencoded file with the suitable size to dynamically encode,
+/// then `406 Not Acceptable` is returned.
 ///
 /// Note that range requests are not supported for dynamically encoded files.
 ///
@@ -90,11 +96,11 @@ const ENCODED: &str = "encoded";
 /// let mut static_files = StaticFiles::new("/some_pattern", "some_dir").into_resource();
 /// static_files
 ///     .subresource_mut("/resource_1_0")
-///     .set_handler_for(Method::GET.to(|| async {}));
+///     .set_handler_for(Method::GET.to(|| async { "resource_1_0" }));
 ///
 /// static_files
 ///     .subresource_mut("/resource_1_1/resource_2_0")
-///     .set_handler_for(Method::GET.to(|| async {}));
+///     .set_handler_for(Method::GET.to(|| async { "resource_2_0" }));
 ///
 /// let service = static_files.into_arc_service();
 /// ```
@@ -121,16 +127,16 @@ impl StaticFiles {
 					panic!("{:?} is not a directory", files_dir);
 				}
 			}
-			Err(error) => panic!("{}", error),
+			Err(error) => panic!("{} [path: {:?}]", error, files_dir),
 		}
 
 		Self {
 			some_resource: Some(resource),
 			some_files_dir: Some(files_dir.into()),
 			some_tagger: None,
-			min_size_to_encode: 1024,
-			max_size_to_encode: 8 * 1024 * 1024,
-			level_to_encode: 6,
+			min_size_to_encode: DEFAULT_MIN_SIZE_TO_ENCODE,
+			max_size_to_encode: DEFAULT_MAX_SIZE_TO_ENCODE,
+			level_to_encode: DEFAULT_LEVEL_TO_ENCODE,
 			flags: Flags::PARTIAL_CONTENT | Flags::DYNAMIC_ENCODING | Flags::GET,
 		}
 	}
@@ -369,26 +375,17 @@ async fn evaluate_optimal_coding<P1: AsRef<Path>, P2: AsRef<str>>(
 						owned_relative_path_to_file.push_str(".gz");
 
 						true
+					} else if encoding.eq_ignore_ascii_case("deflate") {
+						owned_relative_path_to_file.push_str(".df");
+
+						true
+					} else if encoding.eq_ignore_ascii_case("br") {
+						owned_relative_path_to_file.push_str(".br");
+
+						true
 					} else {
 						false
 					};
-
-					// The following snippet will be active when a tool is provided.
-					// let extended = if encoding.eq_ignore_ascii_case("gzip") {
-					// 	owned_relative_path_to_file.push_str(".gz");
-					//
-					// 	true
-					// } else if encoding.eq_ignore_ascii_case("deflate") {
-					// 	owned_relative_path_to_file.push_str(".df");
-					//
-					// 	true
-					// } else if encoding.eq_ignore_ascii_case("br") {
-					// 	owned_relative_path_to_file.push_str(".br");
-					//
-					// 	true
-					// } else {
-					// 	false
-					// };
 
 					if extended {
 						path_buf = path_buf
