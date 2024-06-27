@@ -346,8 +346,7 @@ impl Resource {
 	/// subtree and both of them have some handler set or a middleware applied
 	///
 	/// ```should_panic
-	/// use argan::Resource;
-	/// use argan::{handler::HandlerSetter, http::Method};
+	/// use argan::{Resource, handler::HandlerSetter, http::Method};
 	///
 	/// let mut resource_1 = Resource::new("/resource_1");
 	/// let mut resource_3 = Resource::new("/resource_2/resource_3");
@@ -1234,17 +1233,8 @@ impl Resource {
 	/// Middlewares are applied when the resource is being converted into a service.
 	///
 	/// ```
-	/// // use declarations
-	/// # use tower_http::compression::CompressionLayer;
-	/// # use argan::{
-	/// #   handler::{Handler, BoxableHandler, HandlerSetter, Args},
-	/// #   http::Method,
-	/// #   middleware::{Layer, HandlerWrapper},
-	/// #   resource::Resource,
-	/// #   request::{RequestContext, MistargetedRequest},
-	/// #   response::{Response, IntoResponse, BoxedErrorResponse},
-	/// #   common::BoxedFuture,
-	/// # };
+	/// use argan::prelude::*;
+	/// use tower_http::compression::CompressionLayer;
 	///
 	/// #[derive(Clone)]
 	/// struct MiddlewareLayer;

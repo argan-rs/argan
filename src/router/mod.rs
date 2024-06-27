@@ -418,8 +418,7 @@ impl Router {
 	///   configuration symbols don't match its configuration
 	///
 	/// ```should_panic
-	/// use argan::{Router, handler::HandlerSetter};
-	/// use argan::http::Method;
+	/// use argan::{Router, handler::HandlerSetter, http::Method};
 	///
 	/// let mut router = Router::new();
 	/// router.resource_mut("/resource_1 !*").set_handler_for([
@@ -538,17 +537,10 @@ impl Router {
 	/// Middlewares are applied when the router is being converted into a service.
 	///
 	/// ```
-	/// // use declarations
-	/// # use std::time::Duration;
-	/// # use tower_http::timeout::TimeoutLayer;
-	/// # use argan::{
-	/// #   Router,
-	/// #   handler::{Handler, BoxableHandler, Args},
-	/// #   middleware::{Layer, RequestPasser},
-	/// #   request::RequestContext,
-	/// #   response::{Response, IntoResponse, BoxedErrorResponse},
-	/// #   common::BoxedFuture,
-	/// # };
+	/// use std::time::Duration;
+	///
+	/// use argan::prelude::*;
+	/// use tower_http::timeout::TimeoutLayer;
 	///
 	/// #[derive(Clone)]
 	/// struct MiddlewareLayer;

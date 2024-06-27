@@ -48,4 +48,6 @@ pub mod server;
 #[doc(inline)]
 pub use server::Server;
 
+pub mod prelude;
+
 // --------------------------------------------------------------------------------
