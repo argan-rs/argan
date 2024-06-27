@@ -415,7 +415,7 @@ where
 
 #[cfg(all(test, feature = "full"))]
 mod test {
-	use http::Method;
+	use http::{header::LOCATION, Method};
 	use http_body_util::{BodyExt, Empty};
 
 	use crate::{
@@ -424,6 +424,7 @@ mod test {
 			test_helpers::{new_root, test_service, Case, DataKind, Rx_1_1, Rx_2_0, Wl_3_0},
 		},
 		handler::HandlerSetter,
+		middleware::{RedirectionLayer, RequestReceiver},
 		request::RequestHead,
 		router::Router,
 	};
@@ -819,5 +820,65 @@ mod test {
 
 		let body = response.collect().await.unwrap().to_bytes();
 		assert_eq!(body, "Hello from Handler!");
+	}
+
+	#[tokio::test]
+	async fn router_host_redirection() {
+		let mut router = Router::new();
+		let _ = router.resource_mut("http://www.example.com/");
+
+		let example_com_root = router.resource_mut("http://example.com/");
+		example_com_root.wrap(
+			RequestReceiver.with(RedirectionLayer::for_permanent_redirection_to(
+				"http://www.example.com/resource",
+			)),
+		);
+
+		// ----------
+
+		let service = router.into_service();
+
+		let request = Request::builder()
+			.uri("http://example.com")
+			.body(Empty::default())
+			.unwrap();
+
+		let response = service.call(request).await.unwrap();
+		assert_eq!(response.status(), StatusCode::PERMANENT_REDIRECT);
+
+		let location = response.headers().get(LOCATION).unwrap();
+		assert_eq!(
+			"http://www.example.com/resource",
+			location.to_str().unwrap()
+		);
+	}
+
+	#[tokio::test]
+	async fn router_host_prefix_redirection() {
+		let mut router = Router::new();
+		let _ = router.resource_mut("http://www.example.com/");
+
+		let example_com_root = router.resource_mut("http://example.com/");
+		example_com_root.wrap(RequestReceiver.with(
+			RedirectionLayer::for_permanent_redirection_to_prefix("http://www.example.com"),
+		));
+
+		// ----------
+
+		let service = router.into_service();
+
+		let request = Request::builder()
+			.uri("http://example.com/resource")
+			.body(Empty::default())
+			.unwrap();
+
+		let response = service.call(request).await.unwrap();
+		assert_eq!(response.status(), StatusCode::PERMANENT_REDIRECT);
+
+		let location = response.headers().get(LOCATION).unwrap();
+		assert_eq!(
+			"http://www.example.com/resource",
+			location.to_str().unwrap()
+		);
 	}
 }
