@@ -1039,25 +1039,25 @@ mod test {
 	// Middleware tests.
 
 	#[derive(Clone)]
-	struct Middleware;
+	struct GreeterLayer;
 
-	impl<H> Layer<H> for Middleware
+	impl<H> Layer<H> for GreeterLayer
 	where
 		H: Handler + Clone + Send + Sync,
 		H::Response: IntoResponse,
 		H::Error: Into<BoxedErrorResponse>,
 	{
-		type Handler = MiddlewareHandler<H>;
+		type Handler = Greeter<H>;
 
 		fn wrap(&self, handler: H) -> Self::Handler {
-			MiddlewareHandler(handler)
+			Greeter(handler)
 		}
 	}
 
 	#[derive(Clone)]
-	struct MiddlewareHandler<H>(H);
+	struct Greeter<H>(H);
 
-	impl<B, H> Handler<B> for MiddlewareHandler<H>
+	impl<B, H> Handler<B> for Greeter<H>
 	where
 		H: Handler + Clone + Send + Sync,
 		H::Response: IntoResponse,
@@ -1080,7 +1080,7 @@ mod test {
 			Method::POST.to(
 				(|_: RequestHead, _: Args<'_, usize>| async { "Hello from Handler!" })
 					.with_extension(42)
-					.wrapped_in(Middleware),
+					.wrapped_in(GreeterLayer),
 			),
 		]);
 
@@ -1115,7 +1115,7 @@ mod test {
 		let mut root = Resource::new("/");
 		let st_1_0 = root.subresource_mut("/st_0_0/st_1_0");
 		st_1_0.set_handler_for(Method::GET.to(|| async { "Hello from Handler!" }));
-		st_1_0.wrap(RequestHandler.with(Middleware));
+		st_1_0.wrap(RequestHandler.component_in(GreeterLayer));
 
 		// ----------
 
@@ -1139,11 +1139,11 @@ mod test {
 
 		let st_1_0 = root.subresource_mut("/st_0_0/st_1_0");
 		st_1_0.set_handler_for(Method::GET.to(|| async { "Hello from Handler!" }));
-		st_1_0.wrap(RequestHandler.with((CompressionLayer::new(), Middleware)));
+		st_1_0.wrap(RequestHandler.component_in((CompressionLayer::new(), GreeterLayer)));
 
 		let st_1_1 = root.subresource_mut("/st_0_0/st_1_1");
 		st_1_1.set_handler_for(Method::GET.to(|| async { "Hello from Handler!" }));
-		st_1_1.wrap(RequestHandler.with((Middleware, CompressionLayer::new())));
+		st_1_1.wrap(RequestHandler.component_in((GreeterLayer, CompressionLayer::new())));
 
 		// ----------
 
@@ -1172,7 +1172,7 @@ mod test {
 
 		root
 			.subresource_mut("/st_0_0/")
-			.wrap(RequestPasser.with(Middleware));
+			.wrap(RequestPasser.component_in(GreeterLayer));
 
 		// ----------
 
@@ -1200,7 +1200,7 @@ mod test {
 
 		root
 			.subresource_mut("/st_0_0/")
-			.wrap(RequestReceiver.with(Middleware));
+			.wrap(RequestReceiver.component_in(GreeterLayer));
 
 		// ----------
 

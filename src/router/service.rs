@@ -828,11 +828,9 @@ mod test {
 		let _ = router.resource_mut("http://www.example.com/");
 
 		let example_com_root = router.resource_mut("http://example.com/");
-		example_com_root.wrap(
-			RequestReceiver.with(RedirectionLayer::for_permanent_redirection_to(
-				"http://www.example.com/resource",
-			)),
-		);
+		example_com_root.wrap(RequestReceiver.component_in(
+			RedirectionLayer::for_permanent_redirection_to("http://www.example.com/resource"),
+		));
 
 		// ----------
 
@@ -859,7 +857,7 @@ mod test {
 		let _ = router.resource_mut("http://www.example.com/");
 
 		let example_com_root = router.resource_mut("http://example.com/");
-		example_com_root.wrap(RequestReceiver.with(
+		example_com_root.wrap(RequestReceiver.component_in(
 			RedirectionLayer::for_permanent_redirection_to_prefix("http://www.example.com"),
 		));
 

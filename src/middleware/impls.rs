@@ -27,7 +27,7 @@ use super::*;
 /// }
 ///
 /// let mut resource = Resource::new("/resource");
-/// resource.wrap(RequestHandler.with(ErrorHandlerLayer::new(error_handler)));
+/// resource.wrap(RequestHandler.component_in(ErrorHandlerLayer::new(error_handler)));
 /// ```
 #[derive(Clone)]
 pub struct ErrorHandlerLayer<ErrH>(ErrH);
@@ -74,7 +74,7 @@ where
 ///
 /// router
 ///   .resource_mut("http://example.com/")
-///   .wrap(RequestReceiver.with(
+///   .wrap(RequestReceiver.component_in(
 ///     RedirectionLayer::for_permanent_redirection_to_prefix("http://www.example.com"),
 ///   ));
 /// ```

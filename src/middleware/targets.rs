@@ -61,7 +61,7 @@ pub(crate) use private::LayerTarget;
 /// A trait that's implemented by the [`Method`] type to pass
 /// the given `layer` to wrap the *method* handler.
 pub trait HandlerWrapper: Sealed {
-	fn handler_with<L, Mark>(self, layer: L) -> LayerTarget<Resource>
+	fn handler_in<L, Mark>(self, layer: L) -> LayerTarget<Resource>
 	where
 		L: IntoLayer<Mark, AdaptiveHandler>,
 		L::Layer: Layer<AdaptiveHandler> + Clone + 'static,
@@ -69,7 +69,7 @@ pub trait HandlerWrapper: Sealed {
 }
 
 impl HandlerWrapper for Method {
-	fn handler_with<L, Mark>(self, layer: L) -> LayerTarget<Resource>
+	fn handler_in<L, Mark>(self, layer: L) -> LayerTarget<Resource>
 	where
 		L: IntoLayer<Mark, AdaptiveHandler>,
 		L::Layer: Layer<AdaptiveHandler> + Clone + 'static,
@@ -84,7 +84,7 @@ impl HandlerWrapper for Method {
 
 impl<M: AsRef<str>> CustomMethod<M> {
 	/// Passes the `layer` to wrap the *custom HTTP method* handler.
-	pub fn handler_with<L, Mark>(self, layer: L) -> LayerTarget<Resource>
+	pub fn handler_in<L, Mark>(self, layer: L) -> LayerTarget<Resource>
 	where
 		L: IntoLayer<Mark, AdaptiveHandler>,
 		L::Layer: Layer<AdaptiveHandler> + Clone + 'static,
@@ -102,7 +102,7 @@ impl<M: AsRef<str>> CustomMethod<M> {
 
 impl WildcardMethod {
 	/// Passes the `layer` to wrap the *wildcard method* handler.
-	pub fn handler_with<L, Mark>(self, layer: L) -> LayerTarget<Resource>
+	pub fn handler_in<L, Mark>(self, layer: L) -> LayerTarget<Resource>
 	where
 		L: IntoLayer<Mark, AdaptiveHandler>,
 		L::Layer: Layer<AdaptiveHandler> + Clone + 'static,
@@ -117,7 +117,7 @@ impl WildcardMethod {
 
 impl MistargetedRequest {
 	/// Passes the `layer` to wrap the *mistargeted request* handler.
-	pub fn handler_with<L, Mark>(self, layer: L) -> LayerTarget<Resource>
+	pub fn handler_in<L, Mark>(self, layer: L) -> LayerTarget<Resource>
 	where
 		L: IntoLayer<Mark, AdaptiveHandler>,
 		L::Layer: Layer<AdaptiveHandler> + Clone + 'static,
@@ -135,7 +135,7 @@ macro_rules! layer_target_wrapper {
 		pub struct $target;
 
 		impl $target {
-			pub fn with<L, Mark>(self, layer: L) -> LayerTarget<Resource>
+			pub fn component_in<L, Mark>(self, layer: L) -> LayerTarget<Resource>
 			where
 				L: IntoLayer<Mark, AdaptiveHandler>,
 				L::Layer: Layer<AdaptiveHandler> + Clone + 'static,
@@ -165,7 +165,7 @@ pub struct RequestPasser;
 
 impl RequestPasser {
 	/// Passes the `layer` to wrap the *request passer*.
-	pub fn with<TargetMark, L, Mark>(self, layer: L) -> LayerTarget<TargetMark>
+	pub fn component_in<TargetMark, L, Mark>(self, layer: L) -> LayerTarget<TargetMark>
 	where
 		L: IntoLayer<Mark, AdaptiveHandler>,
 		L::Layer: Layer<AdaptiveHandler> + Clone + 'static,

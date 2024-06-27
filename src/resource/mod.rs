@@ -1235,10 +1235,9 @@ impl Resource {
 	///
 	/// ```
 	/// // use declarations
-	/// # use std::future::{Future, ready};
 	/// # use tower_http::compression::CompressionLayer;
 	/// # use argan::{
-	/// #   handler::{Handler, HandlerSetter, Args},
+	/// #   handler::{Handler, BoxableHandler, HandlerSetter, Args},
 	/// #   http::Method,
 	/// #   middleware::{Layer, HandlerWrapper},
 	/// #   resource::Resource,
@@ -1264,24 +1263,34 @@ impl Resource {
 	/// #[derive(Clone)]
 	/// struct Middleware<H>(H);
 	///
-	/// impl<B, H> Handler<B> for Middleware<H>
+	/// impl<H> Handler for Middleware<H>
 	/// where
-	///   H: Handler + Clone + Send + Sync,
+	///   H: BoxableHandler,
 	/// {
 	///   type Response = Response;
 	///   type Error = BoxedErrorResponse;
 	///   type Future = BoxedFuture<Result<Self::Response, Self::Error>>;
 	///
-	///   fn handle(&self, request: RequestContext<B>, args: Args<'_, ()>) -> Self::Future {
-	///     Box::pin(ready(Ok("Hello from Middleware!".into_response())))
+	///   fn handle(&self, request_context: RequestContext, args: Args<'_, ()>) -> Self::Future {
+	///     // ...
+	///
+	///     let response_future = self.0.handle(request_context, args);
+	///
+	///     Box::pin(async move {
+	///       let response = response_future.await?;
+	///
+	///       // ...
+	///
+	///       Ok(response)
+	///     })
 	///   }
 	/// }
 	///
 	/// let mut resource = Resource::new("/resource");
 	///
 	/// resource.wrap([
-	///   MistargetedRequest.handler_with(MiddlewareLayer),
-	///   Method::GET.handler_with(CompressionLayer::new()),
+	///   MistargetedRequest.handler_in(MiddlewareLayer),
+	///   Method::GET.handler_in(CompressionLayer::new()),
 	/// ]);
 	///
 	/// resource.set_handler_for(Method::GET.to(|| async {}));
@@ -1315,7 +1324,7 @@ impl Resource {
 				CookieKey(cookie_key) => self.request_context_properties.set_cookie_key(cookie_key),
 				RequestExtensionsModifier(request_extensions_modifier_layer) => {
 					let request_receiver_layer_target =
-						RequestReceiver.with(request_extensions_modifier_layer);
+						RequestReceiver.component_in(request_extensions_modifier_layer);
 
 					self.middleware.insert(0, request_receiver_layer_target);
 				}
