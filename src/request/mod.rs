@@ -139,7 +139,7 @@ impl<B> RequestContext<B> {
 
 	/// Returns the request cookies.
 	#[cfg(feature = "cookies")]
-	pub fn cookies(&mut self) -> CookieJar {
+	pub fn cookies(&self) -> CookieJar {
 		cookies_from_request(
 			self.headers_ref(),
 			#[cfg(any(feature = "private-cookies", feature = "signed-cookies"))]
@@ -523,7 +523,7 @@ impl RequestHead {
 	/// Returns the request cookies.
 	#[cfg(feature = "cookies")]
 	#[inline(always)]
-	pub fn cookies(&mut self) -> CookieJar {
+	pub fn cookies(&self) -> CookieJar {
 		cookies_from_request(
 			&self.headers,
 			#[cfg(any(feature = "private-cookies", feature = "signed-cookies"))]
