@@ -138,7 +138,7 @@ mod test {
 
 	// -------------------------
 
-	#[cfg(all(test, feature = "full"))]
+	#[tokio::test]
 	async fn form() {
 		use argan_core::request::Request;
 		use http::{header::CONTENT_TYPE, HeaderValue};
