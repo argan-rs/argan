@@ -2,7 +2,7 @@
 
 // ----------
 
-use http::{HeaderName, HeaderValue, StatusCode};
+use http::{HeaderName, HeaderValue};
 
 use crate::body::Body;
 
@@ -57,7 +57,7 @@ impl IntoResponse for Response {
 // --------------------------------------------------
 // IntoResponseResult trait
 
-/// Implemented by types or error types that can be converted into the [`Response`] type.
+/// Implemented by types that can be converted into the [`ResponseResult`] type.
 pub trait IntoResponseResult {
 	fn into_response_result(self) -> Result<Response, BoxedErrorResponse>;
 }
@@ -80,74 +80,6 @@ where
 {
 	fn into_response_result(self) -> Result<Response, BoxedErrorResponse> {
 		Ok(self.into_response())
-	}
-}
-
-// --------------------------------------------------
-// Array of header (name, value) tuples
-
-impl<N, V, const C: usize> IntoResponseHeadParts for [(N, V); C]
-where
-	N: TryInto<HeaderName>,
-	N::Error: crate::StdError + Send + Sync + 'static,
-	V: TryInto<HeaderValue>,
-	V::Error: crate::StdError + Send + Sync + 'static,
-{
-	fn into_response_head(
-		self,
-		mut head: ResponseHeadParts,
-	) -> Result<ResponseHeadParts, BoxedErrorResponse> {
-		for (key, value) in self {
-			let header_name = TryInto::<HeaderName>::try_into(key)
-				.map_err(HeaderError::<N::Error, V::Error>::from_name_error)?;
-
-			let header_value = TryInto::<HeaderValue>::try_into(value)
-				.map_err(HeaderError::<N::Error, V::Error>::from_value_error)?;
-
-			head.headers.insert(header_name, header_value);
-		}
-
-		Ok(head)
-	}
-}
-
-impl<N, V, const C: usize> IntoResponseResult for [(N, V); C]
-where
-	N: TryInto<HeaderName>,
-	N::Error: crate::StdError + Send + Sync + 'static,
-	V: TryInto<HeaderValue>,
-	V::Error: crate::StdError + Send + Sync + 'static,
-{
-	fn into_response_result(self) -> Result<Response, BoxedErrorResponse> {
-		let (head, body) = Response::default().into_parts();
-
-		self
-			.into_response_head(head)
-			.map(|head| Response::from_parts(head, body))
-	}
-}
-
-#[derive(Debug, crate::ImplError)]
-enum HeaderError<NE, VE> {
-	#[error(transparent)]
-	InvalidName(NE),
-	#[error(transparent)]
-	InvalidValue(VE),
-}
-
-impl<NE, VE> HeaderError<NE, VE> {
-	pub(crate) fn from_name_error(name_error: NE) -> Self {
-		Self::InvalidName(name_error)
-	}
-
-	pub(crate) fn from_value_error(value_error: VE) -> Self {
-		Self::InvalidValue(value_error)
-	}
-}
-
-impl<NE, VE> IntoResponse for HeaderError<NE, VE> {
-	fn into_response(self) -> Response {
-		StatusCode::INTERNAL_SERVER_ERROR.into_response()
 	}
 }
 
