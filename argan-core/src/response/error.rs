@@ -116,7 +116,10 @@ pub trait ErrorResponse: StdError + IntoResponse + 'static {
 	/// Converts the `ErrorResponse` into `ResponseResult::Err(BoxedErrorResponse)`.
 	fn into_error_result(self) -> Result<Response, BoxedErrorResponse>
 	where
-		Self: Sized;
+		Self: Sized + Send + Sync,
+	{
+		Err(self.into())
+	}
 }
 
 impl dyn ErrorResponse + Send + Sync {
@@ -189,13 +192,6 @@ where
 			.expect(SCOPE_VALIDITY);
 
 		(*e).into_response()
-	}
-
-	fn into_error_result(self) -> Result<Response, BoxedErrorResponse>
-	where
-		Self: Sized,
-	{
-		Err(self.into())
 	}
 }
 
