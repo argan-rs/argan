@@ -16,12 +16,14 @@ use argan::{handler::HandlerSetter, http::Method, request::Request, resource::Re
 pub fn request_routing(c: &mut Criterion) {
 	struct Param {
 		static_patterns: [&'static str; 5],
+		#[cfg(feature = "regex")]
 		regex_patterns: [(&'static str, &'static str); 5],
 		wildcard_pattern: &'static str,
 	}
 
 	let param = Param {
 		static_patterns: ["/login", "/logout", "/about", "/products", "/categories"],
+		#[cfg(feature = "regex")]
 		regex_patterns: [
 			("/{year", r":\d{4}-\d{2}-\d{2}}"),
 			("/{news", ":foreign|domestic|sports}"),
@@ -53,6 +55,7 @@ pub fn request_routing(c: &mut Criterion) {
 
 		// -----
 
+		// #[cfg(feature = "regex")]
 		// params.1.regex_patterns.iter().for_each(|(name, pattern)| {
 		// 	let pattern = format!("{}{}{}", name, next_segment_index, pattern);
 		// 	// println!("regex pattern: {}", pattern);
@@ -67,6 +70,7 @@ pub fn request_routing(c: &mut Criterion) {
 	}
 
 	// Last regex resource will have a handler and subresources.
+	#[cfg(feature = "regex")]
 	fn add_regex_resources(resource: &mut Resource, params: (u8, &Param)) {
 		let handler = || async {};
 		// println!("\nsegment index: {}", params.0);
@@ -123,6 +127,7 @@ pub fn request_routing(c: &mut Criterion) {
 
 		// -----
 
+		// #[cfg(feature = "regex")]
 		// params.1.regex_patterns.iter().for_each(|(name, pattern)| {
 		// 	let pattern = format!("{}{}{}", name, next_segment_index, pattern);
 		// 	// println!("regex pattern: {}", pattern);
@@ -155,126 +160,133 @@ pub fn request_routing(c: &mut Criterion) {
 	// -------------------------
 	// static resources
 
-	let mut root = Resource::new("/");
-	add_static_resources(&mut root, (0, &param));
+	{
+		let mut root = Resource::new("/");
+		add_static_resources(&mut root, (0, &param));
 
-	let service = root.into_service();
+		let service = root.into_service();
 
-	bench_group.bench_function(BenchmarkId::new("static segments", 1), |b| {
-		b.to_async(&runtime).iter(|| async {
-			let request = Request::get("/categories")
-				.body(Empty::<Bytes>::new())
-				.unwrap();
-			let response = service.call(request).await.unwrap();
-			assert_eq!(response.status(), StatusCode::OK);
-		})
-	});
+		bench_group.bench_function(BenchmarkId::new("static segments", 1), |b| {
+			b.to_async(&runtime).iter(|| async {
+				let request = Request::get("/categories")
+					.body(Empty::<Bytes>::new())
+					.unwrap();
+				let response = service.call(request).await.unwrap();
+				assert_eq!(response.status(), StatusCode::OK);
+			})
+		});
 
-	bench_group.bench_function(BenchmarkId::new("static segments", 5), |b| {
-		b.to_async(&runtime).iter(|| async {
-			let request = Request::get("/categories/categories/categories/categories/categories")
-				.body(Empty::<Bytes>::new())
-				.unwrap();
-
-			let response = service.call(request).await.unwrap();
-			assert_eq!(response.status(), StatusCode::OK);
-		})
-	});
-
-	bench_group.bench_function(BenchmarkId::new("static segments", 10), |b| {
-		b.to_async(&runtime).iter(
-			|| async {
-				let request = Request::get(
-					"/categories/categories/categories/categories/categories/categories/categories/categories/categories/categories",
-				).body(Empty::<Bytes>::new()).unwrap();
+		bench_group.bench_function(BenchmarkId::new("static segments", 5), |b| {
+			b.to_async(&runtime).iter(|| async {
+				let request = Request::get("/categories/categories/categories/categories/categories")
+					.body(Empty::<Bytes>::new())
+					.unwrap();
 
 				let response = service.call(request).await.unwrap();
 				assert_eq!(response.status(), StatusCode::OK);
-			},
-		)
-	});
+			})
+		});
+
+		bench_group.bench_function(BenchmarkId::new("static segments", 10), |b| {
+			b.to_async(&runtime).iter(
+				|| async {
+					let request = Request::get(
+						"/categories/categories/categories/categories/categories/categories/categories/categories/categories/categories",
+					).body(Empty::<Bytes>::new()).unwrap();
+
+					let response = service.call(request).await.unwrap();
+					assert_eq!(response.status(), StatusCode::OK);
+				},
+			)
+		});
+	}
 
 	// -------------------------
 	// regex resources
 
-	let mut root = Resource::new("/");
-	add_regex_resources(&mut root, (0, &param));
+	#[cfg(feature = "regex")]
+	{
+		let mut root = Resource::new("/");
+		add_regex_resources(&mut root, (0, &param));
 
-	let service = root.into_service();
+		let service = root.into_service();
 
-	bench_group.bench_function(BenchmarkId::new("regex segments", 1), |b| {
-		b.to_async(&runtime).iter(|| async {
-			let request = Request::get("/id:%20ABC")
-				.body(Empty::<Bytes>::new())
-				.unwrap();
-			let response = service.call(request).await.unwrap();
-			assert_eq!(response.status(), StatusCode::OK);
-		})
-	});
+		bench_group.bench_function(BenchmarkId::new("regex segments", 1), |b| {
+			b.to_async(&runtime).iter(|| async {
+				let request = Request::get("/id:%20ABC")
+					.body(Empty::<Bytes>::new())
+					.unwrap();
+				let response = service.call(request).await.unwrap();
+				assert_eq!(response.status(), StatusCode::OK);
+			})
+		});
 
-	bench_group.bench_function(BenchmarkId::new("regex segments", 5), |b| {
-		b.to_async(&runtime).iter(|| async {
-			let request = Request::get("/id:%20ABC/id:%20ABC/id:%20ABC/id:%20ABC/id:%20ABC")
-				.body(Empty::<Bytes>::new())
-				.unwrap();
-
-			let response = service.call(request).await.unwrap();
-			assert_eq!(response.status(), StatusCode::OK);
-		})
-	});
-
-	bench_group.bench_function(BenchmarkId::new("regex segments", 10), |b| {
-		b.to_async(&runtime).iter(
-			|| async {
-				let request = Request::get(
-					"/id:%20ABC/id:%20ABC/id:%20ABC/id:%20ABC/id:%20ABC/id:%20ABC/id:%20ABC/id:%20ABC/id:%20ABC/id:%20ABC",
-				).body(Empty::<Bytes>::new()).unwrap();
+		bench_group.bench_function(BenchmarkId::new("regex segments", 5), |b| {
+			b.to_async(&runtime).iter(|| async {
+				let request = Request::get("/id:%20ABC/id:%20ABC/id:%20ABC/id:%20ABC/id:%20ABC")
+					.body(Empty::<Bytes>::new())
+					.unwrap();
 
 				let response = service.call(request).await.unwrap();
 				assert_eq!(response.status(), StatusCode::OK);
-			},
-		)
-	});
+			})
+		});
+
+		bench_group.bench_function(BenchmarkId::new("regex segments", 10), |b| {
+			b.to_async(&runtime).iter(
+				|| async {
+					let request = Request::get(
+						"/id:%20ABC/id:%20ABC/id:%20ABC/id:%20ABC/id:%20ABC/id:%20ABC/id:%20ABC/id:%20ABC/id:%20ABC/id:%20ABC",
+					).body(Empty::<Bytes>::new()).unwrap();
+
+					let response = service.call(request).await.unwrap();
+					assert_eq!(response.status(), StatusCode::OK);
+				},
+			)
+		});
+	}
 
 	// -------------------------
 	// wildcard resources
 
-	let mut root = Resource::new("/");
-	add_wildcard_resources(&mut root, (0, &param));
+	{
+		let mut root = Resource::new("/");
+		add_wildcard_resources(&mut root, (0, &param));
 
-	let service = root.into_service();
+		let service = root.into_service();
 
-	bench_group.bench_function(BenchmarkId::new("wildcard segments", 1), |b| {
-		b.to_async(&runtime).iter(|| async {
-			let request = Request::get("/wildcard")
-				.body(Empty::<Bytes>::new())
-				.unwrap();
-			let response = service.call(request).await.unwrap();
-			assert_eq!(response.status(), StatusCode::OK);
-		})
-	});
+		bench_group.bench_function(BenchmarkId::new("wildcard segments", 1), |b| {
+			b.to_async(&runtime).iter(|| async {
+				let request = Request::get("/wildcard")
+					.body(Empty::<Bytes>::new())
+					.unwrap();
+				let response = service.call(request).await.unwrap();
+				assert_eq!(response.status(), StatusCode::OK);
+			})
+		});
 
-	bench_group.bench_function(BenchmarkId::new("wildcard segments", 5), |b| {
-		b.to_async(&runtime).iter(|| async {
-			let request = Request::get("/wildcard/wildcard/wildcard/wildcard/wildcard")
-				.body(Empty::<Bytes>::new())
-				.unwrap();
+		bench_group.bench_function(BenchmarkId::new("wildcard segments", 5), |b| {
+			b.to_async(&runtime).iter(|| async {
+				let request = Request::get("/wildcard/wildcard/wildcard/wildcard/wildcard")
+					.body(Empty::<Bytes>::new())
+					.unwrap();
 
-			let response = service.call(request).await.unwrap();
-			assert_eq!(response.status(), StatusCode::OK);
-		})
-	});
+				let response = service.call(request).await.unwrap();
+				assert_eq!(response.status(), StatusCode::OK);
+			})
+		});
 
-	bench_group.bench_function(BenchmarkId::new("wildcard segments", 10), |b| {
-		b.to_async(&runtime).iter(|| async {
-			let request = Request::get(
-					"/wildcard/wildcard/wildcard/wildcard/wildcard/wildcard/wildcard/wildcard/wildcard/wildcard",
-				).body(Empty::<Bytes>::new()).unwrap();
+		bench_group.bench_function(BenchmarkId::new("wildcard segments", 10), |b| {
+			b.to_async(&runtime).iter(|| async {
+				let request = Request::get(
+						"/wildcard/wildcard/wildcard/wildcard/wildcard/wildcard/wildcard/wildcard/wildcard/wildcard",
+					).body(Empty::<Bytes>::new()).unwrap();
 
-			let response = service.call(request).await.unwrap();
-			assert_eq!(response.status(), StatusCode::OK);
-		})
-	});
+				let response = service.call(request).await.unwrap();
+				assert_eq!(response.status(), StatusCode::OK);
+			})
+		});
+	}
 
 	bench_group.finish();
 }
