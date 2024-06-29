@@ -1,4 +1,19 @@
 //! Multipart form data types.
+//!
+//! ```
+//! use argan::data::multipart_form::{MultipartForm, Constraints, MultipartFormError};
+//!
+//! async fn upload_handler(multipart_form: MultipartForm) -> Result<(), MultipartFormError> {
+//!   let constraints = Constraints::new().with_allowed_parts(vec!["name", "picture"]);
+//!   let mut parts = multipart_form.with_constraints(constraints).into_parts();
+//!
+//!   while let Some(part) = parts.next().await? {
+//!     // ...
+//!   }
+//!
+//!   Ok(())
+//! }
+//! ```
 
 // ----------
 
@@ -34,22 +49,7 @@ const MULTIPART_FORM_BODY_SIZE_LIMIT: usize = 8 * 1024 * 1024;
 
 // ----------
 
-/// Extractor of `multipart/form-data`.
-///
-/// ```
-/// use argan::data::multipart_form::{MultipartForm, Constraints, MultipartFormError};
-///
-/// async fn upload_handler(multipart_form: MultipartForm) -> Result<(), MultipartFormError> {
-///   let constraints = Constraints::new().with_allowed_parts(vec!["name", "picture"]);
-///   let mut parts = multipart_form.with_constraints(constraints).into_parts();
-///
-///   while let Some(part) = parts.next().await? {
-///     // ...
-///   }
-///
-///   Ok(())
-/// }
-/// ```
+/// An extractor for `multipart/form-data`.
 pub struct MultipartForm<B = Body> {
 	body_stream: BodyStream<B>,
 	boundary: String,
@@ -305,7 +305,7 @@ impl<'p> Part<'p> {
 // ----------
 
 data_extractor_error! {
-	/// An error type that's returned on failure when extracting the `MultipartForm`.
+	/// An error type that's returned on failure when extracting `multipart/form-data`.
 	#[derive(Debug)]
 	pub MultipartFormError {
 		/// Returned when the form is constrained to certain parts and an unknown part is detected.

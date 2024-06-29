@@ -39,9 +39,9 @@ pub(crate) const TEXT_BODY_SIZE_LIMIT: usize = 1024 * 1024;
 
 // ----------
 
-/// An extractor type of the `text/plain` and `text/plain; charset=utf-8` data.
+/// An extractor type for `text/plain` and `text/plain; charset=utf-8` data.
 ///
-/// `Text` consumes the request body and converts it to a [`String`].
+/// `Text` consumes the request body and converts it into a [`String`].
 ///
 /// ```
 /// use argan::data::Text;
@@ -112,7 +112,7 @@ where
 // ----------
 
 data_extractor_error! {
-	/// An error type that's returned on failure when extracting text data.
+	/// An error type that's returned on text data extraction failure.
 	#[derive(Debug)]
 	pub TextExtractorError {
 		/// Returned on failure when decoding the body as UTF-8 text.
@@ -128,9 +128,9 @@ pub(crate) const BINARY_BODY_SIZE_LIMIT: usize = 2 * 1024 * 1024;
 
 // ----------
 
-/// An extractor type of the `octet-stream` and `application/octet-stream` data.
+/// An extractor type for `octet-stream` and `application/octet-stream` data.
 ///
-/// `Binary` consumes the request body and converts it into [`Bytes`].
+/// `Binary` consumes the request body and converts it into a [`Bytes`].
 ///
 /// ```
 /// use argan::data::Binary;
@@ -199,7 +199,7 @@ where
 // ----------
 
 data_extractor_error! {
-	/// An error type that's returned on failure when extracting binary data.
+	/// An error type that's returned on binary data extraction failure.
 	#[derive(Debug)]
 	pub BinaryExtractorError {}
 }
@@ -207,7 +207,7 @@ data_extractor_error! {
 // --------------------------------------------------
 // FullBody
 
-/// An extractor that consumes and collects the request body and converts it into [`Bytes`],
+/// An extractor that consumes and collects the request body and converts it into a [`Bytes`],
 /// ignoring its content type.
 ///
 /// ```

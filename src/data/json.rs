@@ -1,4 +1,4 @@
-//! A `Json` type to extract and send data as JSON.
+#![doc = include_str!("../../docs/data/json.md")]
 
 // ----------
 
@@ -18,50 +18,12 @@ use super::*;
 // --------------------------------------------------------------------------------
 // --------------------------------------------------------------------------------
 
+pub(crate) const JSON_BODY_SIZE_LIMIT: usize = 2 * 1024 * 1024;
+
 // --------------------------------------------------
 // Json
 
-pub(crate) const JSON_BODY_SIZE_LIMIT: usize = 2 * 1024 * 1024;
-
-// ----------
-
-/// Extractor and response type of the `application/json` data.
-///
-/// `Json` consumes the request body and deserializes it as type `T`. `T` must be a type
-/// that implements [`serde::Deserialize`].
-///
-/// ```
-/// use argan::data::json::Json;
-/// use serde::Deserialize;
-///
-/// #[derive(Deserialize)]
-/// struct Person {
-///   first_name: String,
-///   last_name: String,
-///   age: u8,
-/// }
-///
-/// async fn add_person(Json(person): Json<Person>) {
-///   // ...
-/// }
-/// ```
-///
-/// By default, `Json` limits the body size to 2MiB. The body size limit can be changed by
-/// specifying the SIZE_LIMIT const type parameter.
-///
-/// ```
-/// use argan::data::json::Json;
-/// use serde::Deserialize;
-///
-/// #[derive(Deserialize)]
-/// struct SurveyData {
-///   // ...
-/// }
-///
-/// async fn save_survey_data(Json(survey_data): Json<SurveyData, { 512 * 1024 }>) {
-///   // ...
-/// }
-/// ```
+/// An extractor and response type for `application/json` data.
 pub struct Json<T, const SIZE_LIMIT: usize = JSON_BODY_SIZE_LIMIT>(pub T);
 
 impl<B, T, const SIZE_LIMIT: usize> FromRequest<B> for Json<T, SIZE_LIMIT>

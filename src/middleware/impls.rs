@@ -58,7 +58,7 @@ where
 
 /// A layer that applies a redirector middleware to a [`Handler`].
 ///
-/// A middleware doesn't call the handler. That's why it replaces it instead of wrapping it.
+/// `RedirectionLayer` doesn't call the handler. That's why it replaces it instead of wrapping it.
 ///
 /// ```
 /// use argan::{
@@ -86,7 +86,7 @@ pub struct RedirectionLayer<U: AsRef<str>> {
 }
 
 impl<U: AsRef<str>> RedirectionLayer<U> {
-	/// A permanent redirection to the provided URI.
+	/// A permanent redirection to the provided URI with a status code of `308`.
 	pub fn for_permanent_redirection_to(uri: U) -> Self {
 		Self {
 			status_code: StatusCode::PERMANENT_REDIRECT,
@@ -97,6 +97,8 @@ impl<U: AsRef<str>> RedirectionLayer<U> {
 
 	/// A permanent redirection to a new URI that's formed by joining
 	/// the provided URI and the request's path.
+	///
+	/// The status code of the response is `308`.
 	pub fn for_permanent_redirection_to_prefix(uri: U) -> Self {
 		Self {
 			status_code: StatusCode::PERMANENT_REDIRECT,
@@ -105,7 +107,7 @@ impl<U: AsRef<str>> RedirectionLayer<U> {
 		}
 	}
 
-	/// A temporary redirection to the provided URI.
+	/// A temporary redirection to the provided URI with a status code of `307`.
 	pub fn for_temporary_redirection_to(uri: U) -> Self {
 		Self {
 			status_code: StatusCode::TEMPORARY_REDIRECT,
@@ -116,6 +118,8 @@ impl<U: AsRef<str>> RedirectionLayer<U> {
 
 	/// A temporary redirection to a new URI that's formed by joining
 	/// the provided URI and the request's path.
+	///
+	/// The status code of the response is `307`.
 	pub fn for_temporary_redirection_to_prefix(uri: U) -> Self {
 		Self {
 			status_code: StatusCode::TEMPORARY_REDIRECT,
@@ -124,7 +128,7 @@ impl<U: AsRef<str>> RedirectionLayer<U> {
 		}
 	}
 
-	/// A redirection to see the provided URI.
+	/// A redirection to see the provided URI with a status code of `303`.
 	pub fn for_redirection_to_see(uri: U) -> Self {
 		Self {
 			status_code: StatusCode::SEE_OTHER,
@@ -135,6 +139,8 @@ impl<U: AsRef<str>> RedirectionLayer<U> {
 
 	/// A redirection to see a new URI that's formed by joining
 	/// the provided URI and the request's path.
+	///
+	/// The status code of the response is `303`.
 	pub fn for_redirection_to_see_prefix(uri: U) -> Self {
 		Self {
 			status_code: StatusCode::SEE_OTHER,

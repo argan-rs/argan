@@ -1,4 +1,4 @@
-//! HTTP response types.
+#![doc = include_str!("../../docs/response.md")]
 
 // ----------
 
