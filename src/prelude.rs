@@ -13,8 +13,8 @@ pub use crate::{
 		RequestReceiver,
 	},
 	request::{
-		ExtractorGuard, FromRequest, MistargetedRequest, PathParamsError, QueryParamsError, Request,
-		RequestContext, RequestHead, RequestHeadParts,
+		ExtractorGuard, FromRequest, MistargetedRequest, PathParamsError, Request, RequestContext,
+		RequestHead, RequestHeadParts,
 	},
 	response::{
 		BoxedErrorResponse, ErrorResponse, Html, IntoResponse, IntoResponseHeadParts,
@@ -23,3 +23,6 @@ pub use crate::{
 	},
 	Host, Resource, Router, Server,
 };
+
+#[cfg(feature = "query-params")]
+pub use crate::request::QueryParamsError;
