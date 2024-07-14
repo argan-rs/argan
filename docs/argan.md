@@ -542,6 +542,8 @@ See also [`Router::wrap()`], [`Resource::wrap()`], and
 | "peer-addr"       | peer address retriaval                       |
 | "full"            | all the features                             |
 
+By default, "private-cookies", "query-params", "json", and "form" feature flags are enabled.
+
 [`Handler`]: crate::handler::Handler
 [`Args`]: crate::handler::Args
 [`ErrorHandler`]: crate::handler::ErrorHandler

@@ -68,6 +68,7 @@ full = [
 	"peer-addr",
 	"tls",
 ]
+default = ["private-cookies", "query-params", "json", "form"]
 
 [dependencies]
 argan-core = { version = "0.0.1", path = "argan-core" }
