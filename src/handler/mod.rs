@@ -505,10 +505,10 @@ impl<'n> Args<'n, ()> {
 }
 
 impl<'n, HandlerExt: Clone> Args<'n, HandlerExt> {
-	pub(crate) fn into_owned(mut self) -> Args<'static, HandlerExt> {
+	pub(crate) fn into_owned(self) -> Args<'static, HandlerExt> {
 		Args {
-			node_extensions: self.take_node_extensions().into_owned(),
-			handler_extension: Cow::Owned(self.handler_extension.clone().into_owned()),
+			node_extensions: self.node_extensions.into_owned(),
+			handler_extension: Cow::Owned(self.handler_extension.into_owned()),
 		}
 	}
 
