@@ -223,10 +223,24 @@ impl<'n> NodeExtensions<'n> {
 		Self(Cow::Owned(extensions))
 	}
 
-	/// Returns a reference to the value of type `T` if `NodeExtensions` contains it.
+	/// Returns a reference to a value of type `T` if `NodeExtensions` contains it.
 	#[inline(always)]
 	pub fn get_ref<T: Send + Sync + 'static>(&self) -> Option<&T> {
 		self.0.get::<T>()
+	}
+
+	/// Returns a value of type `T` if `NodeExtensions` contains it, removing
+	/// it from extensions.
+	///
+	/// The method can be used when `'n: 'static`. This is true when a handler
+	/// function receives `NodeExtensions` in [`Args<'static, Ext>`](crate::handler::Args).
+	#[inline(always)]
+	pub fn remove<T>(&mut self) -> Option<T>
+	where
+		'n: 'static,
+		T: Send + Sync + 'static,
+	{
+		self.0.to_mut().remove::<T>()
 	}
 
 	#[inline(always)]
