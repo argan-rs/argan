@@ -3,15 +3,14 @@
 // ----------
 
 use std::{
-	any,
 	fmt::{Debug, Display},
 	sync::Arc,
 };
 
-use http::Extensions;
-
 use crate::{
-	common::{node_properties::NodeProperty, patterns_to_route, IntoArray, SCOPE_VALIDITY},
+	common::{
+		node_properties::NodeProperty, patterns_to_route, IntoArray, NodeExtension, SCOPE_VALIDITY,
+	},
 	handler::{
 		kind::HandlerKind,
 		request_handlers::{wrap_mistargeted_request_handler, ImplementedMethods, MethodHandlers},
@@ -59,7 +58,7 @@ pub struct Resource {
 	some_mistargeted_request_handler: Option<BoxedHandler>,
 
 	request_context_properties: RequestContextProperties,
-	extensions: Extensions,
+	extension: NodeExtension,
 	middleware: Vec<LayerTarget<Self>>,
 
 	config_flags: ConfigFlags,
@@ -166,7 +165,7 @@ impl Resource {
 			method_handlers: MethodHandlers::new(),
 			some_mistargeted_request_handler: None,
 			request_context_properties: RequestContextProperties::default(),
-			extensions: Extensions::new(),
+			extension: NodeExtension::new(),
 			middleware: Vec::new(),
 			config_flags,
 		}
@@ -1174,20 +1173,19 @@ impl Resource {
 
 	// -------------------------
 
-	/// Adds the given extension to the `Resource`. Added extensions are available to all the
-	/// handlers of the `Resource` and to all the middleware that wrap these handlers via the
-	/// [`Args`](crate::handler::Args) field [`NodeExtensions`](crate::common::NodeExtensions).
+	/// Sets the given extension to the `Resource`. The extension is available to all
+	/// handlers of the `Resource` and to all middleware that wraps these handlers in the
+	/// [`NodeExtension`](crate::common::NodeExtension) field of the [`Args`](crate::handler::Args).
 	///
 	/// # Panics
 	///
-	/// - if an extension of the same type already exists
-	pub fn add_extension<E: Clone + Send + Sync + 'static>(&mut self, extension: E) {
-		if self.extensions.insert(extension).is_some() {
-			panic!(
-				"resource already has an extension of type '{}'",
-				any::type_name::<E>()
-			);
+	/// - if the `Resource` already has an extension set
+	pub fn set_extension<E: Clone + Send + Sync + 'static>(&mut self, extension: E) {
+		if self.extension.has_value() {
+			panic!("resource already has an extension");
 		}
+
+		self.extension.set_value_to(extension)
 	}
 
 	// pub fn extension_ref<E: Clone + Send + Sync + 'static>(&self) -> &E {
@@ -1372,7 +1370,7 @@ impl Resource {
 			method_handlers,
 			some_mistargeted_request_handler,
 			request_context_properties: context,
-			mut extensions,
+			extension,
 			mut middleware,
 			config_flags,
 		} = self;
@@ -1412,10 +1410,6 @@ impl Resource {
 			implemented_methods,
 		} = method_handlers;
 
-		if !implemented_methods.is_empty() {
-			extensions.insert(ImplementedMethods::new(implemented_methods));
-		}
-
 		// -------------------------
 		// MistargetedRequestHandller
 
@@ -1431,6 +1425,7 @@ impl Resource {
 				None
 			} else {
 				match ResourceRequestHandler::new(
+					ImplementedMethods::new(implemented_methods),
 					method_handlers_list,
 					wildcard_method_handler,
 					&mut middleware,
@@ -1479,7 +1474,7 @@ impl Resource {
 		FinalResource::new(
 			pattern,
 			context,
-			extensions,
+			extension,
 			request_receiver,
 			some_mistargeted_request_handler,
 		)
@@ -1542,7 +1537,7 @@ impl Debug for Resource {
 				middleware count: {},
 				method_handlers: {{ count: {}, wildcard_method_handler_exists: {} }},
 				mistargeted_request_handler exists: {},
-				extensions count: {},
+				extensions exists: {},
 				config_flags: [{}],
 			}}",
 			&self.pattern,
@@ -1555,7 +1550,7 @@ impl Debug for Resource {
 			self.method_handlers.count(),
 			self.method_handlers.has_custom_wildcard_method_handler(),
 			self.some_mistargeted_request_handler.is_some(),
-			self.extensions.len(),
+			self.extension.has_value(),
 			self.config_flags,
 		)
 	}
@@ -1585,7 +1580,7 @@ pub enum Iteration {
 
 #[cfg(all(test, feature = "full"))]
 mod test {
-	use http::Method;
+	use http::{Extensions, Method};
 
 	use crate::{
 		common::{node_properties::RequestExtensionsModifier, route_to_patterns},

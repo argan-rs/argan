@@ -102,13 +102,13 @@ pub trait ErrorResponse: StdError + IntoResponse + 'static {
 	}
 
 	#[doc(hidden)]
-	fn as_any(self: Box<Self>, _: marker::Private) -> Box<dyn Any>;
-
-	#[doc(hidden)]
 	fn as_any_ref(&self, _: marker::Private) -> &dyn Any;
 
 	#[doc(hidden)]
 	fn as_any_mut(&mut self, _: marker::Private) -> &mut dyn Any;
+
+	#[doc(hidden)]
+	fn into_boxed_any(self: Box<Self>, _: marker::Private) -> Box<dyn Any>;
 
 	#[doc(hidden)]
 	fn concrete_into_response(self: Box<Self>, _: marker::Private) -> Response;
@@ -141,7 +141,7 @@ impl dyn ErrorResponse + Send + Sync {
 		if self.is::<E>() {
 			Ok(
 				self
-					.as_any(marker::Private)
+					.into_boxed_any(marker::Private)
 					.downcast()
 					.expect(SCOPE_VALIDITY),
 			)
@@ -171,7 +171,7 @@ where
 	E: StdError + IntoResponse + Send + Sync + 'static,
 {
 	#[doc(hidden)]
-	fn as_any(self: Box<Self>, _: marker::Private) -> Box<dyn Any> {
+	fn into_boxed_any(self: Box<Self>, _: marker::Private) -> Box<dyn Any> {
 		self
 	}
 

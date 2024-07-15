@@ -16,11 +16,11 @@ use argan_core::{
 	body::{Body, Bytes, HttpBody},
 	BoxedError, BoxedFuture,
 };
-use http::{Extensions, Request};
+use http::Request;
 use tower_service::Service as TowerService;
 
 use crate::{
-	common::{IntoArray, NodeExtensions, Uncloneable},
+	common::{IntoArray, NodeExtension, Uncloneable},
 	middleware::Layer,
 	request::{routing::RoutingState, RequestContext, RequestContextProperties},
 	response::{BoxedErrorResponse, Response},
@@ -136,11 +136,9 @@ where
 	type Future = H::Future;
 
 	#[inline]
-	fn handle(&self, request_context: RequestContext<B>, mut args: Args) -> Self::Future {
-		let node_extensions = args.take_node_extensions();
-
+	fn handle(&self, request_context: RequestContext<B>, args: Args) -> Self::Future {
 		let args = Args {
-			node_extensions,
+			node_extension: args.node_extension,
 			handler_extension: Cow::Borrowed(&self.extension),
 		};
 
@@ -490,43 +488,34 @@ where
 
 /// `Handler` arguments.
 #[non_exhaustive]
-pub struct Args<'n, HandlerExt: Clone = ()> {
-	pub node_extensions: NodeExtensions<'n>,
-	pub handler_extension: Cow<'n, HandlerExt>,
+pub struct Args<'e, HandlerExt: Clone = ()> {
+	pub node_extension: Cow<'e, NodeExtension>,
+	pub handler_extension: Cow<'e, HandlerExt>,
 }
 
-impl<'n> Args<'n, ()> {
+impl Args<'_, ()> {
 	pub(crate) fn new() -> Args<'static, ()> {
 		Args {
-			node_extensions: NodeExtensions::new_owned(Extensions::new()),
+			node_extension: Cow::Owned(NodeExtension::new()),
+			handler_extension: Cow::Borrowed(&()),
+		}
+	}
+
+	#[inline(always)]
+	pub(crate) fn new_with_node_extension_ref(node_extension: &NodeExtension) -> Args<'_, ()> {
+		Args {
+			node_extension: Cow::Borrowed(node_extension),
 			handler_extension: Cow::Borrowed(&()),
 		}
 	}
 }
 
-impl<'n, HandlerExt: Clone> Args<'n, HandlerExt> {
+impl<HandlerExt: Clone> Args<'_, HandlerExt> {
+	#[inline(always)]
 	pub(crate) fn into_owned(self) -> Args<'static, HandlerExt> {
 		Args {
-			node_extensions: self.node_extensions.into_owned(),
+			node_extension: Cow::Owned(self.node_extension.into_owned()),
 			handler_extension: Cow::Owned(self.handler_extension.into_owned()),
-		}
-	}
-
-	pub(crate) fn take_node_extensions(&mut self) -> NodeExtensions<'n> {
-		std::mem::replace(
-			&mut self.node_extensions,
-			NodeExtensions::new_owned(Extensions::new()),
-		)
-	}
-
-	pub(crate) fn extensions_replaced<'new_n, NewHandlerExt: Clone>(
-		&mut self,
-		new_node_extensions: NodeExtensions<'new_n>,
-		new_handler_extension: &'new_n NewHandlerExt,
-	) -> Args<'new_n, NewHandlerExt> {
-		Args {
-			node_extensions: new_node_extensions,
-			handler_extension: Cow::Borrowed(new_handler_extension),
 		}
 	}
 }

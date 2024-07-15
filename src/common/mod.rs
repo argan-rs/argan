@@ -2,9 +2,11 @@
 
 // ----------
 
-use std::{borrow::Cow, net::SocketAddr};
-
-use http::Extensions;
+use std::{
+	any::{Any, TypeId},
+	fmt::{self, Debug},
+	net::SocketAddr,
+};
 
 use crate::{handler::BoxedHandler, pattern::Pattern, request::routing::RouteSegments};
 
@@ -204,48 +206,119 @@ pub(crate) fn normalize_path(path: &str) -> String {
 }
 
 // --------------------------------------------------
-// NodeExtensions
+// NodeExtension
 
-/// Extensions of a node ([`Router`](crate::Router), [`Resource`](crate::Resource)).
+/// An Extension of a node ([`Router`](crate::Router), [`Resource`](crate::Resource)).
 ///
-/// Carried by an [`Args`](crate::handler::Args) while the request is being routed.
-#[derive(Clone)]
-pub struct NodeExtensions<'n>(Cow<'n, Extensions>);
+/// Available in the [`Args`](crate::handler::Args) while the request is being routed.
+pub struct NodeExtension(Option<Box<dyn AnyCloneable + Send + Sync>>);
 
-impl<'n> NodeExtensions<'n> {
+impl NodeExtension {
 	#[inline(always)]
-	pub(crate) fn new_borrowed(extensions: &'n Extensions) -> Self {
-		Self(Cow::Borrowed(extensions))
+	pub(crate) fn new() -> Self {
+		NodeExtension(None)
 	}
 
 	#[inline(always)]
-	pub(crate) fn new_owned(extensions: Extensions) -> Self {
-		Self(Cow::Owned(extensions))
-	}
-
-	/// Returns a reference to a value of type `T` if `NodeExtensions` contains it.
-	#[inline(always)]
-	pub fn get_ref<T: Send + Sync + 'static>(&self) -> Option<&T> {
-		self.0.get::<T>()
-	}
-
-	/// Returns a value of type `T` if `NodeExtensions` contains it, removing
-	/// it from extensions.
-	///
-	/// The method can be used when `'n: 'static`. This is true when a handler
-	/// function receives `NodeExtensions` in [`Args<'static, Ext>`](crate::handler::Args).
-	#[inline(always)]
-	pub fn remove<T>(&mut self) -> Option<T>
-	where
-		'n: 'static,
-		T: Send + Sync + 'static,
-	{
-		self.0.to_mut().remove::<T>()
+	pub(crate) fn set_value_to<E: Clone + Send + Sync + 'static>(&mut self, extension: E) {
+		self.0 = Some(Box::new(extension));
 	}
 
 	#[inline(always)]
-	pub(crate) fn into_owned(self) -> NodeExtensions<'static> {
-		NodeExtensions(Cow::Owned(self.0.into_owned()))
+	pub(crate) fn has_value(&self) -> bool {
+		self.0.is_some()
+	}
+
+	/// Attempts to downcast to a concrete type `E`.
+	#[inline(always)]
+	pub fn downcast_to<E: Any>(self) -> Result<Box<E>, Self> {
+		let NodeExtension(Some(boxed_any_cloneable)) = self else {
+			return Err(Self(None));
+		};
+
+		if boxed_any_cloneable.as_ref().concrete_type_id() == TypeId::of::<E>() {
+			Ok(
+				boxed_any_cloneable
+					.into_boxed_any()
+					.downcast()
+					.expect(SCOPE_VALIDITY),
+			)
+		} else {
+			Err(Self(Some(boxed_any_cloneable)))
+		}
+	}
+
+	/// Returns some reference to the concrete type `E` if the inner value is of that type
+	/// or returns `None`.
+	#[inline(always)]
+	pub fn downcast_to_ref<E: Any>(&self) -> Option<&E> {
+		self
+			.0
+			.as_ref()
+			.and_then(|boxed_any_cloneable| boxed_any_cloneable.as_ref().as_any_ref().downcast_ref())
+	}
+
+	/// Returns some mutable reference to the concrete type `E` if the inner value is of
+	/// that type or returns `None`.
+	#[inline(always)]
+	pub fn downcast_to_mut<E: Any>(&mut self) -> Option<&mut E> {
+		self
+			.0
+			.as_mut()
+			.and_then(|boxed_any_cloneable| boxed_any_cloneable.as_mut().as_any_mut().downcast_mut())
+	}
+}
+
+impl Debug for NodeExtension {
+	fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+		f.debug_struct("NodeExtension").finish_non_exhaustive()
+	}
+}
+
+impl Clone for NodeExtension {
+	fn clone(&self) -> Self {
+		Self(
+			self
+				.0
+				.as_ref()
+				.map(|boxed_any_cloneable| boxed_any_cloneable.as_ref().boxed_clone()),
+		)
+	}
+}
+
+// --------------------------------------------------
+// AnyCloneable
+
+trait AnyCloneable: 'static {
+	fn concrete_type_id(&self) -> TypeId {
+		TypeId::of::<Self>()
+	}
+
+	fn as_any_ref(&self) -> &dyn Any;
+	fn as_any_mut(&mut self) -> &mut dyn Any;
+	fn into_boxed_any(self: Box<Self>) -> Box<dyn Any>;
+
+	fn boxed_clone(&self) -> Box<dyn AnyCloneable + Send + Sync>;
+}
+
+impl<T> AnyCloneable for T
+where
+	T: Clone + Send + Sync + 'static,
+{
+	fn as_any_ref(&self) -> &dyn Any {
+		self
+	}
+
+	fn as_any_mut(&mut self) -> &mut dyn Any {
+		self
+	}
+
+	fn into_boxed_any(self: Box<Self>) -> Box<dyn Any> {
+		self
+	}
+
+	fn boxed_clone(&self) -> Box<dyn AnyCloneable + Send + Sync> {
+		Box::new(self.clone())
 	}
 }
 
@@ -262,6 +335,8 @@ pub trait CloneWithPeerAddr: marker::Sealed {
 
 #[cfg(test)]
 mod test {
+	use super::*;
+
 	#[test]
 	fn normalize_path() {
 		let cases = [
@@ -315,5 +390,28 @@ mod test {
 		assert_eq!(super::trim(b"  Hello, World!"), b"Hello, World!");
 		assert_eq!(super::trim(b"Hello, World!  "), b"Hello, World!");
 		assert_eq!(super::trim(b"  Hello, World!  "), b"Hello, World!");
+	}
+
+	#[test]
+	fn node_extension() {
+		#[derive(Debug, Clone)]
+		struct A;
+
+		#[derive(Debug, Clone)]
+		struct B;
+
+		// ----------
+
+		let boxed_any_cloneable = Box::new(A) as Box<dyn AnyCloneable + Send + Sync>;
+		assert_eq!(boxed_any_cloneable.concrete_type_id(), TypeId::of::<A>());
+
+		let mut node_extension = NodeExtension(Some(boxed_any_cloneable));
+
+		assert!(node_extension.downcast_to_ref::<A>().is_some());
+		assert!(node_extension.downcast_to_mut::<A>().is_some());
+
+		let node_extension = node_extension.downcast_to::<B>().unwrap_err();
+
+		assert!(node_extension.downcast_to::<A>().is_ok())
 	}
 }

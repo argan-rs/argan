@@ -1,12 +1,12 @@
-use std::{borrow::Cow, convert::Infallible, future::ready, net::SocketAddr, sync::Arc};
+use std::{convert::Infallible, future::ready, net::SocketAddr, sync::Arc};
 
 use argan_core::{body::HttpBody, BoxedError, BoxedFuture};
 use bytes::Bytes;
-use http::{Extensions, StatusCode};
+use http::StatusCode;
 use hyper::service::Service;
 
 use crate::{
-	common::{marker::Sealed, CloneWithPeerAddr, NodeExtensions},
+	common::{marker::Sealed, CloneWithPeerAddr},
 	handler::Args,
 	request::{
 		routing::{RouteTraversal, RoutingState},
@@ -160,10 +160,7 @@ where
 
 		#[allow(unused_mut)]
 		let mut routing_state = RoutingState::new(RouteTraversal::for_route(request.uri().path()));
-		let args = Args {
-			node_extensions: NodeExtensions::new_owned(Extensions::new()),
-			handler_extension: Cow::Borrowed(&()),
-		};
+		let args = Args::new();
 
 		if let Some(true) = self.host_ref().pattern.is_static_match(host) {
 			let request_context = RequestContext::new(

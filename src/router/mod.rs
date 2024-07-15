@@ -3,12 +3,10 @@
 // ----------
 
 use core::panic;
-use std::{any, sync::Arc};
-
-use http::Extensions;
+use std::sync::Arc;
 
 use crate::{
-	common::{node_properties::NodeProperty, IntoArray, SCOPE_VALIDITY},
+	common::{node_properties::NodeProperty, IntoArray, NodeExtension, SCOPE_VALIDITY},
 	host::Host,
 	middleware::{targets::LayerTarget, RequestPasser},
 	pattern::{split_uri_host_and_path, Pattern, Similarity},
@@ -40,7 +38,7 @@ pub struct Router {
 	some_root_resource: Option<Box<Resource>>,
 
 	request_context_properties: RequestContextProperties,
-	extensions: Extensions,
+	extension: NodeExtension,
 	middleware: Vec<LayerTarget<Self>>,
 }
 
@@ -59,7 +57,7 @@ impl Router {
 			some_root_resource: None,
 
 			request_context_properties: RequestContextProperties::default(),
-			extensions: Extensions::new(),
+			extension: NodeExtension::new(),
 			middleware: Vec::new(),
 		}
 	}
@@ -516,20 +514,19 @@ impl Router {
 		}
 	}
 
-	/// Adds the given extension to the router. Added extensions are available to all the
-	/// middleware that wrap the router's request passer via the [`Args`](crate::handler::Args)
-	/// field [`NodeExtensions`](crate::common::NodeExtensions).
+	/// Sets the given extension to the `Router`. The extension is available to all middleware that
+	/// wraps the `Router`'s request passer in the [`NodeExtension`](crate::common::NodeExtension)
+	/// field of the [`Args`](crate::handler::Args).
 	///
 	/// # Panics
 	///
-	/// - if an extension of the same type already exists
-	pub fn add_extension<E: Clone + Send + Sync + 'static>(&mut self, extension: E) {
-		if self.extensions.insert(extension).is_some() {
-			panic!(
-				"router already has an extension of type '{}'",
-				any::type_name::<E>()
-			);
+	/// - if the `Router` already has an extension set
+	pub fn set_extension<E: Clone + Send + Sync + 'static>(&mut self, extension: E) {
+		if self.extension.has_value() {
+			panic!("router already has an extension");
 		}
+
+		self.extension.set_value_to(extension)
 	}
 
 	/// Adds middleware to be applied on the router's request passer.
@@ -678,7 +675,7 @@ impl Router {
 			regex_hosts,
 			some_root_resource,
 			request_context_properties,
-			extensions,
+			extension,
 			middleware,
 		} = self;
 
@@ -704,7 +701,7 @@ impl Router {
 			middleware,
 		);
 
-		FinalRouter::new(request_context_properties, extensions, request_passer)
+		FinalRouter::new(request_context_properties, extension, request_passer)
 	}
 
 	// -------------------------

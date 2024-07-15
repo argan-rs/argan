@@ -1,7 +1,7 @@
 use std::{fmt::Debug, future::ready};
 
 use argan_core::BoxedFuture;
-use http::{header::InvalidHeaderValue, HeaderName, HeaderValue, Method, StatusCode};
+use http::{header::InvalidHeaderValue, Extensions, HeaderName, HeaderValue, Method, StatusCode};
 
 use crate::{
 	common::Uncloneable,
@@ -150,7 +150,7 @@ impl Handler for WildcardMethodHandler {
 
 	fn handle(&self, request_context: RequestContext, args: Args) -> Self::Future {
 		match self {
-			Self::Default => handle_unimplemented_method(args),
+			Self::Default => handle_unimplemented_method(request_context.extensions_ref()),
 			Self::Custom(boxed_handler) => boxed_handler.handle(request_context, args),
 			Self::None(some_mistargeted_request_handler) => handle_mistargeted_request(
 				request_context,
@@ -164,12 +164,12 @@ impl Handler for WildcardMethodHandler {
 // --------------------------------------------------
 
 #[derive(Debug, Clone)]
-pub(crate) struct ImplementedMethods(String);
+pub(crate) struct ImplementedMethods(Box<str>);
 
 impl ImplementedMethods {
 	#[inline(always)]
 	pub(crate) fn new(implemented_methods: String) -> Self {
-		Self(implemented_methods)
+		Self(implemented_methods.into())
 	}
 }
 
@@ -190,19 +190,19 @@ impl Handler for UnimplementedMethodHandler {
 	type Error = BoxedErrorResponse;
 	type Future = BoxedFuture<Result<Self::Response, Self::Error>>;
 
-	fn handle(&self, _request_context: RequestContext, args: Args) -> Self::Future {
-		handle_unimplemented_method(args)
+	fn handle(&self, request_context: RequestContext, _args: Args) -> Self::Future {
+		handle_unimplemented_method(request_context.extensions_ref())
 	}
 }
 
 // -------------------------
 
 pub(crate) fn handle_unimplemented_method(
-	args: Args,
+	extensions: &Extensions,
 ) -> BoxedFuture<Result<Response, BoxedErrorResponse>> {
 	let mut response = StatusCode::METHOD_NOT_ALLOWED.into_response();
 
-	let Some(implemented_methods) = args.node_extensions.get_ref::<ImplementedMethods>() else {
+	let Some(implemented_methods) = extensions.get::<ImplementedMethods>() else {
 		return Box::pin(ready(Ok(response)));
 	};
 

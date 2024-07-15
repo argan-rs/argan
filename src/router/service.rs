@@ -1,15 +1,15 @@
-use std::{borrow::Cow, convert::Infallible, future::ready, net::SocketAddr, sync::Arc};
+use std::{convert::Infallible, future::ready, net::SocketAddr, sync::Arc};
 
 use argan_core::{
 	body::{Body, HttpBody},
 	BoxedError, BoxedFuture,
 };
 use bytes::Bytes;
-use http::{Extensions, StatusCode};
+use http::StatusCode;
 use hyper::service::Service;
 
 use crate::{
-	common::{marker::Sealed, CloneWithPeerAddr, MaybeBoxed, NodeExtensions},
+	common::{marker::Sealed, CloneWithPeerAddr, MaybeBoxed, NodeExtension},
 	handler::{Args, BoxedHandler, Handler},
 	host::FinalHost,
 	middleware::{targets::LayerTarget, Layer},
@@ -32,7 +32,7 @@ use super::Router;
 #[derive(Clone)]
 pub(super) struct FinalRouter {
 	request_context_properties: RequestContextProperties,
-	extensions: Extensions,
+	extension: NodeExtension,
 	request_passer: MaybeBoxed<RouterRequestPasser>,
 }
 
@@ -40,12 +40,12 @@ impl FinalRouter {
 	#[inline(always)]
 	pub(super) fn new(
 		request_context_properties: RequestContextProperties,
-		extensions: Extensions,
+		extension: NodeExtension,
 		request_passer: MaybeBoxed<RouterRequestPasser>,
 	) -> Self {
 		Self {
 			request_context_properties,
-			extensions,
+			extension,
 			request_passer,
 		}
 	}
@@ -138,10 +138,7 @@ where
 	fn call(&self, request: Request<B>) -> Self::Future {
 		let routing_state = RoutingState::new(RouteTraversal::for_route(request.uri().path()));
 
-		let args = Args {
-			node_extensions: NodeExtensions::new_borrowed(&self.router_ref().extensions),
-			handler_extension: Cow::Borrowed(&()),
-		};
+		let args = Args::new_with_node_extension_ref(&self.router_ref().extension);
 
 		let request_context = RequestContext::new(
 			#[cfg(feature = "peer-addr")]

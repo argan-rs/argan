@@ -1,20 +1,20 @@
-use std::{borrow::Cow, convert::Infallible, future::ready, net::SocketAddr, sync::Arc};
+use std::{convert::Infallible, future::ready, net::SocketAddr, sync::Arc};
 
 use argan_core::{
 	body::{Body, HttpBody},
 	BoxedError, BoxedFuture,
 };
 use bytes::Bytes;
-use http::{Extensions, Method, StatusCode};
+use http::{Method, StatusCode};
 use hyper::service::Service;
 use percent_encoding::percent_decode_str;
 
 use crate::{
 	common::{
-		marker::Sealed, CloneWithPeerAddr, MaybeBoxed, NodeExtensions, Uncloneable, SCOPE_VALIDITY,
+		marker::Sealed, CloneWithPeerAddr, MaybeBoxed, NodeExtension, Uncloneable, SCOPE_VALIDITY,
 	},
 	handler::{
-		request_handlers::{handle_mistargeted_request, WildcardMethodHandler},
+		request_handlers::{handle_mistargeted_request, ImplementedMethods, WildcardMethodHandler},
 		ArcHandler, Args, BoxedHandler, Handler,
 	},
 	middleware::{targets::LayerTarget, BoxedLayer, Layer},
@@ -38,7 +38,7 @@ use super::{config::ConfigFlags, Resource};
 pub(crate) struct FinalResource {
 	pattern: Pattern,
 	request_context_properties: RequestContextProperties,
-	extensions: Extensions,
+	extension: NodeExtension,
 
 	request_receiver: MaybeBoxed<ResourceRequestReceiver>,
 	some_mistargeted_request_handler: Option<ArcHandler>,
@@ -49,14 +49,14 @@ impl FinalResource {
 	pub(super) fn new(
 		pattern: Pattern,
 		request_context_properties: RequestContextProperties,
-		extensions: Extensions,
+		extension: NodeExtension,
 		request_receiver: MaybeBoxed<ResourceRequestReceiver>,
 		some_mistargeted_request_handler: Option<ArcHandler>,
 	) -> Self {
 		Self {
 			pattern,
 			request_context_properties,
-			extensions,
+			extension,
 			request_receiver,
 			some_mistargeted_request_handler,
 		}
@@ -66,7 +66,7 @@ impl FinalResource {
 	pub(crate) fn handle<B>(
 		&self,
 		request_context: RequestContext<B>,
-		mut args: Args<'_, ()>,
+		args: Args<'_, ()>,
 	) -> BoxedFuture<Result<Response, BoxedErrorResponse>>
 	where
 		B: HttpBody<Data = Bytes> + Send + Sync + 'static,
@@ -75,7 +75,11 @@ impl FinalResource {
 		let mut request_context = request_context.map(Body::new);
 		request_context.clone_valid_properties_from(&self.request_context_properties);
 
-		let args = args.extensions_replaced(NodeExtensions::new_borrowed(&self.extensions), &());
+		let args = if self.extension.has_value() {
+			Args::new_with_node_extension_ref(&self.extension)
+		} else {
+			args
+		};
 
 		match &self.request_receiver {
 			MaybeBoxed::Boxed(boxed_request_receiver) => {
@@ -228,10 +232,7 @@ where
 		let mut routing_state = RoutingState::new(route_traversal);
 		routing_state.uri_params = path_params;
 
-		let args = Args {
-			node_extensions: NodeExtensions::new_borrowed(&self.resource_ref().extensions),
-			handler_extension: Cow::Borrowed(&()),
-		};
+		let args = Args::new_with_node_extension_ref(&self.resource_ref().extension);
 
 		let request_context = RequestContext::new(
 			#[cfg(feature = "peer-addr")]
@@ -665,7 +666,7 @@ impl Handler for ResourceRequestPasser {
 	type Future = BoxedFuture<Result<Self::Response, Self::Error>>;
 
 	#[inline]
-	fn handle(&self, mut request_context: RequestContext, mut args: Args) -> Self::Future {
+	fn handle(&self, mut request_context: RequestContext, args: Args) -> Self::Future {
 		let some_next_resource = 'some_next_resource: {
 			let (next_segment, uri_params) = request_context
 				.routing_next_segment_and_uri_params_mut()
@@ -718,8 +719,11 @@ impl Handler for ResourceRequestPasser {
 		if let Some(next_resource) = some_next_resource {
 			request_context.clone_valid_properties_from(&next_resource.request_context_properties);
 
-			let args =
-				args.extensions_replaced(NodeExtensions::new_borrowed(&next_resource.extensions), &());
+			let args = if next_resource.extension.has_value() {
+				Args::new_with_node_extension_ref(&next_resource.extension)
+			} else {
+				args
+			};
 
 			match &next_resource.request_receiver {
 				MaybeBoxed::Boxed(boxed_request_receiver) => {
@@ -744,18 +748,21 @@ impl Handler for ResourceRequestPasser {
 
 #[derive(Clone)]
 pub(crate) struct ResourceRequestHandler {
+	implemented_methods: ImplementedMethods,
 	method_handlers: Vec<(Method, BoxedHandler)>,
 	wildcard_method_handler: WildcardMethodHandler,
 }
 
 impl ResourceRequestHandler {
 	pub(crate) fn new(
+		implemented_methods: ImplementedMethods,
 		method_handlers: Vec<(Method, BoxedHandler)>,
 		wildcard_method_handler: WildcardMethodHandler,
 		middleware: &mut [LayerTarget<Resource>],
 		some_mistargeted_request_handler: Option<ArcHandler>,
 	) -> Result<MaybeBoxed<Self>, Method> {
 		let mut request_handler = Self {
+			implemented_methods,
 			method_handlers,
 			wildcard_method_handler: if wildcard_method_handler.is_none() {
 				WildcardMethodHandler::None(some_mistargeted_request_handler)
@@ -829,7 +836,7 @@ impl Handler for ResourceRequestHandler {
 	type Error = BoxedErrorResponse;
 	type Future = BoxedFuture<Result<Self::Response, Self::Error>>;
 
-	fn handle(&self, request_context: RequestContext, args: Args) -> Self::Future {
+	fn handle(&self, mut request_context: RequestContext, args: Args) -> Self::Future {
 		let method = request_context.method_ref();
 		let some_method_handler = self.method_handlers.iter().find(|(m, _)| m == method);
 
@@ -852,6 +859,11 @@ impl Handler for ResourceRequestHandler {
 				});
 			}
 		}
+
+		request_context
+			.request_mut()
+			.extensions_mut()
+			.insert(self.implemented_methods.clone());
 
 		self.wildcard_method_handler.handle(request_context, args)
 	}

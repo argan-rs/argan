@@ -23,7 +23,7 @@ option! {
 // --------------------------------------------------
 // CookieKey
 
-/// A type that represents the *cookie key* as a property.
+/// A type that represents a *cookie key* as a property.
 #[cfg(any(feature = "private-cookies", feature = "signed-cookies"))]
 pub struct NodeCookieKey;
 
@@ -42,7 +42,7 @@ impl NodeCookieKey {
 // --------------------------------------------------
 // RequestExtensionsModifier
 
-/// A type that represents the *request extensions modifier* middleware as a property.
+/// A type that represents *request extensions modifier* middleware as a property.
 pub struct RequestExtensionsModifier;
 
 impl RequestExtensionsModifier {
