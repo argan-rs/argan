@@ -54,13 +54,14 @@ impl MethodHandlers {
 	#[inline]
 	pub(crate) fn set_handler(&mut self, method: Method, handler: BoxedHandler) {
 		if self.method_handlers_list.iter().any(|(m, _)| m == method) {
-			panic!("{} handler already exists", method)
+			panic!("\"{}\" handler already exists", method)
 		}
 
 		if !self.implemented_methods.is_empty() {
 			self.implemented_methods.push_str(", ");
 		}
 
+		self.implemented_methods.push_str(method.as_str());
 		self.method_handlers_list.push((method, handler));
 	}
 
