@@ -879,12 +879,9 @@ mod test {
 	use tower_http::compression::CompressionLayer;
 
 	use crate::{
-		common::{
-			node_properties::RequestExtensionsModifier,
-			test_helpers::{new_root, test_service, Case, DataKind, Rx_1_1, Rx_2_0, Wl_3_0},
-		},
+		common::test_helpers::{new_root, test_service, Case, DataKind, Rx_1_1, Rx_2_0, Wl_3_0},
 		handler::{HandlerSetter, IntoHandler},
-		middleware::{RequestHandler, RequestPasser, RequestReceiver},
+		middleware::{RequestExtensionsModifierLayer, RequestHandler, RequestPasser, RequestReceiver},
 		request::RequestHead,
 		resource::Resource,
 	};
@@ -1236,9 +1233,11 @@ mod test {
 	#[tokio::test]
 	async fn resource_request_extensions() {
 		let mut root = Resource::new("/");
-		root.set_property(RequestExtensionsModifier.to(|extensions| {
-			extensions.insert("Hello from Handler!".to_string());
-		}));
+		root.wrap(
+			RequestReceiver.component_in(RequestExtensionsModifierLayer::new(|extensions| {
+				extensions.insert("Hello from Handler!".to_string());
+			})),
+		);
 
 		root
 			.subresource_mut("/st_0_0/st_1_0")

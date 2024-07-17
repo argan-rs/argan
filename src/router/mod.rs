@@ -8,7 +8,7 @@ use std::sync::Arc;
 use crate::{
 	common::{node_properties::NodeProperty, IntoArray, NodeExtension, SCOPE_VALIDITY},
 	host::Host,
-	middleware::{targets::LayerTarget, RequestPasser},
+	middleware::targets::LayerTarget,
 	pattern::{split_uri_host_and_path, Pattern, Similarity},
 	request::RequestContextProperties,
 	resource::{Iteration, Resource},
@@ -618,12 +618,6 @@ impl Router {
 			match property {
 				#[cfg(any(feature = "private-cookies", feature = "signed-cookies"))]
 				CookieKey(cookie_key) => self.request_context_properties.set_cookie_key(cookie_key),
-				RequestExtensionsModifier(request_extensions_modifier_layer) => {
-					let request_passer_layer_target =
-						RequestPasser.component_in(request_extensions_modifier_layer);
-
-					self.middleware.insert(0, request_passer_layer_target);
-				}
 				_ => unreachable!("ConfigOption::None should never be used"),
 			}
 		}
@@ -732,7 +726,9 @@ impl Router {
 mod test {
 	use http::Method;
 
-	use crate::{common::node_properties::RequestExtensionsModifier, handler::HandlerSetter};
+	use crate::{
+		handler::HandlerSetter, middleware::RequestExtensionsModifierLayer, prelude::RequestReceiver,
+	};
 
 	use super::*;
 
@@ -1274,10 +1270,10 @@ mod test {
 				return Iteration::Continue;
 			}
 
-			root.set_property(RequestExtensionsModifier.to(|_| {}));
+			root.wrap(RequestReceiver.component_in(RequestExtensionsModifierLayer::new(|_| {})));
 			root.for_each_subresource((), |_, resource| {
 				dbg!(resource.pattern_string());
-				resource.set_property(RequestExtensionsModifier.to(|_| {}));
+				resource.wrap(RequestReceiver.component_in(RequestExtensionsModifierLayer::new(|_| {})));
 
 				if resource.is("{rx_0_1:p0}") {
 					Iteration::Skip

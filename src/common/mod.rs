@@ -20,7 +20,6 @@ pub use argan_core::{BoxedError, BoxedFuture};
 pub(crate) mod macros;
 
 pub mod node_properties;
-pub use node_properties::RequestExtensionsModifier;
 
 #[cfg(any(feature = "private-cookies", feature = "signed-cookies"))]
 pub use node_properties::NodeCookieKey;

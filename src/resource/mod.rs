@@ -16,7 +16,7 @@ use crate::{
 		request_handlers::{wrap_mistargeted_request_handler, ImplementedMethods, MethodHandlers},
 		BoxedHandler,
 	},
-	middleware::{targets::LayerTarget, RequestReceiver},
+	middleware::targets::LayerTarget,
 	pattern::{split_uri_host_and_path, Pattern, Similarity},
 	request::{routing::RouteSegments, RequestContextProperties},
 };
@@ -1293,10 +1293,14 @@ impl Resource {
 	/// Sets the resource's optional properties.
 	///
 	/// ```
-	/// use argan::{Resource, common::node_properties::RequestExtensionsModifier};
+	/// use argan::{Resource, common::node_properties::NodeCookieKey, data::cookies::Key};
 	///
 	/// let mut resource = Resource::new("/resource");
-	/// resource.set_property(RequestExtensionsModifier.to(|extensions| { /* ... */ }));
+	///
+	/// // Given `cookie::Key` will be available to all subresoruces unless some subresource
+	/// // or handler replaces it with its own `cookie::Key` while the request is being
+	/// // routed or handled.
+	/// resource.set_property(NodeCookieKey.to(Key::generate()));
 	/// ```
 	pub fn set_property<C, const N: usize>(&mut self, properties: C)
 	where
@@ -1310,13 +1314,7 @@ impl Resource {
 			match property {
 				#[cfg(any(feature = "private-cookies", feature = "signed-cookies"))]
 				CookieKey(cookie_key) => self.request_context_properties.set_cookie_key(cookie_key),
-				RequestExtensionsModifier(request_extensions_modifier_layer) => {
-					let request_receiver_layer_target =
-						RequestReceiver.component_in(request_extensions_modifier_layer);
-
-					self.middleware.insert(0, request_receiver_layer_target);
-				}
-				_ => {}
+				_ => unreachable!("ConfigOption::None should never be used"),
 			}
 		}
 	}
@@ -1583,8 +1581,9 @@ mod test {
 	use http::{Extensions, Method};
 
 	use crate::{
-		common::{node_properties::RequestExtensionsModifier, route_to_patterns},
+		common::route_to_patterns,
 		handler::{DummyHandler, HandlerSetter},
+		middleware::{RequestExtensionsModifierLayer, RequestReceiver},
 	};
 
 	use super::*;
@@ -2181,7 +2180,10 @@ mod test {
 		parent.subresource_mut("/{wl_0_0}/st_1_0");
 
 		parent.for_each_subresource((), |_, resource| {
-			resource.set_property(RequestExtensionsModifier.to(|_: &mut Extensions| {}));
+			resource.wrap(
+				RequestReceiver.component_in(RequestExtensionsModifierLayer::new(|_: &mut Extensions| {})),
+			);
+
 			if resource.is("{rx_0_0:p}") {
 				Iteration::Skip
 			} else {

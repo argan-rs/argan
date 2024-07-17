@@ -416,12 +416,11 @@ mod test {
 	use http_body_util::{BodyExt, Empty};
 
 	use crate::{
-		common::{
-			node_properties::RequestExtensionsModifier,
-			test_helpers::{new_root, test_service, Case, DataKind, Rx_1_1, Rx_2_0, Wl_3_0},
-		},
+		common::test_helpers::{new_root, test_service, Case, DataKind, Rx_1_1, Rx_2_0, Wl_3_0},
 		handler::HandlerSetter,
-		middleware::{RedirectionLayer, RequestReceiver},
+		middleware::{
+			RedirectionLayer, RequestExtensionsModifierLayer, RequestPasser, RequestReceiver,
+		},
 		request::RequestHead,
 		router::Router,
 	};
@@ -793,9 +792,11 @@ mod test {
 	#[tokio::test]
 	async fn router_request_extensions() {
 		let mut router = Router::new();
-		router.set_property(RequestExtensionsModifier.to(|extensions| {
-			extensions.insert("Hello from Handler!".to_string());
-		}));
+		router.wrap(
+			RequestPasser.component_in(RequestExtensionsModifierLayer::new(|extensions| {
+				extensions.insert("Hello from Handler!".to_string());
+			})),
+		);
 
 		router
 			.resource_mut("/st_0_0/st_1_0")
