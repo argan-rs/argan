@@ -36,7 +36,7 @@ impl<ErrH> ErrorHandlerLayer<ErrH>
 where
 	ErrH: ErrorHandler + Clone,
 {
-	/// Creates a new `ErrorHandlerLayer` from an `ErrorHandler`.
+	/// Creates a new `ErrorHandlerLayer` from an `ErrorHandler` implementor.
 	pub fn new(error_handler: ErrH) -> Self {
 		Self(error_handler)
 	}
@@ -50,6 +50,126 @@ where
 
 	fn wrap(&self, handler: H) -> Self::Handler {
 		ResponseResultHandler::new(handler, self.0.clone())
+	}
+}
+
+// --------------------------------------------------
+// RequestExtensionsModifierLayer
+
+/// A layer that applies a request extensions modifier middleware to a [`Handler`].
+///
+/// ```
+/// use argan::{
+///   Router,
+///   Resource,
+///   request::RequestHead,
+///   response::{Response, BoxedErrorResponse},
+///   http::Method,
+///   handler::HandlerSetter,
+///   middleware::{RequestReceiver, RequestPasser, RequestExtensionsModifierLayer},
+/// };
+///
+/// #[derive(Clone)]
+/// struct State1 {
+///   // ...
+/// }
+///
+/// #[derive(Clone)]
+/// struct State2 {
+///   // ...
+/// }
+///
+/// async fn handler(request_head: RequestHead) {
+///   let extensions = request_head.extensions_ref();
+///
+///   let state1 = extensions
+///     .get::<State1>()
+///     .expect("`Router` should have inserted the `State1`");
+///
+///   let state2 = extensions
+///     .get::<State2>()
+///     .expect("the `State2` should have been inserted up in the resource tree");
+///
+///   // ...
+/// }
+///
+/// // ...
+///
+/// let state1 = State1 { /* ... */ };
+/// let state2 = State2 { /* ... */ };
+///
+/// let mut router = Router::new();
+/// router.wrap(RequestPasser.component_in(
+///   RequestExtensionsModifierLayer::new(move |extensions| {
+///   let state1_clone = state1.clone();
+///   extensions.insert(state1_clone);
+/// })));
+///
+/// let mut resource0 = Resource::new("/resource0");
+/// resource0.wrap(RequestReceiver.component_in(
+///   RequestExtensionsModifierLayer::new(move |extensions| {
+///   let state2_clone = state2.clone();
+///   extensions.insert(state2_clone);
+/// })));
+///
+/// resource0
+///   .subresource_mut("/resource1/resource2")
+///   .set_handler_for(Method::GET.to(handler));
+///
+/// router.add_resource(resource0);
+/// ```
+#[derive(Clone)]
+pub struct RequestExtensionsModifierLayer(BoxedExtensionsModifier);
+
+impl RequestExtensionsModifierLayer {
+	/// Creates a new `RequestExtensionsModifierLayer` from a function or a closure.
+	pub fn new<Func>(modifier: Func) -> Self
+	where
+		Func: Fn(&mut Extensions) + Clone + Send + Sync + 'static,
+	{
+		Self(BoxedExtensionsModifier::new(modifier))
+	}
+}
+
+impl<H> Layer<H> for RequestExtensionsModifierLayer {
+	type Handler = RequestExtensionsModifier<H>;
+
+	fn wrap(&self, handler: H) -> Self::Handler {
+		RequestExtensionsModifier::new(handler, self.0.clone())
+	}
+}
+
+// -------------------------
+
+trait ExtensionsModifier: Fn(&mut Extensions) {
+	fn boxed_clone(&self) -> BoxedExtensionsModifier;
+}
+
+impl<Func> ExtensionsModifier for Func
+where
+	Func: Fn(&mut Extensions) + Clone + Send + Sync + 'static,
+{
+	fn boxed_clone(&self) -> BoxedExtensionsModifier {
+		BoxedExtensionsModifier::new(self.clone())
+	}
+}
+
+// -------------------------
+
+struct BoxedExtensionsModifier(Box<dyn ExtensionsModifier + Send + Sync + 'static>);
+
+impl BoxedExtensionsModifier {
+	pub(crate) fn new<Func>(modifier: Func) -> Self
+	where
+		Func: Fn(&mut Extensions) + Clone + Send + Sync + 'static,
+	{
+		Self(Box::new(modifier))
+	}
+}
+
+impl Clone for BoxedExtensionsModifier {
+	fn clone(&self) -> Self {
+		self.0.boxed_clone()
 	}
 }
 
@@ -154,14 +274,14 @@ impl<H, U> Layer<H> for RedirectionLayer<U>
 where
 	U: AsRef<str> + Clone,
 {
-	type Handler = RedirectorHandler;
+	type Handler = Redirector;
 
 	fn wrap(&self, _handler: H) -> Self::Handler {
-		RedirectorHandler::new(self.prefix, self.uri.clone())
+		Redirector::new(self.prefix, self.uri.clone())
 	}
 }
 
-// -------------------------
+// --------------------------------------------------------------------------------
 
 mod private {
 	use std::future::ready;
@@ -170,7 +290,7 @@ mod private {
 
 	use super::*;
 
-	// -------------------------
+	// --------------------------------------------------
 	// ResponseResultHandler
 
 	#[derive(Clone)]
@@ -218,16 +338,50 @@ mod private {
 		}
 	}
 
-	// -------------------------
+	// --------------------------------------------------
+	// RequestExtensionsModifier
+
+	#[derive(Clone)]
+	pub struct RequestExtensionsModifier<H> {
+		inner_handler: H,
+		boxed_modifier: BoxedExtensionsModifier,
+	}
+
+	impl<H> RequestExtensionsModifier<H> {
+		pub(super) fn new(handler: H, boxed_modifier: BoxedExtensionsModifier) -> Self {
+			Self {
+				inner_handler: handler,
+				boxed_modifier,
+			}
+		}
+	}
+
+	impl<H, B> Handler<B> for RequestExtensionsModifier<H>
+	where
+		H: Handler<B>,
+	{
+		type Response = H::Response;
+		type Error = H::Error;
+		type Future = H::Future;
+
+		#[inline(always)]
+		fn handle(&self, mut request_context: RequestContext<B>, args: Args<'_, ()>) -> Self::Future {
+			self.boxed_modifier.0(request_context.request_mut().extensions_mut());
+
+			self.inner_handler.handle(request_context, args)
+		}
+	}
+
+	// --------------------------------------------------
 	// RedirectorHandler
 
 	#[derive(Clone)]
-	pub struct RedirectorHandler {
+	pub struct Redirector {
 		prefix: bool,
 		uri: Box<str>,
 	}
 
-	impl RedirectorHandler {
+	impl Redirector {
 		pub(crate) fn new<U: AsRef<str>>(prefix: bool, uri: U) -> Self {
 			let uri = uri.as_ref();
 
@@ -246,7 +400,7 @@ mod private {
 		}
 	}
 
-	impl<B, Ext: Clone> Handler<B, Ext> for RedirectorHandler {
+	impl<B, Ext: Clone> Handler<B, Ext> for Redirector {
 		type Response = Response;
 		type Error = BoxedErrorResponse;
 		type Future = BoxedFuture<Result<Self::Response, Self::Error>>;
@@ -264,10 +418,29 @@ mod private {
 			Box::pin(ready(Ok(redirect.into_response())))
 		}
 	}
+
+	// --------------------------------------------------
+	// LayerFn
+
+	#[derive(Clone)]
+	pub struct LayerFn<Func>(pub(crate) Func);
+
+	impl<Func, InH, OutH> Layer<InH> for LayerFn<Func>
+	where
+		Func: Fn(InH) -> OutH,
+	{
+		type Handler = OutH;
+
+		fn wrap(&self, handler: InH) -> Self::Handler {
+			self.0(handler)
+		}
+	}
 }
 
-use http::StatusCode;
-pub(crate) use private::RedirectorHandler;
+use http::{Extensions, StatusCode};
+pub(crate) use private::LayerFn;
+pub(crate) use private::Redirector;
+pub(crate) use private::RequestExtensionsModifier;
 pub(crate) use private::ResponseResultHandler;
 
 // --------------------------------------------------------------------------------

@@ -17,9 +17,6 @@ pub use impls::*;
 
 pub(crate) mod layer_stack;
 
-mod internal;
-pub(crate) use internal::*;
-
 pub(crate) mod targets;
 pub use targets::{HandlerWrapper, RequestHandler, RequestPasser, RequestReceiver};
 
