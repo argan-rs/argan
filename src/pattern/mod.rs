@@ -468,8 +468,6 @@ fn restore_slashes(pattern: Cow<str>) -> Cow<str> {
 						buffer.push_str(&pattern[segment_start..segment_end]);
 						buffer.push('/');
 
-						dbg!(&buffer);
-
 						segment_end += 3;
 						segment_start = segment_end;
 

@@ -292,7 +292,7 @@ mod private {
 
 			Box::pin(async move {
 				match future.await {
-					Ok(response) => Ok(response.into_response()),
+					Ok(response) => Ok(response),
 					Err(error) => error_handler_clone.handle_error(error).await,
 				}
 			})

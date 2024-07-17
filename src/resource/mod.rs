@@ -201,11 +201,7 @@ impl Resource {
 		self
 			.some_host_pattern
 			.as_ref()
-			.is_some_and(|self_host_pattern| {
-				dbg!(self_host_pattern, &host_pattern);
-
-				self_host_pattern.compare(&host_pattern) == Similarity::Same
-			})
+			.is_some_and(|self_host_pattern| self_host_pattern.compare(&host_pattern) == Similarity::Same)
 	}
 
 	/// Retuns true if the given pattern is the resource's pattern.
