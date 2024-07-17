@@ -2,7 +2,7 @@
 name = "argan-core"
 version = "0.0.1"
 description = "Core types and traits for the Argan Web Framework."
-authors = ["Shohruh Adham <shohruh.adham@gmail.com>"]
+authors = ["Shohruh Adham"]
 license.workspace = true
 edition.workspace = true
 categories.workspace = true
