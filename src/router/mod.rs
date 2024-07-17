@@ -514,9 +514,9 @@ impl Router {
 		}
 	}
 
-	/// Sets the given extension to the `Router`. The extension is available to all middleware that
-	/// wraps the `Router`'s request passer in the [`NodeExtension`](crate::common::NodeExtension)
-	/// field of the [`Args`](crate::handler::Args).
+	/// Sets the given extension to the `Router`. The extension is available to all middleware
+	/// that wraps the `Router`'s request passer in the [`NodeExtension`] field of the
+	/// [`Args`](crate::handler::Args).
 	///
 	/// # Panics
 	///
@@ -724,7 +724,7 @@ impl Router {
 
 #[cfg(all(test, feature = "full"))]
 mod test {
-	use http::Method;
+	use http::{Extensions, Method};
 
 	use crate::{
 		handler::HandlerSetter, middleware::RequestExtensionsModifierLayer, prelude::RequestReceiver,
@@ -1270,10 +1270,15 @@ mod test {
 				return Iteration::Continue;
 			}
 
-			root.wrap(RequestReceiver.component_in(RequestExtensionsModifierLayer::new(|_| {})));
+			root.wrap(
+				RequestReceiver.component_in(RequestExtensionsModifierLayer::new(|_: &mut Extensions| {})),
+			);
 			root.for_each_subresource((), |_, resource| {
 				dbg!(resource.pattern_string());
-				resource.wrap(RequestReceiver.component_in(RequestExtensionsModifierLayer::new(|_| {})));
+				resource.wrap(
+					RequestReceiver
+						.component_in(RequestExtensionsModifierLayer::new(|_: &mut Extensions| {})),
+				);
 
 				if resource.is("{rx_0_1:p0}") {
 					Iteration::Skip

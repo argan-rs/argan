@@ -63,7 +63,7 @@ pub trait IntoHandler<Mark, B = Body, Ext: Clone = ()>: Sized {
 
 	fn into_handler(self) -> Self::Handler;
 
-	/// Provides the handler with a user defined extension.
+	/// Provides the handler with a user-defined extension.
 	fn with_extension(self, handler_extension: Ext) -> ExtensionProviderHandler<Self::Handler, Ext> {
 		ExtensionProviderHandler::new(self.into_handler(), handler_extension)
 	}
@@ -517,30 +517,6 @@ impl<HandlerExt: Clone> Args<'_, HandlerExt> {
 			node_extension: Cow::Owned(self.node_extension.into_owned()),
 			handler_extension: Cow::Owned(self.handler_extension.into_owned()),
 		}
-	}
-}
-
-// --------------------------------------------------
-// ErrorHandler
-
-/// A trait for [ErrorResponse](crate::response::ErrorResponse) handlers.
-pub trait ErrorHandler {
-	fn handle_error(
-		&mut self,
-		error_response: BoxedErrorResponse,
-	) -> impl Future<Output = Result<Response, BoxedErrorResponse>> + Send;
-}
-
-impl<Func, Fut> ErrorHandler for Func
-where
-	Func: FnMut(BoxedErrorResponse) -> Fut + Clone,
-	Fut: Future<Output = Result<Response, BoxedErrorResponse>> + Send,
-{
-	fn handle_error(
-		&mut self,
-		error_response: BoxedErrorResponse,
-	) -> impl Future<Output = Result<Response, BoxedErrorResponse>> + Send {
-		self(error_response)
 	}
 }
 

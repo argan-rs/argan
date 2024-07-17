@@ -1175,7 +1175,7 @@ impl Resource {
 
 	/// Sets the given extension to the `Resource`. The extension is available to all
 	/// handlers of the `Resource` and to all middleware that wraps these handlers in the
-	/// [`NodeExtension`](crate::common::NodeExtension) field of the [`Args`](crate::handler::Args).
+	/// [`NodeExtension`] field of the [`Args`](crate::handler::Args).
 	///
 	/// # Panics
 	///

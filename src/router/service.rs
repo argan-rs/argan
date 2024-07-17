@@ -412,7 +412,7 @@ where
 
 #[cfg(all(test, feature = "full"))]
 mod test {
-	use http::{header::LOCATION, Method};
+	use http::{header::LOCATION, Extensions, Method};
 	use http_body_util::{BodyExt, Empty};
 
 	use crate::{
@@ -793,9 +793,11 @@ mod test {
 	async fn router_request_extensions() {
 		let mut router = Router::new();
 		router.wrap(
-			RequestPasser.component_in(RequestExtensionsModifierLayer::new(|extensions| {
-				extensions.insert("Hello from Handler!".to_string());
-			})),
+			RequestPasser.component_in(RequestExtensionsModifierLayer::new(
+				|extensions: &mut Extensions| {
+					extensions.insert("Hello from Handler!".to_string());
+				},
+			)),
 		);
 
 		router

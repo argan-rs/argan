@@ -5,6 +5,7 @@
 use std::{
 	any::{Any, TypeId},
 	fmt::{self, Debug},
+	future::Future,
 	net::SocketAddr,
 };
 
@@ -12,7 +13,10 @@ use crate::{handler::BoxedHandler, pattern::Pattern, request::routing::RouteSegm
 
 // ----------
 
+use argan_core::response::{BoxedErrorResponse, Response};
 pub use argan_core::{BoxedError, BoxedFuture};
+
+pub use http::Extensions;
 
 // --------------------------------------------------
 
@@ -46,6 +50,47 @@ where
 {
 	fn into_array(self) -> [T; N] {
 		self
+	}
+}
+
+// --------------------------------------------------
+// ErrorHandler
+
+/// A trait for [ErrorResponse](crate::response::ErrorResponse) handlers.
+pub trait ErrorHandler {
+	fn handle_error(
+		&mut self,
+		error_response: BoxedErrorResponse,
+	) -> impl Future<Output = Result<Response, BoxedErrorResponse>> + Send;
+}
+
+impl<Func, Fut> ErrorHandler for Func
+where
+	Func: FnMut(BoxedErrorResponse) -> Fut + Clone,
+	Fut: Future<Output = Result<Response, BoxedErrorResponse>> + Send,
+{
+	fn handle_error(
+		&mut self,
+		error_response: BoxedErrorResponse,
+	) -> impl Future<Output = Result<Response, BoxedErrorResponse>> + Send {
+		self(error_response)
+	}
+}
+
+// --------------------------------------------------
+// ExtensionsModifier
+
+/// A trait for request [`Extensions`] modifiers.
+pub trait ExtensionsModifier {
+	fn modify_extensions(&self, extensions: &mut Extensions);
+}
+
+impl<Func> ExtensionsModifier for Func
+where
+	Func: Fn(&mut Extensions) + Clone,
+{
+	fn modify_extensions(&self, extensions: &mut Extensions) {
+		self(extensions)
 	}
 }
 

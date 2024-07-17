@@ -874,7 +874,10 @@ impl Handler for ResourceRequestHandler {
 
 #[cfg(all(test, feature = "full"))]
 mod test {
-	use http::header::{ACCEPT_ENCODING, CONTENT_ENCODING};
+	use http::{
+		header::{ACCEPT_ENCODING, CONTENT_ENCODING},
+		Extensions,
+	};
 	use http_body_util::{BodyExt, Empty};
 	use tower_http::compression::CompressionLayer;
 
@@ -1234,9 +1237,11 @@ mod test {
 	async fn resource_request_extensions() {
 		let mut root = Resource::new("/");
 		root.wrap(
-			RequestReceiver.component_in(RequestExtensionsModifierLayer::new(|extensions| {
-				extensions.insert("Hello from Handler!".to_string());
-			})),
+			RequestReceiver.component_in(RequestExtensionsModifierLayer::new(
+				|extensions: &mut Extensions| {
+					extensions.insert("Hello from Handler!".to_string());
+				},
+			)),
 		);
 
 		root
