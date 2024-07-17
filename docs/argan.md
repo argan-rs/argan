@@ -524,6 +524,119 @@ instead, it can be applied to the *request handler* component.
 See also [`Router::wrap()`], [`Resource::wrap()`], and
 [`IntoHandler::wrapped_in()`](crate::handler::IntoHandler::wrapped_in()) for more information.
 
+## Extensions
+
+In Argan, extensions can be added to handlers and nodes ([`Resource`], [`Router`]). Handlers have
+access to these extensions via the [`Args`] parameter.
+
+A handler extension can be added using the
+[`IntoHandler::with_extension()`](crate::handler::IntoHandler::with_extension()) method, and its
+type is known at compile time.
+
+```
+use argan::prelude::*;
+
+#[derive(Clone)]
+struct State {
+	// ...
+}
+
+async fn handler(args: Args<'static, State>) {
+	let state = args.handler_extension;
+
+	// ...
+}
+
+// ...
+
+let state = State { /* ... */ };
+
+let mut resource = Resource::new("/resource");
+resource.set_handler_for(Method::GET.to(handler.with_extension(state)));
+```
+
+Node's extension is available to all handlers and middleware that were applied to those
+handlers, so its type is erased and must be cast to its concrete type at runtime. Also,
+node's subresources can access the extension unless they have their own extension, which
+replaces the existing [`NodeExtension`] in the [`Args`] while the request is being routed.
+
+```
+use argan::prelude::*;
+
+#[derive(Clone)]
+struct State {
+	// ...
+}
+
+async fn get_handler(mut args: Args<'static, ()>) {
+    // In handler functions, fields of `Args` are already owned clones, so the
+    // following `into_owned()` method simply returns the inner value of the `Cow`.
+	let state = args.node_extension.into_owned().downcast_to::<State>()
+		.expect("`State` should have been added to the resource");
+
+	// ...
+}
+
+async fn post_handler(mut args: Args<'static, ()>) {
+	let state = args.node_extension.into_owned().downcast_to::<State>()
+		.expect("`State` should have been added to the resource");
+
+	// ...
+}
+
+// ...
+
+let state = State { /* ... */ };
+
+let mut resource = Resource::new("/resource");
+resource.set_extension(state);
+
+resource.set_handler_for([
+    Method::GET.to(get_handler),
+    Method::POST.to(post_handler),
+]);
+```
+
+Another way of making a state available is by using [`Request`] extensions. Each node's
+components can be wrapped in a [`RequestExtensionsModifierLayer`] that uses the provided
+[`ExtensionsModifier`] implementor to add and remove extensions while the request is being
+routed.
+
+```
+use argan::prelude::*;
+
+#[derive(Clone)]
+struct State {
+	// ...
+}
+
+async fn handler(request_head: RequestHead) -> ResponseResult {
+	let state = request_head
+		.extensions_ref()
+		.get::<State>()
+		.ok_or(ResponseError::from(StatusCode::INTERNAL_SERVER_ERROR))?;
+
+	// ...
+	
+	().into_response_result()
+}
+
+// ...
+
+let state = State { /* ... */ };
+
+let mut root = Resource::new("/");
+root.wrap(RequestReceiver.component_in(RequestExtensionsModifierLayer::new(
+    move |extensions: &mut Extensions| {
+        let state_clone = state.clone();
+        extensions.insert(state_clone);
+    }
+)));
+
+let mut resource = root.subresource_mut("/resource");
+resource.set_handler_for(Method::GET.to(handler));
+```
+
 ## Feature flags
 
 | feature flag      | enables                                      |
@@ -546,12 +659,16 @@ By default, "private-cookies", "query-params", "json", and "form" feature flags 
 
 [`Handler`]: crate::handler::Handler
 [`Args`]: crate::handler::Args
-[`ErrorHandler`]: crate::handler::ErrorHandler
+[`ErrorHandler`]: crate::common::ErrorHandler
+[`ExtensionsModifier`]: crate::common::ExtensionsModifier
+[`NodeExtension`]: crate::common::NodeExtension
 [`ErrorHandlerLayer`]: crate::middleware::ErrorHandlerLayer
 [`Layer`]: crate::middleware::Layer
+[`RequestExtensionsModifierLayer`]: crate::middleware::RequestExtensionsModifierLayer
 [`Response`]: crate::response::Response
 [`IntoResponse`]: crate::response::IntoResponse
 [`ErrorResponse`]: crate::response::ErrorResponse
+[`Request`]: crate::request::Request
 [`RequestHead`]: crate::request::RequestHead
 [`FromRequest`]: crate::request::FromRequest
 [`ExtractorGuard`]: crate::request::ExtractorGuard

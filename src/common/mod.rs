@@ -252,7 +252,7 @@ pub(crate) fn normalize_path(path: &str) -> String {
 // --------------------------------------------------
 // NodeExtension
 
-/// An Extension of a node ([`Router`](crate::Router), [`Resource`](crate::Resource)).
+/// An extension of a node ([`Router`](crate::Router), [`Resource`](crate::Resource)).
 ///
 /// Available in the [`Args`](crate::handler::Args) while the request is being routed.
 pub struct NodeExtension(Option<Box<dyn AnyCloneable + Send + Sync>>);
