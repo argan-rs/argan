@@ -26,70 +26,39 @@ Cargo.toml
 
 ```Rust
 [dependencies]
-argan = { version = "0.0.1", features = ["json", "form"] }
-hyper-util = { version = "0.1", features = ["server-auto", "tokio", "service"] }
+argan = "0.0.2"
+hyper-util = { version = "0.1", features = ["server-auto", "tokio"] }
 serde = { version = "1", features = ["derive"] }
-tokio = { version = "1", features = ["net", "rt-multi-thread", "macros"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
 ```
 
 main.rs
 
 ```Rust
-use std::net::SocketAddr;
+use std::time::Duration;
 
 use argan::{
-	common::BoxedError,
 	data::{form::Form, json::Json},
-	handler::{_get, _post, _wildcard_method},
-	request::RequestHead,
-	response::Redirect,
-	Router,
+	middleware::RedirectionLayer,
+	prelude::*,
 };
 
-use hyper_util::{
-	rt::{TokioExecutor, TokioIo},
-	server::conn::auto as server,
-};
+use hyper_util::{rt::TokioExecutor, server::conn::auto::Builder};
 use serde::{Deserialize, Serialize};
-use tokio::net::TcpListener;
 
-#[tokio::main]
-async fn main() -> Result<(), BoxedError> {
-	let mut router = Router::new();
+// --------------------------------------------------------------------------------
 
-	let root = router.resource_mut("http://www.example.com/");
-	root.set_handler_for(_get.to(|| async { "Hello, World!" }));
-
-	root.subresource_mut("/login").set_handler_for(_post.to(login));
-
-	router
-		.resource_mut("http://example.com/")
-		.set_handler_for(_wildcard_method.to(Some(|head: RequestHead| async move {
-			let path = head.uri_ref().path();
-
-			Redirect::permanently_to(format!("http://www.example.com{}", path))
-		})));
-
-	let arc_service = router.into_arc_service();
-
-	let addr = SocketAddr::from(([127, 0, 0, 1], 8000));
-	let listener = TcpListener::bind(addr).await?;
-
-	loop {
-		let (stream, _) = listener.accept().await?;
-
-		let io = TokioIo::new(stream);
-		let arc_service = arc_service.clone();
-
-		tokio::task::spawn(async move {
-			let _ = server::Builder::new(TokioExecutor::new())
-				.serve_connection(io, arc_service)
-				.await;
-		});
-	}
+#[derive(Deserialize)]
+struct Credentials {
+	// ...
 }
 
-async fn login(Form(_credential): Form<Credentials>) -> Json<Token> {
+#[derive(Serialize)]
+struct Token {
+	jwt: String,
+}
+
+async fn login(Form(credential): Form<Credentials>) -> Json<Token> {
 	// ...
 
 	let token = Token {
@@ -99,21 +68,57 @@ async fn login(Form(_credential): Form<Credentials>) -> Json<Token> {
 	Json(token)
 }
 
-#[derive(Deserialize)]
-struct Credentials {
-	login: String,
-	password: String,
+async fn echo(request_head: RequestHead) -> String {
+	request_head.subtree_path_segments().to_owned()
 }
 
-#[derive(Serialize)]
-struct Token {
-	jwt: String,
+// --------------------------------------------------
+
+#[tokio::main]
+async fn main() -> Result<(), BoxedError> {
+	let mut router = Router::new();
+
+	let mut root = Resource::new("http://www.example.com/");
+	root.set_handler_for(Method::GET.to(|| async { "Hello, World!" }));
+
+	// Subresources can be created from a parent node (`Resource`, `Router`).
+	root
+		.subresource_mut("/login")
+		.set_handler_for(Method::POST.to(login));
+
+	router.add_resource(root);
+
+	router
+		.resource_mut("http://example.com/")
+		.wrap(
+			RequestReceiver.component_in(RedirectionLayer::for_permanent_redirection_to_prefix(
+				"http://www.example.com/",
+			)),
+		);
+
+	// A hostless resource responds to requests targeting any other host that
+	// the router doesn't include.
+	//
+	// With the question mark '?' following its pattern, the resource accepts
+	// a request with or without a trailing slash '/'. With asterisk '*', it
+	// accepts requests that target non-existent subresources.
+	router
+		.resource_mut("/echo ?*")
+		.set_handler_for(Method::GET.to(echo));
+
+	let arc_service = router.into_arc_service();
+
+	let connection_builder = Builder::new(TokioExecutor::new());
+
+	Server::new(connection_builder)
+		.with_graceful_shutdown_duration(Duration::from_secs(3))
+		.serve(arc_service, "127.0.0.1:8000")
+		.await
+		.map_err(Into::into)
 }
 ```
 
 ## Contributions
-
-Pull requests are accepted on the `dev` branch.
 
 Any contribution intentionally submitted for inclusion in Argan by you shall be dual licensed
 under the MIT License and Apache License, Version 2.0, like Argan, without any additional terms
