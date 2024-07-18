@@ -16,6 +16,9 @@ use super::{AdaptiveHandler, ArcHandler, Args, BoxedHandler, FinalHandler, Handl
 // --------------------------------------------------------------------------------
 // --------------------------------------------------------------------------------
 
+// --------------------------------------------------
+// MethodHandlers
+
 #[derive(Clone)]
 pub(crate) struct MethodHandlers {
 	pub(crate) method_handlers_list: Vec<(Method, BoxedHandler)>,
@@ -96,6 +99,7 @@ impl Debug for MethodHandlers {
 }
 
 // --------------------------------------------------
+// WildcardMethodHandler
 
 #[derive(Default, Clone)]
 pub(crate) enum WildcardMethodHandler {
@@ -162,6 +166,7 @@ impl Handler for WildcardMethodHandler {
 }
 
 // --------------------------------------------------
+// ImplementedMethods
 
 #[derive(Debug, Clone)]
 pub(crate) struct ImplementedMethods(Box<str>);
@@ -181,6 +186,7 @@ impl AsRef<str> for ImplementedMethods {
 }
 
 // --------------------------------------------------
+// UnimplementedMethodHandler
 
 #[derive(Default, Clone)]
 pub(crate) struct UnimplementedMethodHandler;
@@ -232,7 +238,7 @@ impl IntoResponse for AllowHeaderError {
 }
 
 // --------------------------------------------------------------------------------
-// Mistargeted Request Handler (404 Not Found)
+// MistargetedRequestHandler (404 Not Found)
 
 #[derive(Default, Clone)]
 pub(crate) struct MistargetedRequestHandler;
@@ -250,7 +256,7 @@ impl Handler for MistargetedRequestHandler {
 	type Future = BoxedFuture<Result<Self::Response, Self::Error>>;
 
 	fn handle(&self, _request_context: RequestContext, _args: Args) -> Self::Future {
-		Box::pin(async { Ok(StatusCode::NOT_FOUND.into_response()) })
+		Box::pin(async { Ok(StatusCode::NOT_FOUND.into_response()) }) // ???
 	}
 }
 

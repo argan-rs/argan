@@ -177,7 +177,7 @@ impl<B> RequestContext<B> {
 		serde_urlencoded::from_str::<T>(query_string).map_err(QueryParamsError::InvalidData)
 	}
 
-	/// Returns the remaining segments of the request's path.
+	/// Returns the remaining segments of the request's path without the preceding slash `/`.
 	///
 	/// As the request passes through the tree of resources that match the path segments of
 	/// its target URI, this method can be used to get the remaining path segments from the
@@ -562,7 +562,7 @@ impl RequestHead {
 		serde_urlencoded::from_str::<T>(query_string).map_err(QueryParamsError::InvalidData)
 	}
 
-	/// Returns the remaining segments of the request's path.
+	/// Returns the remaining segments of the request's path without the preceding slash `/`.
 	///
 	/// This method is intended to be used by subtree handler resources when there is no resource
 	/// that matches the request's target in their subtree.

@@ -156,7 +156,6 @@ macro_rules! declare_deserialize_for_simple_types {
 			where
 				V: Visitor<'de>,
 			{
-				println!("[{}] from params: {}", line!(), stringify!($deserialize));
 				self.current_valid_param_value().ok_or(DeserializerError::NoDataIsAvailable).and_then(
 					|some_value| FromStr::new(some_value).$deserialize(visitor),
 				)
@@ -200,7 +199,6 @@ impl<'de, 'a> Deserializer<'de> for &'a mut FromParams<'de> {
 	where
 		V: Visitor<'de>,
 	{
-		println!("[{}] from params: deserialize_unit_struct", line!());
 		visitor.visit_unit()
 	}
 
@@ -212,7 +210,6 @@ impl<'de, 'a> Deserializer<'de> for &'a mut FromParams<'de> {
 	where
 		V: Visitor<'de>,
 	{
-		println!("[{}] from params: deserialize_newtype_struct", line!());
 		visitor.visit_newtype_struct(self)
 	}
 
@@ -220,7 +217,6 @@ impl<'de, 'a> Deserializer<'de> for &'a mut FromParams<'de> {
 	where
 		V: Visitor<'de>,
 	{
-		println!("[{}] from params: deserialize_seq", line!());
 		self.data_type = DataType::Sequence;
 		visitor.visit_seq(FromParamsSeqAccess::new(self))
 	}
@@ -229,7 +225,6 @@ impl<'de, 'a> Deserializer<'de> for &'a mut FromParams<'de> {
 	where
 		V: Visitor<'de>,
 	{
-		println!("[{}] from params: deserialize_tuple", line!());
 		self.data_type = DataType::Tuple;
 		visitor.visit_seq(FromParamsSeqAccess::new(self))
 	}
@@ -243,7 +238,6 @@ impl<'de, 'a> Deserializer<'de> for &'a mut FromParams<'de> {
 	where
 		V: Visitor<'de>,
 	{
-		println!("[{}] from params: deserialize_tuple_struct", line!());
 		self.data_type = DataType::Tuple;
 		visitor.visit_seq(FromParamsSeqAccess::new(self))
 	}
@@ -252,7 +246,6 @@ impl<'de, 'a> Deserializer<'de> for &'a mut FromParams<'de> {
 	where
 		V: Visitor<'de>,
 	{
-		println!("[{}] from params: deserialize_map", line!());
 		self.data_type = DataType::Map;
 		visitor.visit_map(FromParamsMapAccess::new(self))
 	}
@@ -266,7 +259,6 @@ impl<'de, 'a> Deserializer<'de> for &'a mut FromParams<'de> {
 	where
 		V: Visitor<'de>,
 	{
-		println!("[{}] from params: deserialize_struct", line!());
 		self.data_type = DataType::Struct;
 		visitor.visit_map(FromParamsMapAccess::new(self))
 	}
@@ -280,7 +272,6 @@ impl<'de, 'a> Deserializer<'de> for &'a mut FromParams<'de> {
 	where
 		V: Visitor<'de>,
 	{
-		println!("[{}] from params: deserialize_enum", line!());
 		visitor.visit_enum(FromParamsEnumAccess::new(self))
 	}
 }
@@ -303,17 +294,14 @@ impl<'de, 'a> SeqAccess<'de> for FromParamsSeqAccess<'a, 'de> {
 	where
 		T: DeserializeSeed<'de>,
 	{
-		println!("[{}] from params: next_element_seed", line!());
 		if self.0.high_level_data_type == DataType::Sequence && self.0.data_type == DataType::Tuple {
 			let some_name = self.0.current_valid_param_name();
 			if some_name.is_some() {
-				println!("[{}] name: {:?}", line!(), some_name);
 				return seed.deserialize(FromStr::new(some_name)).map(Some);
 			}
 		}
 
 		if let Some(some_value) = self.0.current_valid_param_value() {
-			println!("[{}] value: {:?}", line!(), some_value);
 			return seed.deserialize(FromStr::new(some_value)).map(Some);
 		}
 
@@ -339,11 +327,8 @@ impl<'de, 'a> MapAccess<'de> for FromParamsMapAccess<'a, 'de> {
 	where
 		K: DeserializeSeed<'de>,
 	{
-		println!("[{}] from params: next_key_seed", line!());
 		let some_name = self.0.current_valid_param_name();
 		if some_name.is_some() {
-			println!("[{}] name: {:?}", line!(), some_name);
-
 			return seed.deserialize(FromStr::new(some_name)).map(Some);
 		}
 
@@ -354,10 +339,7 @@ impl<'de, 'a> MapAccess<'de> for FromParamsMapAccess<'a, 'de> {
 	where
 		V: DeserializeSeed<'de>,
 	{
-		println!("[{}] from params: next_value_seed", line!());
 		if let Some(some_value) = self.0.current_valid_param_value() {
-			println!("[{}] value: {:?}", line!(), some_value);
-
 			return seed.deserialize(FromStr::new(some_value));
 		}
 
@@ -384,7 +366,6 @@ impl<'de, 'a> EnumAccess<'de> for FromParamsEnumAccess<'a, 'de> {
 	where
 		V: DeserializeSeed<'de>,
 	{
-		println!("[{}] from params: variant_seed", line!());
 		let value = seed.deserialize(&mut *self.0)?;
 
 		Ok((value, self))
@@ -395,7 +376,6 @@ impl<'de, 'a> VariantAccess<'de> for FromParamsEnumAccess<'a, 'de> {
 	type Error = DeserializerError;
 
 	fn unit_variant(self) -> Result<(), Self::Error> {
-		println!("[{}] from params: unit_variant", line!());
 		Ok(())
 	}
 
@@ -403,7 +383,6 @@ impl<'de, 'a> VariantAccess<'de> for FromParamsEnumAccess<'a, 'de> {
 	where
 		T: DeserializeSeed<'de>,
 	{
-		println!("[{}] from params: newtype_variant_seed", line!());
 		seed.deserialize(self.0)
 	}
 
@@ -411,7 +390,6 @@ impl<'de, 'a> VariantAccess<'de> for FromParamsEnumAccess<'a, 'de> {
 	where
 		V: Visitor<'de>,
 	{
-		println!("[{}] from params: tuple_variant", line!());
 		self.0.deserialize_seq(visitor)
 	}
 
@@ -423,7 +401,6 @@ impl<'de, 'a> VariantAccess<'de> for FromParamsEnumAccess<'a, 'de> {
 	where
 		V: Visitor<'de>,
 	{
-		println!("[{}] from params: struct_variant", line!());
 		self.0.deserialize_map(visitor)
 	}
 }
