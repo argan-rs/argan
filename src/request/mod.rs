@@ -16,6 +16,7 @@ use http::{Extensions, HeaderMap, HeaderValue, Method, StatusCode, Uri, Version}
 use serde::Deserialize;
 
 use crate::{
+	common::header_utils::{host_header_value, HostHeaderError},
 	handler::Args,
 	pattern::{self, ParamsList},
 	response::{BoxedErrorResponse, IntoResponse, Response},
@@ -290,10 +291,12 @@ impl<B> RequestContext<B> {
 	}
 
 	#[inline(always)]
-	pub(crate) fn routing_host_and_uri_params_mut(&mut self) -> Option<(&str, &mut ParamsList)> {
-		let host = self.request.uri().host()?;
+	pub(crate) fn routing_host_and_uri_params_mut(
+		&mut self,
+	) -> Result<(&str, &mut ParamsList), HostHeaderError> {
+		let host = host_header_value(&self.request)?;
 
-		Some((host, &mut self.routing_state.uri_params))
+		Ok((host, &mut self.routing_state.uri_params))
 	}
 
 	#[inline(always)]

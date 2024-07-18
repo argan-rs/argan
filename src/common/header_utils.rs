@@ -1,9 +1,12 @@
 use std::num::ParseFloatError;
 
-use argan_core::request::RequestHeadParts;
+use argan_core::{
+	request::{Request, RequestHeadParts},
+	response::{IntoResponse, Response},
+};
 use http::{
-	header::{ToStrError, CONTENT_TYPE},
-	HeaderValue,
+	header::{ToStrError, CONTENT_TYPE, HOST},
+	HeaderValue, StatusCode,
 };
 
 use crate::ImplError;
@@ -30,6 +33,48 @@ pub(crate) enum ContentTypeError {
 	Missing,
 	#[error(transparent)]
 	InvalidValue(#[from] ToStrError),
+}
+
+impl IntoResponse for ContentTypeError {
+	fn into_response(self) -> Response {
+		StatusCode::BAD_REQUEST.into_response()
+	}
+}
+
+// --------------------------------------------------------------------------------
+
+pub(crate) fn host_header_value<B>(request: &Request<B>) -> Result<&str, HostHeaderError> {
+	let authority = if let Some(host_value) = request.headers().get(HOST) {
+		host_value.to_str()?
+	} else {
+		request.uri().host().ok_or(HostHeaderError::Missing)?
+	};
+
+	if let Some((host, _)) = authority.rsplit_once(':') {
+		// We have to check if the host is given as an IPv6 address.
+		return Ok(
+			host
+				.strip_suffix(']')
+				.and_then(|host| host.strip_prefix('['))
+				.unwrap_or(host),
+		);
+	}
+
+	Ok(authority)
+}
+
+#[derive(Debug, ImplError)]
+pub(crate) enum HostHeaderError {
+	#[error("missing Host header")]
+	Missing,
+	#[error(transparent)]
+	InvalidValue(#[from] ToStrError),
+}
+
+impl IntoResponse for HostHeaderError {
+	fn into_response(self) -> Response {
+		StatusCode::BAD_REQUEST.into_response()
+	}
 }
 
 // --------------------------------------------------------------------------------
@@ -107,6 +152,12 @@ pub(crate) enum SplitHeaderValueError {
 	InvalidQualitySpecifier,
 	#[error(transparent)]
 	ParseFloatError(#[from] ParseFloatError),
+}
+
+impl IntoResponse for SplitHeaderValueError {
+	fn into_response(self) -> Response {
+		StatusCode::BAD_REQUEST.into_response()
+	}
 }
 
 // --------------------------------------------------------------------------------

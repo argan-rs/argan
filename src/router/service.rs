@@ -2,6 +2,7 @@ use std::{convert::Infallible, future::ready, net::SocketAddr, sync::Arc};
 
 use argan_core::{
 	body::{Body, HttpBody},
+	response::ErrorResponse,
 	BoxedError, BoxedFuture,
 };
 use bytes::Bytes;
@@ -9,7 +10,9 @@ use http::StatusCode;
 use hyper::service::Service;
 
 use crate::{
-	common::{marker::Sealed, CloneWithPeerAddr, MaybeBoxed, NodeExtension},
+	common::{
+		header_utils::HostHeaderError, marker::Sealed, CloneWithPeerAddr, MaybeBoxed, NodeExtension,
+	},
 	handler::{Args, BoxedHandler, Handler},
 	host::FinalHost,
 	middleware::{targets::LayerTarget, Layer},
@@ -376,27 +379,31 @@ where
 
 	fn handle(&self, mut request: RequestContext<B>, args: Args) -> Self::Future {
 		#[allow(unused_variables)]
-		if let Some((uri_host, uri_params)) = request.routing_host_and_uri_params_mut() {
-			if let Some(host) = self.some_static_hosts.as_ref().and_then(|hosts| {
-				hosts.iter().find(|host| {
-					host
-						.is_static_match(uri_host)
-						.expect("static_hosts must keep only the hosts with a static pattern")
-				})
-			}) {
-				return host.handle(request, args);
-			}
+		match request.routing_host_and_uri_params_mut() {
+			Ok((uri_host, uri_params)) => {
+				if let Some(host) = self.some_static_hosts.as_ref().and_then(|hosts| {
+					hosts.iter().find(|host| {
+						host
+							.is_static_match(uri_host)
+							.expect("static_hosts must keep only the hosts with a static pattern")
+					})
+				}) {
+					return host.handle(request, args);
+				}
 
-			#[cfg(feature = "regex")]
-			if let Some(host) = self.some_regex_hosts.as_ref().and_then(|hosts| {
-				hosts.iter().find(|host| {
-					host
-						.is_regex_match(uri_host, uri_params)
-						.expect("regex_hosts must keep only the hosts with a static pattern")
-				})
-			}) {
-				return host.handle(request, args);
+				#[cfg(feature = "regex")]
+				if let Some(host) = self.some_regex_hosts.as_ref().and_then(|hosts| {
+					hosts.iter().find(|host| {
+						host
+							.is_regex_match(uri_host, uri_params)
+							.expect("regex_hosts must keep only the hosts with a static pattern")
+					})
+				}) {
+					return host.handle(request, args);
+				}
 			}
+			Err(HostHeaderError::Missing) => {}
+			Err(error) => return Box::pin(ready(error.into_error_result())),
 		}
 
 		if let Some(root_resource) = self.some_root_resource.as_deref() {
@@ -412,7 +419,10 @@ where
 
 #[cfg(all(test, feature = "full"))]
 mod test {
-	use http::{header::LOCATION, Extensions, Method};
+	use http::{
+		header::{HOST, LOCATION},
+		Extensions, Method,
+	};
 	use http_body_util::{BodyExt, Empty};
 
 	use crate::{
@@ -866,7 +876,8 @@ mod test {
 		let service = router.into_service();
 
 		let request = Request::builder()
-			.uri("http://example.com/resource")
+			.uri("/resource")
+			.header(HOST, "example.com")
 			.body(Empty::default())
 			.unwrap();
 
