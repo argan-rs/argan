@@ -1,9 +1,6 @@
 use std::{borrow::Cow, str::Utf8Error};
 
-use argan_core::{
-	request::Request,
-	response::{IntoResponse, Response},
-};
+use argan_core::response::{IntoResponse, Response};
 use http::{HeaderName, HeaderValue, Method, StatusCode, Uri};
 use percent_encoding::percent_decode_str;
 
@@ -140,45 +137,6 @@ impl<'r> Iterator for RouteSegments<'r> {
 		let (segment, segment_index) = self.route_traversal.next_segment(self.route)?;
 
 		Some((segment, segment_index))
-	}
-}
-
-// --------------------------------------------------
-
-pub(crate) struct UnusedRequest(Request);
-
-impl UnusedRequest {
-	#[inline]
-	pub(crate) fn into_request(self) -> Request {
-		self.0
-	}
-}
-
-impl From<Request> for UnusedRequest {
-	#[inline]
-	fn from(value: Request) -> Self {
-		UnusedRequest(value)
-	}
-}
-
-impl From<UnusedRequest> for Request {
-	#[inline]
-	fn from(value: UnusedRequest) -> Self {
-		value.0
-	}
-}
-
-impl AsRef<Request> for UnusedRequest {
-	#[inline]
-	fn as_ref(&self) -> &Request {
-		&self.0
-	}
-}
-
-impl AsMut<Request> for UnusedRequest {
-	#[inline]
-	fn as_mut(&mut self) -> &mut Request {
-		&mut self.0
 	}
 }
 
