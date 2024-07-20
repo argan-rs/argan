@@ -64,6 +64,7 @@ impl RouteTraversal {
 		route != "/" && route.as_bytes().last().unwrap() == &b'/'
 	}
 
+	#[inline(always)]
 	pub(crate) fn next_segment_index(&self) -> usize {
 		self.0
 	}

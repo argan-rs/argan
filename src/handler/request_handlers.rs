@@ -1,13 +1,15 @@
 use std::{fmt::Debug, future::ready};
 
-use argan_core::BoxedFuture;
+use argan_core::{
+	response::{ErrorResponse, ResponseResult},
+	BoxedFuture,
+};
 use http::{header::InvalidHeaderValue, Extensions, HeaderName, HeaderValue, Method, StatusCode};
 
 use crate::{
-	common::Uncloneable,
 	middleware::{targets::LayerTarget, BoxedLayer, Layer},
 	request::RequestContext,
-	resource::Resource,
+	resource::{NotFoundResourceError, Resource},
 	response::{BoxedErrorResponse, IntoResponse, Response},
 };
 
@@ -294,23 +296,22 @@ pub(crate) fn handle_mistargeted_request(
 	request_context: RequestContext,
 	args: Args,
 	mut some_custom_handler_with_extensions: Option<&ArcHandler>,
-) -> BoxedFuture<Result<Response, BoxedErrorResponse>> {
+) -> BoxedFuture<ResponseResult> {
 	if let Some(mistargeted_request_handler) = some_custom_handler_with_extensions.take() {
-		// Custom handler with a custom 404 Not Found respnose.
+		// Custom handler for mistargeted requests.
 		return mistargeted_request_handler.handle(request_context, args);
 	}
 
-	let mut response = StatusCode::NOT_FOUND.into_response();
-
 	if request_context.noted_subtree_handler() {
-		let args = args.into_owned();
-
-		response
-			.extensions_mut()
-			.insert(Uncloneable::from((request_context, args)));
+		return Box::pin(ready(
+			NotFoundResourceError::new_with_request_context(request_context).into_error_result(),
+		));
 	}
 
-	Box::pin(ready(Ok(response)))
+	let (_, request, ..) = request_context.into_parts();
+	let uri = request.into_parts().0.uri;
+
+	Box::pin(ready(NotFoundResourceError::new(uri).into_error_result()))
 }
 
 // --------------------------------------------------------------------------------

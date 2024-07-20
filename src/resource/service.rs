@@ -1,18 +1,23 @@
-use std::{convert::Infallible, future::ready, net::SocketAddr, sync::Arc};
+use std::{
+	borrow::Cow,
+	convert::Infallible,
+	fmt::{Debug, Display},
+	future::ready,
+	net::SocketAddr,
+	sync::Arc,
+};
 
 use argan_core::{
 	body::{Body, HttpBody},
 	BoxedError, BoxedFuture,
 };
 use bytes::Bytes;
-use http::{Method, StatusCode};
+use http::{Method, StatusCode, Uri};
 use hyper::service::Service;
 use percent_encoding::percent_decode_str;
 
 use crate::{
-	common::{
-		marker::Sealed, CloneWithPeerAddr, MaybeBoxed, NodeExtension, Uncloneable, SCOPE_VALIDITY,
-	},
+	common::{marker::Sealed, CloneWithPeerAddr, MaybeBoxed, NodeExtension, SCOPE_VALIDITY},
 	handler::{
 		request_handlers::{handle_mistargeted_request, ImplementedMethods, WildcardMethodHandler},
 		ArcHandler, Args, BoxedHandler, Handler,
@@ -491,8 +496,9 @@ impl Handler for ResourceRequestReceiver {
 				}
 
 				let next_segment_index = request_context.routing_next_segment_index();
+				let node_extension = args.node_extension.clone(); // Simply cloning a reference.
 
-				let response_future = match request_passer {
+				let response_result_future = match request_passer {
 					MaybeBoxed::Boxed(boxed_request_passer) => {
 						boxed_request_passer.handle(request_context, args)
 					}
@@ -500,7 +506,7 @@ impl Handler for ResourceRequestReceiver {
 				};
 
 				if !resource_is_subtree_handler {
-					return response_future;
+					return response_result_future;
 				}
 
 				let request_handler_clone = self
@@ -508,31 +514,45 @@ impl Handler for ResourceRequestReceiver {
 					.clone()
 					.expect("subtree handler must have a request handler");
 
-				return Box::pin(async move {
-					let mut response = response_future.await?;
-					if response.status() != StatusCode::NOT_FOUND {
-						return Ok(response);
-					}
+				let node_extension = node_extension.into_owned();
 
-					let Some(uncloneable) = response
-						.extensions_mut()
-						.remove::<Uncloneable<(RequestContext, Args)>>()
-					else {
-						// Custom 404 Not Found response.
-						return Ok(response);
+				return Box::pin(async move {
+					let error_response = match response_result_future.await {
+						Ok(response) => return Ok(response),
+						Err(error_response) => error_response,
 					};
 
-					let (mut request, args) = uncloneable
-						.into_inner()
-						.expect("unused request and args should always exist in Uncloneable");
+					let not_found_error = match error_response.downcast_to::<NotFoundResourceError>() {
+						Ok(not_found_error) => not_found_error,
+						Err(error_response) => return Err(error_response),
+					};
 
-					request.routing_revert_to_segment(next_segment_index);
+					// The following `if` statement keeps us from reboxing the error
+					// if it doesn't contain request context.
+					let mut request_context = if not_found_error.contains_request_context() {
+						not_found_error
+							.try_into_request_context()
+							.expect(SCOPE_VALIDITY)
+					} else {
+						return Err(not_found_error);
+					};
+
+					// We need to revert to the next segment index so the remaining path segments
+					// start from that segment.
+					request_context.routing_revert_to_segment(next_segment_index);
+
+					let args = Args {
+						node_extension: Cow::Owned(node_extension),
+						handler_extension: Cow::Borrowed(&()),
+					};
 
 					match request_handler_clone.as_ref() {
 						MaybeBoxed::Boxed(boxed_request_handler) => {
-							boxed_request_handler.handle(request, args).await
+							boxed_request_handler.handle(request_context, args).await
 						}
-						MaybeBoxed::Unboxed(request_handler) => request_handler.handle(request, args).await,
+						MaybeBoxed::Unboxed(request_handler) => {
+							request_handler.handle(request_context, args).await
+						}
 					}
 				});
 			}
@@ -866,6 +886,75 @@ impl Handler for ResourceRequestHandler {
 			.insert(self.implemented_methods.clone());
 
 		self.wildcard_method_handler.handle(request_context, args)
+	}
+}
+
+// --------------------------------------------------
+// NotFoundResourceError
+
+/// Returned when there is no resource found that matches the request's URI.
+#[derive(Debug, crate::ImplError)]
+#[error("{0}")]
+pub struct NotFoundResourceError(InnerNotFoundResourceError);
+
+impl NotFoundResourceError {
+	/// Creates a new error from a URI that's expected to be taken from a mistargeted request.
+	pub fn new(uri: Uri) -> Self {
+		Self(InnerNotFoundResourceError::Uri(uri))
+	}
+
+	pub(crate) fn new_with_request_context(request_context: RequestContext) -> Self {
+		Self(InnerNotFoundResourceError::RequestContext(request_context))
+	}
+
+	/// Returns a reference to the URI that the error was created with.
+	pub fn uri_ref(&self) -> &Uri {
+		match &self.0 {
+			InnerNotFoundResourceError::Uri(uri) => uri,
+			InnerNotFoundResourceError::RequestContext(request_context) => request_context.uri_ref(),
+		}
+	}
+
+	pub(crate) fn contains_request_context(&self) -> bool {
+		matches!(&self.0, InnerNotFoundResourceError::RequestContext(_))
+	}
+
+	pub(crate) fn try_into_request_context(self) -> Result<RequestContext, Self> {
+		if let InnerNotFoundResourceError::RequestContext(request_context) = self.0 {
+			return Ok(request_context);
+		}
+
+		Err(self)
+	}
+}
+
+impl IntoResponse for NotFoundResourceError {
+	fn into_response(self) -> Response {
+		StatusCode::NOT_FOUND.into_response()
+	}
+}
+
+// -------------------------
+
+enum InnerNotFoundResourceError {
+	Uri(Uri),
+	RequestContext(RequestContext),
+}
+
+impl Debug for InnerNotFoundResourceError {
+	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+		Display::fmt(&self, f)
+	}
+}
+
+impl Display for InnerNotFoundResourceError {
+	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+		match self {
+			Self::Uri(uri) => f.write_fmt(format_args!("not found: {}", uri)),
+			Self::RequestContext(request_context) => {
+				f.write_fmt(format_args!("not found: {}", request_context.uri_ref(),))
+			}
+		}
 	}
 }
 

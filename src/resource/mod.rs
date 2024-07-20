@@ -32,7 +32,9 @@ use self::{
 
 mod service;
 pub(crate) use service::FinalResource;
-pub use service::{ArcResourceService, LeakedResourceService, ResourceService};
+pub use service::{
+	ArcResourceService, LeakedResourceService, NotFoundResourceError, ResourceService,
+};
 
 #[cfg(feature = "file-stream")]
 mod static_files;
