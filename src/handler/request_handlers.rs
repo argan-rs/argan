@@ -4,13 +4,13 @@ use argan_core::{
 	response::{ErrorResponse, ResponseResult},
 	BoxedFuture,
 };
-use http::{Extensions, Method, StatusCode, Uri};
+use http::{Extensions, Method, Uri};
 
 use crate::{
 	middleware::{targets::LayerTarget, BoxedLayer, Layer},
 	request::{routing::NotAllowedMethodError, RequestContext},
 	resource::{NotFoundResourceError, Resource},
-	response::{BoxedErrorResponse, IntoResponse, Response},
+	response::{BoxedErrorResponse, Response},
 };
 
 use super::{AdaptiveHandler, ArcHandler, Args, BoxedHandler, FinalHandler, Handler};
@@ -254,8 +254,13 @@ impl Handler for MistargetedRequestHandler {
 	type Error = BoxedErrorResponse;
 	type Future = BoxedFuture<Result<Self::Response, Self::Error>>;
 
-	fn handle(&self, _request_context: RequestContext, _args: Args) -> Self::Future {
-		Box::pin(async { Ok(StatusCode::NOT_FOUND.into_response()) })
+	fn handle(&self, request_context: RequestContext, _args: Args) -> Self::Future {
+		let (_, request, ..) = request_context.into_parts();
+		let (head, _) = request.into_parts();
+
+		Box::pin(ready(
+			NotFoundResourceError::new(head.uri).into_error_result(),
+		))
 	}
 }
 

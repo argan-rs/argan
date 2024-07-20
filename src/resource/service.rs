@@ -204,15 +204,9 @@ where
 
 			// If pattern is static, we may match it without decoding the segment.
 			// Static patterns keep percent-encoded string.
-			if let Some(result) = self.resource_ref().pattern.is_static_match(next_segment) {
-				result
-			} else {
-				let Ok(decoded_segment) = percent_decode_str(next_segment).decode_utf8() else {
-					return InfallibleResponseFuture::from(Box::pin(ready(Ok(
-						StatusCode::NOT_FOUND.into_response(),
-					))));
-				};
-
+			if let Some(match_result) = self.resource_ref().pattern.is_static_match(next_segment) {
+				match_result
+			} else if let Ok(decoded_segment) = percent_decode_str(next_segment).decode_utf8() {
 				#[cfg(not(feature = "regex"))]
 				let some_match_result = None;
 
@@ -222,8 +216,8 @@ where
 					.pattern
 					.is_regex_match(decoded_segment.as_ref(), &mut path_params);
 
-				if let Some(result) = some_match_result {
-					result
+				if let Some(match_result) = some_match_result {
+					match_result
 				} else {
 					self
 						.resource_ref()
@@ -231,13 +225,13 @@ where
 						.is_wildcard_match(decoded_segment, &mut path_params)
 						.expect("wildcard_resource must keep only a resource with a wilcard pattern")
 				}
+			} else {
+				false
 			}
 		};
 
 		let mut routing_state = RoutingState::new(route_traversal);
 		routing_state.uri_params = path_params;
-
-		let args = Args::new_with_node_extension_ref(&self.resource_ref().extension);
 
 		let request_context = RequestContext::new(
 			#[cfg(feature = "peer-addr")]
@@ -246,6 +240,8 @@ where
 			routing_state,
 			self.resource_ref().request_context_properties.clone(),
 		);
+
+		let args = Args::new_with_node_extension_ref(&self.resource_ref().extension);
 
 		if matched {
 			match &self.resource_ref().request_receiver {

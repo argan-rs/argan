@@ -6,7 +6,6 @@ use argan_core::{
 	BoxedError, BoxedFuture,
 };
 use bytes::Bytes;
-use http::StatusCode;
 use hyper::service::Service;
 
 use crate::{
@@ -20,8 +19,8 @@ use crate::{
 		routing::{RouteTraversal, RoutingState},
 		Request, RequestContext, RequestContextProperties,
 	},
-	resource::FinalResource,
-	response::{BoxedErrorResponse, InfallibleResponseFuture, IntoResponse, Response},
+	resource::{FinalResource, NotFoundResourceError},
+	response::{BoxedErrorResponse, InfallibleResponseFuture, Response},
 };
 
 #[cfg(feature = "peer-addr")]
@@ -141,8 +140,6 @@ where
 	fn call(&self, request: Request<B>) -> Self::Future {
 		let routing_state = RoutingState::new(RouteTraversal::for_route(request.uri().path()));
 
-		let args = Args::new_with_node_extension_ref(&self.router_ref().extension);
-
 		let request_context = RequestContext::new(
 			#[cfg(feature = "peer-addr")]
 			self.peer_addr,
@@ -150,6 +147,8 @@ where
 			routing_state,
 			self.router_ref().request_context_properties.clone(),
 		);
+
+		let args = Args::new_with_node_extension_ref(&self.router_ref().extension);
 
 		match &self.router_ref().request_passer {
 			MaybeBoxed::Boxed(boxed_request_passer) => InfallibleResponseFuture::from(
@@ -377,9 +376,9 @@ where
 	type Error = BoxedErrorResponse;
 	type Future = BoxedFuture<Result<Self::Response, Self::Error>>;
 
-	fn handle(&self, mut request: RequestContext<B>, args: Args) -> Self::Future {
+	fn handle(&self, mut request_context: RequestContext<B>, args: Args) -> Self::Future {
 		#[allow(unused_variables)]
-		match request.routing_host_and_uri_params_mut() {
+		match request_context.routing_host_and_uri_params_mut() {
 			Ok((uri_host, uri_params)) => {
 				if let Some(host) = self.some_static_hosts.as_ref().and_then(|hosts| {
 					hosts.iter().find(|host| {
@@ -388,7 +387,7 @@ where
 							.expect("static_hosts must keep only the hosts with a static pattern")
 					})
 				}) {
-					return host.handle(request, args);
+					return host.handle(request_context, args);
 				}
 
 				#[cfg(feature = "regex")]
@@ -399,7 +398,7 @@ where
 							.expect("regex_hosts must keep only the hosts with a static pattern")
 					})
 				}) {
-					return host.handle(request, args);
+					return host.handle(request_context, args);
 				}
 			}
 			Err(HostHeaderError::Missing) => {}
@@ -407,10 +406,15 @@ where
 		}
 
 		if let Some(root_resource) = self.some_root_resource.as_deref() {
-			return root_resource.handle(request, args);
+			return root_resource.handle(request_context, args);
 		}
 
-		Box::pin(ready(Ok(StatusCode::NOT_FOUND.into_response())))
+		let (_, request, ..) = request_context.into_parts();
+		let (head, _) = request.into_parts();
+
+		Box::pin(ready(
+			NotFoundResourceError::new(head.uri).into_error_result(),
+		))
 	}
 }
 
@@ -421,7 +425,7 @@ where
 mod test {
 	use http::{
 		header::{HOST, LOCATION},
-		Extensions, Method,
+		Extensions, Method, StatusCode,
 	};
 	use http_body_util::{BodyExt, Empty};
 
