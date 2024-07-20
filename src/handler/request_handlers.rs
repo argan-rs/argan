@@ -4,11 +4,11 @@ use argan_core::{
 	response::{ErrorResponse, ResponseResult},
 	BoxedFuture,
 };
-use http::{header::InvalidHeaderValue, Extensions, HeaderName, HeaderValue, Method, StatusCode};
+use http::{Extensions, Method, StatusCode, Uri};
 
 use crate::{
 	middleware::{targets::LayerTarget, BoxedLayer, Layer},
-	request::RequestContext,
+	request::{routing::NotAllowedMethodError, RequestContext},
 	resource::{NotFoundResourceError, Resource},
 	response::{BoxedErrorResponse, IntoResponse, Response},
 };
@@ -26,7 +26,7 @@ pub(crate) struct MethodHandlers {
 	pub(crate) method_handlers_list: Vec<(Method, BoxedHandler)>,
 	pub(crate) wildcard_method_handler: WildcardMethodHandler,
 
-	pub(crate) implemented_methods: String,
+	pub(crate) supported_methods: String,
 }
 
 impl MethodHandlers {
@@ -35,7 +35,7 @@ impl MethodHandlers {
 			method_handlers_list: Vec::new(),
 			wildcard_method_handler: WildcardMethodHandler::Default,
 
-			implemented_methods: String::new(),
+			supported_methods: String::new(),
 		}
 	}
 
@@ -62,11 +62,11 @@ impl MethodHandlers {
 			panic!("\"{}\" handler already exists", method)
 		}
 
-		if !self.implemented_methods.is_empty() {
-			self.implemented_methods.push_str(", ");
+		if !self.supported_methods.is_empty() {
+			self.supported_methods.push_str(", ");
 		}
 
-		self.implemented_methods.push_str(method.as_str());
+		self.supported_methods.push_str(method.as_str());
 		self.method_handlers_list.push((method, handler));
 	}
 
@@ -93,9 +93,14 @@ impl Debug for MethodHandlers {
 	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
 		write!(
 			f,
-			"MethodHandlers {{ method_handlers count: {}, wildcard_method_handler exists: {} }}",
+			"MethodHandlers {{
+				method_handlers count: {},
+				wildcard_method_handler exists: {},
+				supported methods: {}
+			}}",
 			self.method_handlers_list.len(),
 			self.wildcard_method_handler.is_custom(),
+			self.supported_methods.as_str(),
 		)
 	}
 }
@@ -126,7 +131,7 @@ impl WildcardMethodHandler {
 
 	pub(crate) fn wrap(&mut self, boxed_layer: BoxedLayer) {
 		let boxed_handler = match self {
-			Self::Default => BoxedHandler::new(UnimplementedMethodHandler),
+			Self::Default => BoxedHandler::new(UnsupportedMethodHandler),
 			Self::Custom(boxed_handler) => std::mem::take(boxed_handler),
 			Self::None(_) => panic!("middleware was provided for a forbidden wildcard method handler"),
 		};
@@ -156,7 +161,12 @@ impl Handler for WildcardMethodHandler {
 
 	fn handle(&self, request_context: RequestContext, args: Args) -> Self::Future {
 		match self {
-			Self::Default => handle_unimplemented_method(request_context.extensions_ref()),
+			Self::Default => {
+				let (_, request, ..) = request_context.into_parts();
+				let (head, ..) = request.into_parts();
+
+				handle_unsupported_method(head.uri, head.method, head.extensions)
+			}
 			Self::Custom(boxed_handler) => boxed_handler.handle(request_context, args),
 			Self::None(some_mistargeted_request_handler) => handle_mistargeted_request(
 				request_context,
@@ -171,16 +181,16 @@ impl Handler for WildcardMethodHandler {
 // ImplementedMethods
 
 #[derive(Debug, Clone)]
-pub(crate) struct ImplementedMethods(Box<str>);
+pub(crate) struct SupportedMethods(Box<str>);
 
-impl ImplementedMethods {
+impl SupportedMethods {
 	#[inline(always)]
 	pub(crate) fn new(implemented_methods: String) -> Self {
 		Self(implemented_methods.into())
 	}
 }
 
-impl AsRef<str> for ImplementedMethods {
+impl AsRef<str> for SupportedMethods {
 	#[inline(always)]
 	fn as_ref(&self) -> &str {
 		&self.0
@@ -191,52 +201,39 @@ impl AsRef<str> for ImplementedMethods {
 // UnimplementedMethodHandler
 
 #[derive(Default, Clone)]
-pub(crate) struct UnimplementedMethodHandler;
+pub(crate) struct UnsupportedMethodHandler;
 
-impl Handler for UnimplementedMethodHandler {
+impl Handler for UnsupportedMethodHandler {
 	type Response = Response;
 	type Error = BoxedErrorResponse;
 	type Future = BoxedFuture<Result<Self::Response, Self::Error>>;
 
 	fn handle(&self, request_context: RequestContext, _args: Args) -> Self::Future {
-		handle_unimplemented_method(request_context.extensions_ref())
+		let (_, request, ..) = request_context.into_parts();
+		let (head, ..) = request.into_parts();
+
+		handle_unsupported_method(head.uri, head.method, head.extensions)
 	}
 }
 
 // -------------------------
 
-pub(crate) fn handle_unimplemented_method(
-	extensions: &Extensions,
+pub(crate) fn handle_unsupported_method(
+	resource_uri: Uri,
+	unsupported_method: Method,
+	mut extensions: Extensions,
 ) -> BoxedFuture<Result<Response, BoxedErrorResponse>> {
-	let mut response = StatusCode::METHOD_NOT_ALLOWED.into_response();
+	let supported_methods = extensions
+		.remove::<SupportedMethods>()
+		.expect("resource {} should have at least one supported method");
 
-	let Some(implemented_methods) = extensions.get::<ImplementedMethods>() else {
-		return Box::pin(ready(Ok(response)));
+	let not_allowed_method_error = NotAllowedMethodError {
+		resource_uri,
+		unsupported_method,
+		supported_methods: supported_methods.0,
 	};
 
-	match HeaderValue::from_str(implemented_methods.as_ref()) {
-		Ok(header_value) => {
-			response
-				.headers_mut()
-				.append(HeaderName::from_static("Allow"), header_value);
-		}
-		Err(error) => return Box::pin(ready(Err(AllowHeaderError::from(error).into()))),
-	}
-
-	Box::pin(ready(Ok(response)))
-}
-
-// -------------------------
-// AllowHeaderError
-
-#[derive(Debug, crate::ImplError)]
-#[error("invalid allow header '{0}'")]
-pub struct AllowHeaderError(#[from] InvalidHeaderValue);
-
-impl IntoResponse for AllowHeaderError {
-	fn into_response(self) -> Response {
-		StatusCode::INTERNAL_SERVER_ERROR.into_response()
-	}
+	Box::pin(ready(not_allowed_method_error.into_error_result()))
 }
 
 // --------------------------------------------------------------------------------
@@ -258,7 +255,7 @@ impl Handler for MistargetedRequestHandler {
 	type Future = BoxedFuture<Result<Self::Response, Self::Error>>;
 
 	fn handle(&self, _request_context: RequestContext, _args: Args) -> Self::Future {
-		Box::pin(async { Ok(StatusCode::NOT_FOUND.into_response()) }) // ???
+		Box::pin(async { Ok(StatusCode::NOT_FOUND.into_response()) })
 	}
 }
 

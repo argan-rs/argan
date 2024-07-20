@@ -19,7 +19,7 @@ use percent_encoding::percent_decode_str;
 use crate::{
 	common::{marker::Sealed, CloneWithPeerAddr, MaybeBoxed, NodeExtension, SCOPE_VALIDITY},
 	handler::{
-		request_handlers::{handle_mistargeted_request, ImplementedMethods, WildcardMethodHandler},
+		request_handlers::{handle_mistargeted_request, SupportedMethods, WildcardMethodHandler},
 		ArcHandler, Args, BoxedHandler, Handler,
 	},
 	middleware::{targets::LayerTarget, BoxedLayer, Layer},
@@ -768,21 +768,21 @@ impl Handler for ResourceRequestPasser {
 
 #[derive(Clone)]
 pub(crate) struct ResourceRequestHandler {
-	implemented_methods: ImplementedMethods,
+	supported_methods: SupportedMethods,
 	method_handlers: Vec<(Method, BoxedHandler)>,
 	wildcard_method_handler: WildcardMethodHandler,
 }
 
 impl ResourceRequestHandler {
 	pub(crate) fn new(
-		implemented_methods: ImplementedMethods,
+		supported_methods: SupportedMethods,
 		method_handlers: Vec<(Method, BoxedHandler)>,
 		wildcard_method_handler: WildcardMethodHandler,
 		middleware: &mut [LayerTarget<Resource>],
 		some_mistargeted_request_handler: Option<ArcHandler>,
 	) -> Result<MaybeBoxed<Self>, Method> {
 		let mut request_handler = Self {
-			implemented_methods,
+			supported_methods,
 			method_handlers,
 			wildcard_method_handler: if wildcard_method_handler.is_none() {
 				WildcardMethodHandler::None(some_mistargeted_request_handler)
@@ -883,7 +883,7 @@ impl Handler for ResourceRequestHandler {
 		request_context
 			.request_mut()
 			.extensions_mut()
-			.insert(self.implemented_methods.clone());
+			.insert(self.supported_methods.clone());
 
 		self.wildcard_method_handler.handle(request_context, args)
 	}

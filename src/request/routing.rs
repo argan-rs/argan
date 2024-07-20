@@ -1,8 +1,13 @@
 use std::{borrow::Cow, str::Utf8Error};
 
+use argan_core::{
+	request::Request,
+	response::{IntoResponse, Response},
+};
+use http::{HeaderName, HeaderValue, Method, StatusCode, Uri};
 use percent_encoding::percent_decode_str;
 
-use crate::{pattern::ParamsList, request::Request};
+use crate::pattern::ParamsList;
 
 // --------------------------------------------------------------------------------
 // --------------------------------------------------------------------------------
@@ -174,6 +179,43 @@ impl AsMut<Request> for UnusedRequest {
 	#[inline]
 	fn as_mut(&mut self) -> &mut Request {
 		&mut self.0
+	}
+}
+
+// --------------------------------------------------
+// NotAllowedMethodError
+
+/// Returned when the resource receives a request with an HTTP method that it doesn't support.
+///
+/// If the resource has a custom HTTP method handler and that method cannot be represented as a
+/// valid header value, then the status code of the response will be "500 Internal Server Error"
+/// when the error is converted. Otherwise, it's a "405 Method Not Allowed" response with an
+/// "Allow" header.
+#[non_exhaustive]
+#[derive(Debug, crate::ImplError)]
+#[error("not allowed method: {unsupported_method} [{resource_uri}]")]
+pub struct NotAllowedMethodError {
+	pub resource_uri: Uri,
+	pub unsupported_method: Method,
+	pub supported_methods: Box<str>,
+}
+
+impl IntoResponse for NotAllowedMethodError {
+	fn into_response(self) -> Response {
+		let mut response = StatusCode::METHOD_NOT_ALLOWED.into_response();
+
+		match HeaderValue::from_str(self.supported_methods.as_ref()) {
+			Ok(header_value) => {
+				response
+					.headers_mut()
+					.insert(HeaderName::from_static("Allow"), header_value);
+			}
+			Err(_) => {
+				*response.status_mut() = StatusCode::INTERNAL_SERVER_ERROR;
+			}
+		}
+
+		response
 	}
 }
 

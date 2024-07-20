@@ -13,7 +13,7 @@ use crate::{
 	},
 	handler::{
 		kind::HandlerKind,
-		request_handlers::{wrap_mistargeted_request_handler, ImplementedMethods, MethodHandlers},
+		request_handlers::{wrap_mistargeted_request_handler, MethodHandlers, SupportedMethods},
 		BoxedHandler,
 	},
 	middleware::targets::LayerTarget,
@@ -1403,7 +1403,7 @@ impl Resource {
 		let MethodHandlers {
 			method_handlers_list,
 			wildcard_method_handler,
-			implemented_methods,
+			supported_methods,
 		} = method_handlers;
 
 		// -------------------------
@@ -1421,7 +1421,7 @@ impl Resource {
 				None
 			} else {
 				match ResourceRequestHandler::new(
-					ImplementedMethods::new(implemented_methods),
+					SupportedMethods::new(supported_methods),
 					method_handlers_list,
 					wildcard_method_handler,
 					&mut middleware,
