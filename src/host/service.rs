@@ -6,7 +6,7 @@ use http::StatusCode;
 use hyper::service::Service;
 
 use crate::{
-	common::{marker::Sealed, CloneWithPeerAddr},
+	common::{header_utils::host_header_value, marker::Sealed, CloneWithPeerAddr},
 	handler::Args,
 	request::{
 		routing::{RouteTraversal, RoutingState},
@@ -154,7 +154,7 @@ where
 			};
 		}
 
-		let Some(host) = request.uri().host() else {
+		let Ok(host) = host_header_value(&request) else {
 			return handle_unmatching_host!();
 		};
 
