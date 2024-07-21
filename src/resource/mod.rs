@@ -1306,9 +1306,8 @@ impl Resource {
 	{
 		#![allow(unused_imports)]
 
-		let properties = properties.into_array();
-
-		for property in properties {
+		// Currently we have only one property.
+		if let Some(property) = properties.into_array().into_iter().next() {
 			use NodeProperty::*;
 
 			match property {
