@@ -1304,6 +1304,8 @@ impl Resource {
 	where
 		C: IntoArray<NodeProperty<Self>, N>,
 	{
+		#![allow(unused_imports)]
+
 		let properties = properties.into_array();
 
 		for property in properties {
