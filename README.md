@@ -26,7 +26,7 @@ Cargo.toml
 
 ```Rust
 [dependencies]
-argan = "0.0.2"
+argan = "0.1"
 hyper-util = { version = "0.1", features = ["server-auto", "tokio"] }
 serde = { version = "1", features = ["derive"] }
 tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
