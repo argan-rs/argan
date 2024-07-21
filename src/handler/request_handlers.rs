@@ -162,7 +162,7 @@ impl Handler for WildcardMethodHandler {
 	fn handle(&self, request_context: RequestContext, args: Args) -> Self::Future {
 		match self {
 			Self::Default => {
-				let (_, request, ..) = request_context.into_parts();
+				let request = request_context.into_request();
 				let (head, ..) = request.into_parts();
 
 				handle_unsupported_method(head.uri, head.method, head.extensions)
@@ -209,7 +209,7 @@ impl Handler for UnsupportedMethodHandler {
 	type Future = BoxedFuture<Result<Self::Response, Self::Error>>;
 
 	fn handle(&self, request_context: RequestContext, _args: Args) -> Self::Future {
-		let (_, request, ..) = request_context.into_parts();
+		let request = request_context.into_request();
 		let (head, ..) = request.into_parts();
 
 		handle_unsupported_method(head.uri, head.method, head.extensions)
@@ -255,7 +255,7 @@ impl Handler for MistargetedRequestHandler {
 	type Future = BoxedFuture<Result<Self::Response, Self::Error>>;
 
 	fn handle(&self, request_context: RequestContext, _args: Args) -> Self::Future {
-		let (_, request, ..) = request_context.into_parts();
+		let request = request_context.into_request();
 		let (head, _) = request.into_parts();
 
 		Box::pin(ready(
@@ -310,7 +310,7 @@ pub(crate) fn handle_mistargeted_request(
 		));
 	}
 
-	let (_, request, ..) = request_context.into_parts();
+	let request = request_context.into_request();
 	let uri = request.into_parts().0.uri;
 
 	Box::pin(ready(NotFoundResourceError::new(uri).into_error_result()))

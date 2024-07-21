@@ -329,6 +329,10 @@ impl<B> RequestContext<B> {
 		self.routing_state.subtree_handler_exists
 	}
 
+	pub(crate) fn into_request(self) -> Request<B> {
+		self.request
+	}
+
 	#[cfg(not(feature = "peer-addr"))]
 	#[inline(always)]
 	pub(crate) fn into_parts(self) -> (Request<B>, RoutingState, RequestContextProperties) {

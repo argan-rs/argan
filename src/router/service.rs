@@ -409,7 +409,7 @@ where
 			return root_resource.handle(request_context, args);
 		}
 
-		let (_, request, ..) = request_context.into_parts();
+		let request = request_context.into_request();
 		let (head, _) = request.into_parts();
 
 		Box::pin(ready(
