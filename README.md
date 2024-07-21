@@ -118,6 +118,10 @@ async fn main() -> Result<(), BoxedError> {
 }
 ```
 
+## Note
+
+Currently, Argan is not tested on Windows.
+
 ## Contributions
 
 Any contribution intentionally submitted for inclusion in Argan by you shall be dual licensed

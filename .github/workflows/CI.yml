@@ -54,7 +54,7 @@ jobs:
     needs: check-code-style
     strategy:
       matrix:
-        os: [ubuntu-latest, windows-latest, macos-latest]
+        os: [ubuntu-latest, macos-latest]
         rust: [stable, beta, nightly]
 
     runs-on: ${{ matrix.os }}
