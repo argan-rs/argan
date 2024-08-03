@@ -26,7 +26,7 @@ unsafe_code = "forbid"
 
 [package]
 name = "argan"
-version = "0.1.0"
+version = "0.1.1"
 description = "A web framework for Rust."
 authors = ["Shohruh Adham"]
 license.workspace = true
