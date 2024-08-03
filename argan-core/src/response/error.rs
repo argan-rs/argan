@@ -94,7 +94,7 @@ impl IntoResponse for ResponseError {
 // --------------------------------------------------
 // ErrorResponse
 
-/// Blankedly implemented by error types that can be converted into the [`Response`] type.
+/// Blanketly implemented by error types that can be converted into the [`Response`] type.
 pub trait ErrorResponse: StdError + IntoResponse + 'static {
 	#[doc(hidden)]
 	fn concrete_type_id(&self, _: marker::Private) -> TypeId {

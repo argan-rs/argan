@@ -473,7 +473,7 @@ where
 
 // --------------------------------------------------
 
-// The `IntoLayer` trait is blankedly implemented for functions that take a handler
+// The `IntoLayer` trait is blanketly implemented for functions that take a handler
 // and return a handler.
 
 fn layer_a<H>(handler: H) -> Middleware<H> {
