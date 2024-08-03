@@ -326,7 +326,7 @@ impl Resource {
 	/// ```
 	///
 	/// - if the current resource's URI doesn't match the host and/or prefix path segments
-	/// of the given resource
+	///   of the given resource
 	///
 	/// ```should_panic
 	/// use argan::Resource;
@@ -340,7 +340,7 @@ impl Resource {
 	/// ```
 	///
 	/// - if the resource or one of its subresources has a duplicate in the current resources's
-	/// subtree and both of them have some handler set or a middleware applied
+	///   subtree and both of them have some handler set or a middleware applied
 	///
 	/// ```should_panic
 	/// use argan::{Resource, handler::HandlerSetter, http::Method};
@@ -768,7 +768,7 @@ impl Resource {
 	/// # Panics
 	///
 	/// - if the new resource's URI components don't match the current resource's URI components
-	/// and/or the given releative path pattern, respectively
+	///   and/or the given releative path pattern, respectively
 	///
 	/// ```should_panic
 	/// use argan::Resource;

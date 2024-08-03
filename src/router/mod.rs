@@ -99,8 +99,8 @@ impl Router {
 	/// # Panics
 	///
 	/// - if a new host has a duplicate among the existing hosts and both of them have some
-	/// resource with the same path and both of those resources have some handler set or
-	/// a middleware applied
+	///   resource with the same path and both of those resources have some handler set or
+	///   a middleware applied
 	///
 	/// ```should_panic
 	/// use argan::{Router, Host, Resource, handler::HandlerSetter, http::Method};
@@ -166,7 +166,7 @@ impl Router {
 	/// # Panics
 	///
 	/// - if the resource or one of its subresources has a duplicate in the existing parent's
-	/// subtree and both of them have some handler set or a middleware applied
+	///   subtree and both of them have some handler set or a middleware applied
 	///
 	/// ```should_panic
 	/// use argan::{Router, Resource, handler::HandlerSetter, http::Method};
