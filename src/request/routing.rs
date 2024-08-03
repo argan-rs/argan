@@ -1,7 +1,7 @@
 use std::{borrow::Cow, str::Utf8Error};
 
 use argan_core::response::{IntoResponse, Response};
-use http::{HeaderName, HeaderValue, Method, StatusCode, Uri};
+use http::{header::ALLOW, HeaderValue, Method, StatusCode, Uri};
 use percent_encoding::percent_decode_str;
 
 use crate::pattern::ParamsList;
@@ -164,9 +164,7 @@ impl IntoResponse for NotAllowedMethodError {
 
 		match HeaderValue::from_str(self.supported_methods.as_ref()) {
 			Ok(header_value) => {
-				response
-					.headers_mut()
-					.insert(HeaderName::from_static("Allow"), header_value);
+				response.headers_mut().insert(ALLOW, header_value);
 			}
 			Err(_) => {
 				*response.status_mut() = StatusCode::INTERNAL_SERVER_ERROR;
