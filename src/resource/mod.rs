@@ -1322,7 +1322,7 @@ impl Resource {
 
 	/// Calls the given function for each subresource with a mutable reference to the `param`.
 	///
-	/// The function goes through the subresources in a breadth-first manner. If the function
+	/// The method goes through the subresources in a depth-first manner. If the function
 	/// returns `Iteration::Skip` for any resource it's called for, that resource's subresources
 	/// will be skipped. If the function retuns `Iteration::Stop` or all the subresources have
 	/// been processed, the parameter is returned in its final state.
@@ -1331,11 +1331,11 @@ impl Resource {
 		F: FnMut(&mut T, &mut Resource) -> Iteration,
 	{
 		let mut subresources = Vec::new();
-		subresources.extend(self.static_resources.iter_mut());
-		subresources.extend(self.regex_resources.iter_mut());
 		if let Some(resource) = self.some_wildcard_resource.as_deref_mut() {
 			subresources.push(resource);
 		}
+		subresources.extend(self.regex_resources.iter_mut());
+		subresources.extend(self.static_resources.iter_mut());
 
 		loop {
 			let Some(subresource) = subresources.pop() else {
@@ -1348,11 +1348,11 @@ impl Resource {
 				_ => {}
 			}
 
-			subresources.extend(subresource.static_resources.iter_mut());
-			subresources.extend(subresource.regex_resources.iter_mut());
 			if let Some(resource) = subresource.some_wildcard_resource.as_deref_mut() {
 				subresources.push(resource);
 			}
+			subresources.extend(subresource.regex_resources.iter_mut());
+			subresources.extend(subresource.static_resources.iter_mut());
 		}
 	}
 

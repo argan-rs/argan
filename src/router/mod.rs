@@ -635,12 +635,9 @@ impl Router {
 		F: FnMut(&mut T, &mut Resource) -> Iteration,
 	{
 		let mut root_resources = Vec::new();
-		root_resources.extend(
-			self
-				.static_hosts
-				.iter_mut()
-				.map(|static_host| static_host.root_mut()),
-		);
+		if let Some(root) = self.some_root_resource.as_deref_mut() {
+			root_resources.push(root);
+		}
 
 		root_resources.extend(
 			self
@@ -649,9 +646,12 @@ impl Router {
 				.map(|regex_host| regex_host.root_mut()),
 		);
 
-		if let Some(root) = self.some_root_resource.as_deref_mut() {
-			root_resources.push(root);
-		}
+		root_resources.extend(
+			self
+				.static_hosts
+				.iter_mut()
+				.map(|static_host| static_host.root_mut()),
+		);
 
 		loop {
 			let Some(root) = root_resources.pop() else {
